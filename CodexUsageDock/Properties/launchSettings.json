@@ -1,0 +1,11 @@
+{
+  "profiles": {
+    "CodexUsageDock (Package)": {
+      "commandName": "MsixPackage",
+      "doNotLaunchApp": true
+    },
+    "CodexUsageDock (Unpackaged)": {
+      "commandName": "Project"
+    }
+  }
+}

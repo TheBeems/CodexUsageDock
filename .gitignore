@@ -1,0 +1,18 @@
+[Bb]in/
+[Oo]bj/
+.vs/
+*.user
+*.suo
+*.appx
+*.appxbundle
+*.appxupload
+*.msix
+*.msixbundle
+AppPackages/
+BundleArtifacts/
+TestResults/
+Generated Files/
+*.pfx
+*.cer
+*.pvk
+
