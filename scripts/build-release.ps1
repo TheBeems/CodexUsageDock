@@ -8,9 +8,7 @@ param(
     [string[]]$Platforms = @('x64', 'arm64'),
 
     [ValidateSet('Debug', 'Release')]
-    [string]$Configuration = 'Release',
-
-    [string]$InnoSetupPath
+    [string]$Configuration = 'Release'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -18,86 +16,76 @@ Set-StrictMode -Version Latest
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $project = Join-Path $repoRoot 'CodexUsageDock\CodexUsageDock.csproj'
-$issFile = Join-Path $repoRoot 'installer\CodexUsageDock.iss'
-$artifacts = Join-Path $repoRoot 'artifacts'
-$publishRoot = Join-Path $artifacts 'publish'
-$installerRoot = Join-Path $artifacts 'installers'
+$manifest = Join-Path $repoRoot 'CodexUsageDock\Package.appxmanifest'
+$artifacts = Join-Path $repoRoot 'artifacts\store'
+$originalManifest = Get-Content -LiteralPath $manifest -Raw
+$versionParts = @($Version.Split('.'))
+while ($versionParts.Count -lt 4) { $versionParts += '0' }
+$msixVersion = $versionParts[0..3] -join '.'
 
-if (-not $InnoSetupPath) {
-    $candidates = @(
-        (Join-Path $env:LOCALAPPDATA 'Programs\Inno Setup 6\ISCC.exe'),
-        (Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6\ISCC.exe'),
-        (Join-Path $env:ProgramFiles 'Inno Setup 6\ISCC.exe')
-    )
-    $InnoSetupPath = $candidates | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
+New-Item -ItemType Directory -Force -Path $artifacts | Out-Null
+Get-ChildItem -LiteralPath $artifacts -Filter 'CodexUsageDock-*.msix' -ErrorAction SilentlyContinue | Remove-Item -Force
+
+& dotnet restore $project
+if ($LASTEXITCODE -ne 0) { throw 'dotnet restore failed.' }
+
+# Current MSIX BuildTools omit a runtime dependency used by their .NET MSBuild task.
+$nugetRoot = if ($env:NUGET_PACKAGES) { $env:NUGET_PACKAGES } else { Join-Path $env:USERPROFILE '.nuget\packages' }
+$permissionsDll = Join-Path $nugetRoot 'system.security.permissions\8.0.0\lib\net6.0\System.Security.Permissions.dll'
+$msixToolsDir = Join-Path $nugetRoot 'microsoft.windows.sdk.buildtools.msix\1.7.260610101\tools\net6.0'
+if (-not (Test-Path -LiteralPath $permissionsDll) -or -not (Test-Path -LiteralPath $msixToolsDir)) {
+    throw 'Required MSIX build task dependencies were not restored.'
 }
+Copy-Item -LiteralPath $permissionsDll -Destination $msixToolsDir -Force
 
-if (-not $InnoSetupPath -or -not (Test-Path -LiteralPath $InnoSetupPath)) {
-    throw 'Inno Setup 6 was not found. Install it with: winget install JRSoftware.InnoSetup'
-}
+try {
+    $identityVersionPattern = [regex]::new('(<Identity\b[\s\S]*?\bVersion=")[^"]+("\s*/>)', [Text.RegularExpressions.RegexOptions]::IgnoreCase)
+    $updatedManifest = $identityVersionPattern.Replace($originalManifest, "`${1}$msixVersion`${2}", 1)
+    [IO.File]::WriteAllText($manifest, $updatedManifest, [Text.UTF8Encoding]::new($false))
 
-New-Item -ItemType Directory -Force -Path $publishRoot, $installerRoot | Out-Null
+    foreach ($platform in $Platforms) {
+        $msbuildPlatform = if ($platform -eq 'arm64') { 'ARM64' } else { 'x64' }
+        $runtime = "win-$platform"
+        $packageDir = Join-Path $artifacts "$platform-package"
+        if (Test-Path -LiteralPath $packageDir) {
+            Remove-Item -LiteralPath $packageDir -Recurse -Force
+        }
 
-foreach ($platform in $Platforms) {
-    $runtime = "win-$platform"
-    $publishDir = Join-Path $publishRoot $runtime
-    $buildRoot = Join-Path $artifacts "build\$runtime"
+        Write-Host "Building unsigned Store MSIX for $platform..." -ForegroundColor Cyan
+        & dotnet publish $project `
+            --configuration $Configuration `
+            --runtime $runtime `
+            --self-contained true `
+            -p:Platform=$msbuildPlatform `
+            -p:GenerateAppxPackageOnBuild=true `
+            -p:AppxBundle=Never `
+            -p:AppxPackageSigningEnabled=false `
+            -p:PackageCertificateThumbprint= `
+            -p:AppxPackageDir="$packageDir\" `
+            -p:PublishTrimmed=false `
+            -p:Version=$Version `
+            -p:InformationalVersion=$Version
 
-    if (Test-Path -LiteralPath $publishDir) {
-        Remove-Item -LiteralPath $publishDir -Recurse -Force
-    }
+        if ($LASTEXITCODE -ne 0) {
+            throw "Store package build failed for $platform with exit code $LASTEXITCODE."
+        }
 
-    Write-Host "Publishing $runtime..." -ForegroundColor Cyan
-    & dotnet publish $project `
-        --configuration $Configuration `
-        --runtime $runtime `
-        --self-contained true `
-        --output $publishDir `
-        -p:Platform=$platform `
-        -p:DistributionMode=Installer `
-        -p:BaseOutputPath="$(Join-Path $buildRoot 'bin')\" `
-        -p:BaseIntermediateOutputPath="$(Join-Path $buildRoot 'obj')\" `
-        -p:PublishSingleFile=false `
-        -p:PublishTrimmed=false `
-        -p:Version=$Version `
-        -p:InformationalVersion=$Version
-
-    if ($LASTEXITCODE -ne 0) {
-        throw "dotnet publish failed for $runtime with exit code $LASTEXITCODE."
-    }
-
-    $publishedExe = Join-Path $publishDir 'CodexUsageDock.exe'
-    if (-not (Test-Path -LiteralPath $publishedExe)) {
-        throw "Expected executable was not produced: $publishedExe"
-    }
-
-    Write-Host "Creating $platform installer..." -ForegroundColor Cyan
-    & $InnoSetupPath `
-        "/DAppVersion=$Version" `
-        "/DPlatform=$platform" `
-        "/DSourceDir=$publishDir" `
-        "/DOutputDir=$installerRoot" `
-        $issFile
-
-    if ($LASTEXITCODE -ne 0) {
-        throw "Inno Setup failed for $platform with exit code $LASTEXITCODE."
-    }
-
-    $installer = Join-Path $installerRoot "CodexUsageDock-$Version-$platform-setup.exe"
-    if (-not (Test-Path -LiteralPath $installer)) {
-        throw "Expected installer was not produced: $installer"
+        $package = Get-ChildItem -LiteralPath $packageDir -Recurse -Filter '*.msix' | Select-Object -First 1
+        if (-not $package) {
+            throw "No MSIX package was produced for $platform."
+        }
+        Copy-Item -LiteralPath $package.FullName -Destination (Join-Path $artifacts "CodexUsageDock-$Version-$platform.msix") -Force
     }
 }
+finally {
+    [IO.File]::WriteAllText($manifest, $originalManifest, [Text.UTF8Encoding]::new($false))
+}
 
-$checksums = Get-ChildItem -LiteralPath $installerRoot -Filter "CodexUsageDock-$Version-*-setup.exe" |
+$checksums = Get-ChildItem -LiteralPath $artifacts -Filter "CodexUsageDock-$Version-*.msix" |
     Sort-Object Name |
     ForEach-Object {
         $hash = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
         "$hash  $($_.Name)"
     }
-
-$checksumFile = Join-Path $installerRoot 'SHA256SUMS.txt'
-$checksums | Set-Content -LiteralPath $checksumFile -Encoding ascii
-
-Write-Host "Release assets:" -ForegroundColor Green
-Get-ChildItem -LiteralPath $installerRoot | Select-Object Name, Length
+$checksums | Set-Content -LiteralPath (Join-Path $artifacts 'SHA256SUMS.txt') -Encoding ascii
+Get-ChildItem -LiteralPath $artifacts -File | Select-Object Name, Length

@@ -4,114 +4,39 @@
 
 - Windows 10 build 19041 or newer, or Windows 11
 - .NET 10 SDK
-- PowerToys 0.100.0 or newer with Command Palette
-- Inno Setup 6 for building release installers
+- PowerToys 0.100.0 or newer
+- Visual Studio 2022 with Windows application development tools for interactive packaging work
 
-Install Inno Setup with:
-
-```powershell
-winget install JRSoftware.InnoSetup
-```
-
-## Build the packaged development version
-
-Choose the platform that matches the development machine:
+## Build and register the development package
 
 ```powershell
-dotnet restore CodexUsageDock.sln -p:Platform=ARM64
-dotnet build CodexUsageDock.sln -c Debug -p:Platform=ARM64 --no-restore
+dotnet build .\CodexUsageDock\CodexUsageDock.csproj -c Debug -p:Platform=ARM64
+Add-AppxPackage -Register .\CodexUsageDock\bin\ARM64\Debug\net10.0-windows10.0.26100.0\win-arm64\AppxManifest.xml
 ```
 
-Use `x64` instead of `ARM64` on an Intel or AMD Windows PC.
+Use `x64` instead of `ARM64` on Intel and AMD machines.
 
-## Build release installers
-
-From the repository root:
+## Build Microsoft Store packages
 
 ```powershell
-.\scripts\build-release.ps1 -Version 0.1.0
+$version = '0.2.0'
+.\scripts\build-release.ps1 -Version $version
 ```
 
-Build only one architecture when iterating:
+The script builds self-contained unsigned x64 and ARM64 MSIX packages in `artifacts\store`. Their identity matches Microsoft Store product `9NFCPJXQG9FG`. The Microsoft Store signs the packages after certification; do not distribute the unsigned artifacts directly.
 
-```powershell
-.\scripts\build-release.ps1 -Version 0.1.0 -Platforms arm64
-```
+The **Build Store package** GitHub Actions workflow provides the same build as a manually triggered artifact. It intentionally does not publish unsigned packages to GitHub Releases.
 
-Outputs are written to `artifacts/installers`:
+## Store identity
 
-- `CodexUsageDock-<version>-x64-setup.exe`
-- `CodexUsageDock-<version>-arm64-setup.exe`
-- `SHA256SUMS.txt`
-
-The installer build uses `DistributionMode=Installer`. This produces a self-contained unpackaged executable and registers its COM LocalServer under the current user, following Microsoft's Command Palette WinGet distribution model.
-
-## Test an installer
-
-Install silently:
-
-```powershell
-.\artifacts\installers\CodexUsageDock-0.1.0-arm64-setup.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART
-```
-
-Confirm that this registry key exists:
-
-```text
-HKCU\Software\Classes\CLSID\{35b848eb-6ef7-4b5d-9f8b-49b5614abb48}\LocalServer32
-```
-
-Then reopen Command Palette and confirm that **Codex Usage** appears under **Settings > Extensions** and can be added to the Dock.
-
-Uninstall through Windows Settings or run:
-
-```powershell
-& "$env:LOCALAPPDATA\Programs\CodexUsageDock\unins000.exe" /VERYSILENT /SUPPRESSMSGBOXES /NORESTART
-```
-
-## Create a release
-
-The release workflow runs for semantic version tags beginning with `v`:
-
-```powershell
-git tag v0.1.0
-git push origin v0.1.0
-```
-
-GitHub Actions then:
-
-1. builds self-contained x64 and ARM64 installers;
-2. smoke-tests installation and uninstallation of the x64 installer on a clean Windows runner;
-3. uploads both build artifacts;
-4. generates `SHA256SUMS.txt`;
-5. creates a GitHub Release with generated release notes.
-
-The workflow can also be run manually to validate a version without publishing a GitHub Release.
-
-## WinGet publishing
-
-The initial WinGet manifests are kept in `packaging/winget`. Validate them with:
-
-```powershell
-winget validate --manifest .\packaging\winget
-```
-
-The first package version is submitted to `microsoft/winget-pkgs` manually. After that PR has been accepted, `.github/workflows/update-winget.yml` submits updates whenever a new GitHub Release is published.
-
-The update workflow requires a repository secret named `WINGET_PAT`. Use a dedicated classic GitHub token with `public_repo` access for WinGetCreate submissions. Do not reuse a broader personal token. See the [WingetCreate token guidance](https://github.com/microsoft/winget-create/blob/main/doc/token.md).
-
-Every default-locale manifest must retain this tag so Command Palette can discover the package:
-
-```yaml
-Tags:
-- windows-commandpalette-extension
-```
+- Package name: `TheBeems.CodexUsageDock`
+- Publisher: `CN=F748B633-A4F0-42F4-B6F1-B5BDCAED8E0C`
+- Publisher display name: `TheBeems`
+- Store ID: `9NFCPJXQG9FG`
 
 ## Architecture
 
-- `CodexUsageService.cs` handles app-server communication and the local-session fallback.
-- `UsageDockItem.cs` supplies Dock labels and details.
-- `CodexUsageDockCommandsProvider.cs` exposes the Command Palette provider and Dock band.
-- `installer/CodexUsageDock.iss` installs the files and registers the COM LocalServer.
-- `scripts/build-release.ps1` creates reproducible release assets.
-- `packaging/winget` contains the source manifests for the first WinGet submission.
-- `.github/workflows/update-winget.yml` automates later WinGet update PRs.
+- `CodexUsageDockProvider.cs` exposes the Command Palette provider.
+- `CodexUsageDockCommandsProvider.cs` provides commands and the Dock band.
+- `CodexUsageService.cs` reads limits from the local Codex app-server and falls back to local session metadata.
+- `Package.appxmanifest` contains the packaged COM server and Command Palette AppExtension registration.

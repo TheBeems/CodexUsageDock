@@ -18,21 +18,13 @@ The values refresh once per minute. The extension reads them from the local Code
 - Codex installed and signed in
 - `codex` available on `PATH`
 
-The release installer includes the required .NET runtime. You do not need the .NET SDK to install or use the extension.
+The Microsoft Store package includes the required .NET runtime. You do not need the .NET SDK to install or use the extension.
 
 ## Install
 
-1. Open the [latest release](https://github.com/TheBeems/CodexUsageDock/releases/latest).
-2. Download the installer for your device:
-   - `x64` for most Intel and AMD Windows PCs;
-   - `arm64` for Windows-on-ARM devices such as Snapdragon PCs.
-3. Run the downloaded installer.
-4. Reopen PowerToys Command Palette if it was running during installation.
+Install **Codex Usage Dock** from the Microsoft Store and reopen PowerToys Command Palette if it was already running. Store publication is currently being prepared under Store ID `9NFCPJXQG9FG`.
 
-The installer is per-user and does not require administrator privileges.
-
-> [!NOTE]
-> Phase-one GitHub installers are not yet code-signed. Windows SmartScreen may display an **Unknown publisher** warning. Release assets include `SHA256SUMS.txt` so you can verify the download before running it.
+The Store provides the trusted signature, architecture-specific package, and automatic updates. Installation is per-user and does not require administrator privileges.
 
 ## Add Codex Usage to the Dock
 
@@ -47,9 +39,7 @@ The Dock will show entries similar to `5h 47%`, `Week 86%`, and `Codex ✓`. The
 
 ## Update
 
-Download and run the installer from the newest GitHub Release. It replaces the previous version while retaining the same installation location and Command Palette registration.
-
-WinGet publication is under review in [microsoft/winget-pkgs#401316](https://github.com/microsoft/winget-pkgs/pull/401316). Once the initial package submission is accepted, future GitHub Releases will automatically submit WinGet updates.
+Updates are delivered automatically through the Microsoft Store. Once published, command-line installation will also be available through the Store-backed WinGet source.
 
 ## Uninstall
 
@@ -60,7 +50,7 @@ Open **Windows Settings > Apps > Installed apps**, find **Codex Usage Dock**, an
 - Confirm that `codex --version` works in a new PowerShell window.
 - Confirm that Codex is signed in.
 - Confirm that PowerToys Command Palette is enabled and running.
-- Confirm that PowerToys is version 0.100.0 or newer; earlier Command Palette versions do not discover unpackaged release installers.
+- Confirm that PowerToys is version 0.100.0 or newer.
 - If the extension does not appear, close and reopen Command Palette and check **Settings > Extensions**.
 - If usage cannot be loaded, start Codex once so local account and session metadata are available.
 
