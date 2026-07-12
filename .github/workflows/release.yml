@@ -64,16 +64,16 @@ jobs:
         run: |
           $version = "${{ steps.version.outputs.value }}"
           $installer = "artifacts/installers/CodexUsageDock-$version-x64-setup.exe"
-          & $installer /VERYSILENT /SUPPRESSMSGBOXES /NORESTART
-          if ($LASTEXITCODE -ne 0) { throw "Installer failed with exit code $LASTEXITCODE" }
+          $install = Start-Process -FilePath $installer -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART' -Wait -PassThru
+          if ($install.ExitCode -ne 0) { throw "Installer failed with exit code $($install.ExitCode)" }
 
           $installDir = Join-Path $env:LOCALAPPDATA "Programs/CodexUsageDock"
           $server = (Get-Item -LiteralPath "HKCU:\Software\Classes\CLSID\{35b848eb-6ef7-4b5d-9f8b-49b5614abb48}\LocalServer32").GetValue('')
           if (-not (Test-Path -LiteralPath (Join-Path $installDir 'CodexUsageDock.exe'))) { throw 'Installed executable is missing.' }
           if ($server -notlike '*CodexUsageDock.exe*') { throw "COM registration is invalid: $server" }
 
-          & (Join-Path $installDir 'unins000.exe') /VERYSILENT /SUPPRESSMSGBOXES /NORESTART
-          if ($LASTEXITCODE -ne 0) { throw "Uninstaller failed with exit code $LASTEXITCODE" }
+          $uninstall = Start-Process -FilePath (Join-Path $installDir 'unins000.exe') -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART' -Wait -PassThru
+          if ($uninstall.ExitCode -ne 0) { throw "Uninstaller failed with exit code $($uninstall.ExitCode)" }
           if (Test-Path -LiteralPath "HKCU:\Software\Classes\CLSID\{35b848eb-6ef7-4b5d-9f8b-49b5614abb48}") { throw 'COM registration remained after uninstall.' }
 
       - name: Upload installer
