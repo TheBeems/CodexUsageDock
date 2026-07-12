@@ -58,6 +58,8 @@ Open **Windows Settings > Apps > Installed apps**, find **Codex Usage Dock**, an
 
 The extension runs locally. It talks to the locally installed Codex app-server and may read local Codex session metadata for its fallback path. It does not send usage information to a separate service.
 
+See the full [Privacy Policy](PRIVACY.md).
+
 ## Development
 
 Build, test, packaging, and release instructions are in [DEVELOPMENT.md](DEVELOPMENT.md).
