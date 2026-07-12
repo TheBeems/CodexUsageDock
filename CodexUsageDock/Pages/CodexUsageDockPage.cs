@@ -1,9 +1,10 @@
+using System.Globalization;
 using Microsoft.CommandPalette.Extensions;
 using Microsoft.CommandPalette.Extensions.Toolkit;
 
 namespace CodexUsageDock;
 
-internal sealed partial class CodexUsageDockPage : ListPage, IDisposable
+internal sealed partial class CodexUsageDockPage : ContentPage, IDisposable
 {
     private readonly CodexUsageService _usage;
 
@@ -15,55 +16,47 @@ internal sealed partial class CodexUsageDockPage : ListPage, IDisposable
         Icon = new IconInfo("\uE943");
         Title = "Codex Usage";
         Name = "Open";
-        ShowDetails = true;
-    }
-
-    public override IListItem[] GetItems()
-    {
-        var snapshot = _usage.Current;
-        return
+        Commands =
         [
-            CreateWindowItem("5 uur", snapshot.Primary),
-            CreateWindowItem("Week", snapshot.Secondary),
-            new ListItem(new NoOpCommand())
-            {
-                Title = $"Abonnement: {snapshot.PlanType ?? "onbekend"}",
-                Subtitle = snapshot.Credits is null ? "Geen creditinformatie beschikbaar" : $"Credits: {snapshot.Credits}",
-                Icon = new IconInfo("\uE77B"),
-            },
-            new ListItem(new NoOpCommand())
-            {
-                Title = snapshot.ActiveThreads is null ? "Actieve taken: onbekend" : $"Actieve taken: {snapshot.ActiveThreads}",
-                Subtitle = $"Bron: {snapshot.Source} · bijgewerkt {snapshot.UpdatedAt.ToLocalTime():HH:mm:ss}",
-                Icon = new IconInfo("\uE9D9"),
-            },
-            new ListItem(new RefreshUsageCommand(_usage))
+            new CommandContextItem(new RefreshUsageCommand(_usage))
             {
                 Title = "Nu vernieuwen",
-                Subtitle = snapshot.Error,
-                Icon = new IconInfo("\uE72C"),
             },
         ];
     }
 
-    private static ListItem CreateWindowItem(string name, RateLimitWindow? window)
+    public override IContent[] GetContent()
+    {
+        var snapshot = _usage.Current;
+        return
+        [
+            new MarkdownContent($"""
+                # Codex Usage
+
+                {FormatWindow("5 uur", snapshot.Primary)}
+                {FormatWindow("Week", snapshot.Secondary)}
+
+                - **Abonnement:** {snapshot.PlanType ?? "onbekend"}
+                - **Credits:** {snapshot.Credits ?? "niet beschikbaar"}
+                - **Actieve taken:** {snapshot.ActiveThreads?.ToString(CultureInfo.CurrentCulture) ?? "onbekend"}
+                - **Bijgewerkt:** {snapshot.UpdatedAt.ToLocalTime():HH:mm:ss}
+
+                _Bron: {snapshot.Source}{FormatError(snapshot.Error)}_
+                """),
+        ];
+    }
+
+    private static string FormatWindow(string name, RateLimitWindow? window)
     {
         if (window is null)
         {
-            return new ListItem(new NoOpCommand())
-            {
-                Title = $"{name}: niet beschikbaar",
-                Icon = new IconInfo("\uE783"),
-            };
+            return $"- **{name}:** niet beschikbaar";
         }
 
-        return new ListItem(new NoOpCommand())
-        {
-            Title = $"{name}: {window.RemainingPercent:0}% beschikbaar",
-            Subtitle = $"{window.UsedPercent:0}% gebruikt · reset {window.ResetsAt.ToLocalTime():ddd d MMM HH:mm}",
-            Icon = new IconInfo("\uE916"),
-        };
+        return $"- **{name}:** {window.RemainingPercent:0}% beschikbaar — {window.UsedPercent:0}% gebruikt · reset {window.ResetsAt.ToLocalTime():ddd d MMM HH:mm}";
     }
+
+    private static string FormatError(string? error) => error is null ? string.Empty : $"  \n⚠ {error}";
 
     private void OnUpdated(object? sender, EventArgs e) => RaiseItemsChanged(0);
 
