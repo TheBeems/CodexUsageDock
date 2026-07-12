@@ -193,7 +193,13 @@ internal sealed partial class CodexUsageDockPage : ContentPage, IDisposable
         var freshness = age < TimeSpan.FromMinutes(2)
             ? $"zojuist bijgewerkt om {snapshot.UpdatedAt.ToLocalTime():HH:mm}"
             : $"mogelijk verouderd · {FormatRelativeAge(age)} geleden bijgewerkt";
-        var mode = snapshot.Source == "Codex app-server" ? "Live" : "Lokale reservegegevens";
+        var mode = snapshot.Source switch
+        {
+            "Codex app-server" => "Live",
+            "lokale Codex-sessie" => "Lokale reservegegevens",
+            "initialiseren" => "Gegevens worden geladen",
+            _ => "Gegevens niet beschikbaar",
+        };
         return $"{mode} · {freshness}";
     }
 

@@ -145,4 +145,35 @@ public sealed class UsageDataTests
         Assert.Contains("Lokale reservegegevens", status, StringComparison.Ordinal);
         Assert.Contains("18 minuten", status, StringComparison.Ordinal);
     }
+
+    [Fact]
+    public void DataStatus_IdentifiesLoadingWithoutClaimingFallbackData()
+    {
+        var now = DateTimeOffset.Now;
+
+        var status = CodexUsageDockPage.FormatDataStatus(CodexUsageSnapshot.Loading, now);
+
+        Assert.Contains("Gegevens worden geladen", status, StringComparison.Ordinal);
+        Assert.DoesNotContain("Lokale reservegegevens", status, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void History_DeduplicatesAndPrunesStaleFallbackSamples()
+    {
+        using var service = new CodexUsageService();
+        var now = new DateTimeOffset(2026, 7, 12, 14, 30, 0, TimeSpan.Zero);
+        var staleSnapshot = CodexUsageSnapshot.Loading with
+        {
+            Primary = new RateLimitWindow(40, 300, now.AddHours(1)),
+            UpdatedAt = now.AddHours(-6),
+            Source = "lokale Codex-sessie",
+        };
+
+        service.RecordHistory(staleSnapshot, now.AddHours(-5));
+        service.RecordHistory(staleSnapshot, now.AddHours(-5).AddMinutes(1));
+        Assert.Single(service.PrimaryHistory);
+
+        service.RecordHistory(staleSnapshot, now);
+        Assert.Empty(service.PrimaryHistory);
+    }
 }

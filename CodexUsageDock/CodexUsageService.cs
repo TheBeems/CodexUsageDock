@@ -97,7 +97,7 @@ internal sealed class CodexUsageService : IDisposable
         }
     }
 
-    private void RecordHistory(CodexUsageSnapshot snapshot)
+    internal void RecordHistory(CodexUsageSnapshot snapshot, DateTimeOffset? recordedAt = null)
     {
         if (snapshot.Primary is null)
         {
@@ -106,9 +106,22 @@ internal sealed class CodexUsageService : IDisposable
 
         lock (_historyLock)
         {
-            _primaryHistory.Add(new UsageHistoryEntry(snapshot.UpdatedAt, snapshot.Primary.RemainingPercent));
-            var cutoff = snapshot.UpdatedAt - TimeSpan.FromHours(5);
+            var now = recordedAt ?? DateTimeOffset.Now;
+            var cutoff = now - TimeSpan.FromHours(5);
             _primaryHistory.RemoveAll(entry => entry.RecordedAt < cutoff);
+            if (snapshot.UpdatedAt < cutoff)
+            {
+                return;
+            }
+
+            if (_primaryHistory.Count > 0
+                && _primaryHistory[^1].RecordedAt == snapshot.UpdatedAt
+                && _primaryHistory[^1].RemainingPercent == snapshot.Primary.RemainingPercent)
+            {
+                return;
+            }
+
+            _primaryHistory.Add(new UsageHistoryEntry(snapshot.UpdatedAt, snapshot.Primary.RemainingPercent));
         }
     }
 
