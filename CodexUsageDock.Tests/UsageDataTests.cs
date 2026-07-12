@@ -83,4 +83,178 @@ public sealed class UsageDataTests
         Assert.Contains("Full reset", text, StringComparison.Ordinal);
         Assert.Contains("Voor 1 reset(s)", text, StringComparison.Ordinal);
     }
+
+    [Fact]
+    public void DashboardSummary_WarnsWhenPrimaryLimitIsLow()
+    {
+        var now = new DateTimeOffset(2026, 7, 12, 14, 0, 0, TimeSpan.Zero);
+        var snapshot = new CodexUsageSnapshot(
+            new RateLimitWindow(92, 300, now.AddMinutes(36)),
+            new RateLimitWindow(14, 10080, now.AddDays(2)),
+            "pro",
+            null,
+            null,
+            now,
+            "Codex app-server",
+            null);
+
+        var summary = CodexUsageDockPage.FormatSummary(snapshot, now);
+
+        Assert.Contains("Bijna aan je limiet", summary, StringComparison.Ordinal);
+        Assert.Contains("8% beschikbaar", summary, StringComparison.Ordinal);
+        Assert.Contains("over 36 minuten", summary, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(100, "██████████")]
+    [InlineData(47, "█████░░░░░")]
+    [InlineData(0, "░░░░░░░░░░")]
+    public void ProgressBar_RendersTenSegments(double remaining, string expected)
+    {
+        Assert.Equal(expected, CodexUsageDockPage.ProgressBar(remaining));
+    }
+
+    [Fact]
+    public void Trend_EstimatesLimitTimeFromObservedConsumption()
+    {
+        var now = new DateTimeOffset(2026, 7, 12, 14, 30, 0, TimeSpan.Zero);
+        UsageHistoryEntry[] history =
+        [
+            new(now.AddMinutes(-30), 80),
+            new(now, 60),
+        ];
+
+        var trend = CodexUsageDockPage.FormatTrend(history, now);
+
+        Assert.Contains("80% → 60%", trend, StringComparison.Ordinal);
+        Assert.Contains($"limiet rond {now.AddMinutes(90).ToLocalTime():HH:mm}", trend, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Trend_UsesOnlySamplesAfterLatestQuotaIncrease()
+    {
+        var now = new DateTimeOffset(2026, 7, 12, 14, 30, 0, TimeSpan.Zero);
+        UsageHistoryEntry[] history =
+        [
+            new(now.AddMinutes(-90), 10),
+            new(now.AddMinutes(-60), 5),
+            new(now.AddMinutes(-30), 100),
+            new(now, 80),
+        ];
+
+        var trend = CodexUsageDockPage.FormatTrend(history, now);
+
+        Assert.Contains("100% → 80%", trend, StringComparison.Ordinal);
+        Assert.DoesNotContain("10%", trend, StringComparison.Ordinal);
+        Assert.Contains($"limiet rond {now.AddHours(2).ToLocalTime():HH:mm}", trend, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Trend_SuppressesEstimateWhenLatestSampleIsStale()
+    {
+        var now = new DateTimeOffset(2026, 7, 12, 14, 30, 0, TimeSpan.Zero);
+        UsageHistoryEntry[] history =
+        [
+            new(now.AddMinutes(-90), 80),
+            new(now.AddMinutes(-60), 60),
+        ];
+
+        var trend = CodexUsageDockPage.FormatTrend(history, now);
+
+        Assert.Contains("te oud voor een betrouwbare schatting", trend, StringComparison.Ordinal);
+        Assert.DoesNotContain("limiet rond", trend, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void DataStatus_IdentifiesStaleFallbackData()
+    {
+        var now = new DateTimeOffset(2026, 7, 12, 14, 30, 0, TimeSpan.Zero);
+        var snapshot = CodexUsageSnapshot.Loading with
+        {
+            UpdatedAt = now.AddMinutes(-18),
+            Source = "lokale Codex-sessie",
+        };
+
+        var status = CodexUsageDockPage.FormatDataStatus(snapshot, now);
+
+        Assert.Contains("Lokale reservegegevens", status, StringComparison.Ordinal);
+        Assert.Contains("18 minuten", status, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void DataStatus_IdentifiesLoadingWithoutClaimingFallbackData()
+    {
+        var now = DateTimeOffset.Now;
+
+        var status = CodexUsageDockPage.FormatDataStatus(CodexUsageSnapshot.Loading, now);
+
+        Assert.Contains("Gegevens worden geladen", status, StringComparison.Ordinal);
+        Assert.DoesNotContain("Lokale reservegegevens", status, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void History_DeduplicatesAndPrunesStaleFallbackSamples()
+    {
+        using var service = new CodexUsageService();
+        var now = new DateTimeOffset(2026, 7, 12, 14, 30, 0, TimeSpan.Zero);
+        var staleSnapshot = CodexUsageSnapshot.Loading with
+        {
+            Primary = new RateLimitWindow(40, 300, now.AddHours(1)),
+            UpdatedAt = now.AddHours(-6),
+            Source = "lokale Codex-sessie",
+        };
+
+        service.RecordHistory(staleSnapshot, now.AddHours(-5));
+        service.RecordHistory(staleSnapshot, now.AddHours(-5).AddMinutes(1));
+        Assert.Single(service.PrimaryHistory);
+
+        service.RecordHistory(staleSnapshot, now);
+        Assert.Empty(service.PrimaryHistory);
+    }
+
+    [Fact]
+    public void History_RejectsFallbackSamplesOlderThanLatestLiveSample()
+    {
+        using var service = new CodexUsageService();
+        var now = new DateTimeOffset(2026, 7, 12, 14, 30, 0, TimeSpan.Zero);
+        var liveSnapshot = CodexUsageSnapshot.Loading with
+        {
+            Primary = new RateLimitWindow(35, 300, now.AddHours(1)),
+            UpdatedAt = now,
+            Source = "Codex app-server",
+        };
+        var olderFallback = liveSnapshot with
+        {
+            Primary = new RateLimitWindow(40, 300, now.AddHours(1)),
+            UpdatedAt = now.AddMinutes(-30),
+            Source = "lokale Codex-sessie",
+        };
+
+        service.RecordHistory(liveSnapshot, now);
+        service.RecordHistory(olderFallback, now);
+
+        var entry = Assert.Single(service.PrimaryHistory);
+        Assert.Equal(now, entry.RecordedAt);
+        Assert.Equal(65, entry.RemainingPercent);
+    }
+
+    [Fact]
+    public void History_PrunesExpiredSamplesWhenPrimaryDataIsUnavailable()
+    {
+        using var service = new CodexUsageService();
+        var now = new DateTimeOffset(2026, 7, 12, 14, 30, 0, TimeSpan.Zero);
+        var liveSnapshot = CodexUsageSnapshot.Loading with
+        {
+            Primary = new RateLimitWindow(35, 300, now.AddHours(-5)),
+            UpdatedAt = now.AddHours(-6),
+            Source = "Codex app-server",
+        };
+
+        service.RecordHistory(liveSnapshot, now.AddHours(-5));
+        Assert.Single(service.PrimaryHistory);
+
+        service.RecordHistory(CodexUsageSnapshot.Loading, now);
+
+        Assert.Empty(service.PrimaryHistory);
+    }
 }
