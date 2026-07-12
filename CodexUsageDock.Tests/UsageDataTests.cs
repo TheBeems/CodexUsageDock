@@ -237,4 +237,24 @@ public sealed class UsageDataTests
         Assert.Equal(now, entry.RecordedAt);
         Assert.Equal(65, entry.RemainingPercent);
     }
+
+    [Fact]
+    public void History_PrunesExpiredSamplesWhenPrimaryDataIsUnavailable()
+    {
+        using var service = new CodexUsageService();
+        var now = new DateTimeOffset(2026, 7, 12, 14, 30, 0, TimeSpan.Zero);
+        var liveSnapshot = CodexUsageSnapshot.Loading with
+        {
+            Primary = new RateLimitWindow(35, 300, now.AddHours(-5)),
+            UpdatedAt = now.AddHours(-6),
+            Source = "Codex app-server",
+        };
+
+        service.RecordHistory(liveSnapshot, now.AddHours(-5));
+        Assert.Single(service.PrimaryHistory);
+
+        service.RecordHistory(CodexUsageSnapshot.Loading, now);
+
+        Assert.Empty(service.PrimaryHistory);
+    }
 }

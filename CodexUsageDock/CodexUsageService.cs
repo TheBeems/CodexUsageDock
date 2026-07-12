@@ -99,17 +99,12 @@ internal sealed class CodexUsageService : IDisposable
 
     internal void RecordHistory(CodexUsageSnapshot snapshot, DateTimeOffset? recordedAt = null)
     {
-        if (snapshot.Primary is null)
-        {
-            return;
-        }
-
         lock (_historyLock)
         {
             var now = recordedAt ?? DateTimeOffset.Now;
             var cutoff = now - TimeSpan.FromHours(5);
             _primaryHistory.RemoveAll(entry => entry.RecordedAt < cutoff);
-            if (snapshot.UpdatedAt < cutoff)
+            if (snapshot.Primary is null || snapshot.UpdatedAt < cutoff)
             {
                 return;
             }
