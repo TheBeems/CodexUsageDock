@@ -97,7 +97,7 @@ winget validate --manifest .\packaging\winget
 
 The first package version is submitted to `microsoft/winget-pkgs` manually. After that PR has been accepted, `.github/workflows/update-winget.yml` submits updates whenever a new GitHub Release is published.
 
-The update workflow requires a repository secret named `WINGET_PAT`. Use a dedicated fine-grained GitHub token with only the access required to create branches and pull requests in the `TheBeems/winget-pkgs` fork. Do not reuse a broad personal token.
+The update workflow requires a repository secret named `WINGET_PAT`. Use a dedicated classic GitHub token with `public_repo` access for WinGetCreate submissions. Do not reuse a broader personal token. See the [WingetCreate token guidance](https://github.com/microsoft/winget-create/blob/main/doc/token.md).
 
 Every default-locale manifest must retain this tag so Command Palette can discover the package:
 

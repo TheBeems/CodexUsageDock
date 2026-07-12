@@ -50,7 +50,7 @@ jobs:
         shell: pwsh
         run: |
           if ([string]::IsNullOrWhiteSpace($env:WINGET_PAT)) {
-            throw 'Repository secret WINGET_PAT is required. Use a fine-grained token that can create branches and pull requests in the TheBeems/winget-pkgs fork.'
+            throw 'Repository secret WINGET_PAT is required. Use a dedicated classic GitHub PAT with public_repo access for WinGetCreate submissions.'
           }
 
       - name: Download WingetCreate
