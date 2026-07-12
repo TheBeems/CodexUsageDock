@@ -16,7 +16,7 @@
        Publisher= to match your own identity -->
 
   <Properties>
-    <DisplayName>Codex Usage</DisplayName>
+    <DisplayName>Codex Usage Dock</DisplayName>
     <PublisherDisplayName>TheBeems</PublisherDisplayName>
     <Logo>Assets\StoreLogo.png</Logo>
   </Properties>
