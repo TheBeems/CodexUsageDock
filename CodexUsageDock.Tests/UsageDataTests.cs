@@ -131,6 +131,41 @@ public sealed class UsageDataTests
     }
 
     [Fact]
+    public void Trend_UsesOnlySamplesAfterLatestQuotaIncrease()
+    {
+        var now = new DateTimeOffset(2026, 7, 12, 14, 30, 0, TimeSpan.Zero);
+        UsageHistoryEntry[] history =
+        [
+            new(now.AddMinutes(-90), 10),
+            new(now.AddMinutes(-60), 5),
+            new(now.AddMinutes(-30), 100),
+            new(now, 80),
+        ];
+
+        var trend = CodexUsageDockPage.FormatTrend(history, now);
+
+        Assert.Contains("100% → 80%", trend, StringComparison.Ordinal);
+        Assert.DoesNotContain("10%", trend, StringComparison.Ordinal);
+        Assert.Contains($"limiet rond {now.AddHours(2).ToLocalTime():HH:mm}", trend, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Trend_SuppressesEstimateWhenLatestSampleIsStale()
+    {
+        var now = new DateTimeOffset(2026, 7, 12, 14, 30, 0, TimeSpan.Zero);
+        UsageHistoryEntry[] history =
+        [
+            new(now.AddMinutes(-90), 80),
+            new(now.AddMinutes(-60), 60),
+        ];
+
+        var trend = CodexUsageDockPage.FormatTrend(history, now);
+
+        Assert.Contains("te oud voor een betrouwbare schatting", trend, StringComparison.Ordinal);
+        Assert.DoesNotContain("limiet rond", trend, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void DataStatus_IdentifiesStaleFallbackData()
     {
         var now = new DateTimeOffset(2026, 7, 12, 14, 30, 0, TimeSpan.Zero);

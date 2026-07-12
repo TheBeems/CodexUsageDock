@@ -158,15 +158,25 @@ internal sealed partial class CodexUsageDockPage : ContentPage, IDisposable
 
     internal static string FormatTrend(IReadOnlyList<UsageHistoryEntry> history, DateTimeOffset now)
     {
-        if (history.Count < 2)
+        var segmentStart = 0;
+        for (var index = 1; index < history.Count; index++)
+        {
+            if (history[index].RemainingPercent > history[index - 1].RemainingPercent)
+            {
+                segmentStart = index;
+            }
+        }
+
+        var currentWindow = history.Skip(segmentStart).ToArray();
+        if (currentWindow.Length < 2)
         {
             return "## Gebruikstrend\n\nNog onvoldoende historie voor een schatting.";
         }
 
-        var samples = history.Count <= 5 ? history : history.Where((_, index) => index % Math.Max(1, history.Count / 4) == 0).Take(4).Append(history[^1]).ToArray();
+        var samples = currentWindow.Length <= 5 ? currentWindow : currentWindow.Where((_, index) => index % Math.Max(1, currentWindow.Length / 4) == 0).Take(4).Append(currentWindow[^1]).ToArray();
         var values = string.Join(" → ", samples.Select(sample => $"{sample.RemainingPercent:0}%"));
-        var first = history[0];
-        var last = history[^1];
+        var first = currentWindow[0];
+        var last = currentWindow[^1];
         var elapsedMinutes = (last.RecordedAt - first.RecordedAt).TotalMinutes;
         var consumed = first.RemainingPercent - last.RemainingPercent;
         if (elapsedMinutes < 2 || consumed <= 0.5)
@@ -174,8 +184,13 @@ internal sealed partial class CodexUsageDockPage : ContentPage, IDisposable
             return $"## Gebruikstrend\n\n{values}  \nNog onvoldoende verandering voor een betrouwbare schatting.";
         }
 
+        if (now - last.RecordedAt > TimeSpan.FromMinutes(5))
+        {
+            return $"## Gebruikstrend\n\n{values}  \nDe nieuwste meting is te oud voor een betrouwbare schatting.";
+        }
+
         var minutesToEmpty = last.RemainingPercent / (consumed / elapsedMinutes);
-        var estimated = now.AddMinutes(minutesToEmpty);
+        var estimated = last.RecordedAt.AddMinutes(minutesToEmpty);
         return $"## Gebruikstrend\n\n{values}  \n*Schatting bij huidig tempo: limiet rond {estimated.ToLocalTime():HH:mm}.*";
     }
 
