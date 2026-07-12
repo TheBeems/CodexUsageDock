@@ -78,6 +78,14 @@ internal static class RateLimitWindowParser
         return new ClassifiedRateLimitWindows(fiveHour, weekly);
     }
 
+    internal static void ThrowIfNoKnownWindow(ClassifiedRateLimitWindows windows)
+    {
+        if (windows.FiveHour is null && windows.Weekly is null)
+        {
+            throw new InvalidOperationException("Codex app-server did not return recognized rate-limit windows.");
+        }
+    }
+
     internal static RateLimitWindow? TryParse(
         JsonElement limits,
         string propertyName,

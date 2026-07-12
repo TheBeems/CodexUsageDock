@@ -16,6 +16,15 @@ public sealed class UsageDataTests
     }
 
     [Fact]
+    public void MissingKnownWindowsAreRejectedForAppServerData()
+    {
+        Assert.Throws<InvalidOperationException>(() => RateLimitWindowParser.ThrowIfNoKnownWindow(default));
+
+        var weekly = new RateLimitWindow(3, 10080, DateTimeOffset.Now.AddDays(7));
+        RateLimitWindowParser.ThrowIfNoKnownWindow(new ClassifiedRateLimitWindows(null, weekly));
+    }
+
+    [Fact]
     public void Summary_UsesWeeklyWindowWhenFiveHourWindowIsInactive()
     {
         var now = new DateTimeOffset(2026, 7, 12, 14, 0, 0, TimeSpan.Zero);

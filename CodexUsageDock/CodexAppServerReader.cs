@@ -40,6 +40,7 @@ internal static class CodexAppServerReader
             var windows = RateLimitWindowParser.Classify(
                 RateLimitWindowParser.TryParse(limits, "primary", "usedPercent", "windowDurationMins", "resetsAt"),
                 RateLimitWindowParser.TryParse(limits, "secondary", "usedPercent", "windowDurationMins", "resetsAt"));
+            RateLimitWindowParser.ThrowIfNoKnownWindow(windows);
             var credits = ParseCredits(rateResult, limits);
             var resetCredits = ParseResetCredits(rateResult);
             var plan = ParsePlan(accountResponse.RootElement);
