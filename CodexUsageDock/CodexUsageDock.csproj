@@ -10,19 +10,32 @@
     <SupportedOSPlatformVersion>10.0.19041.0</SupportedOSPlatformVersion>
     <RuntimeIdentifiers>win-x64;win-arm64</RuntimeIdentifiers>
 
+    <!--
+      Packaged builds must be fully self-contained. A framework-dependent
+      runtimeconfig next to app-local hostfxr/coreclr files makes the .NET host
+      treat the application directory as DOTNET_ROOT and prevents fallback to
+      the machine-wide runtime.
+    -->
+    <SelfContained>true</SelfContained>
+
     <EnableMsixTooling>true</EnableMsixTooling>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
-    <DefaultItemExcludes>$(DefaultItemExcludes);$(MSBuildProjectDirectory)\bin\**;$(MSBuildProjectDirectory)\obj\**</DefaultItemExcludes>
+    <DefaultItemExcludes>$(DefaultItemExcludes);$(MSBuildProjectDirectory)\bin\**;$(MSBuildProjectDirectory)\obj\**;$(MSBuildProjectDirectory)\artifacts\**</DefaultItemExcludes>
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(DistributionMode)'=='Installer'">
     <WindowsPackageType>None</WindowsPackageType>
     <EnableMsixTooling>false</EnableMsixTooling>
-    <SelfContained>true</SelfContained>
     <PublishSingleFile>false</PublishSingleFile>
     <PublishReadyToRun>true</PublishReadyToRun>
   </PropertyGroup>
+
+  <Target Name="RequireSelfContainedRuntimeForRidBuilds" BeforeTargets="PrepareForBuild"
+          Condition="'$(RuntimeIdentifier)'!=''">
+    <Error Condition="'$(SelfContained)'!='true'"
+           Text="CodexUsageDock RID builds must be self-contained to avoid a broken app-local .NET host configuration." />
+  </Target>
 
   <ItemGroup>
     <Content Include="Assets\SplashScreen.scale-200.png" />

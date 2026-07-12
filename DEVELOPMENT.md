@@ -16,6 +16,10 @@ Add-AppxPackage -Register .\CodexUsageDock\bin\ARM64\Debug\net10.0-windows10.0.2
 
 Use `x64` instead of `ARM64` on Intel and AMD machines.
 
+Development RID builds are self-contained. Do not override `SelfContained=false`: MSIX tooling places
+app-local .NET host files in the output, and combining those files with a framework-dependent
+runtime configuration prevents the host from finding either an app-local or machine-wide framework.
+
 ## Build Microsoft Store packages
 
 ```powershell

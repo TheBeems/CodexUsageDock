@@ -23,6 +23,50 @@ $versionParts = @($Version.Split('.'))
 while ($versionParts.Count -lt 4) { $versionParts += '0' }
 $msixVersion = $versionParts[0..3] -join '.'
 
+function Assert-SelfContainedMsix {
+    param(
+        [Parameter(Mandatory)]
+        [string]$PackagePath
+    )
+
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    $archive = [IO.Compression.ZipFile]::OpenRead($PackagePath)
+    try {
+        $requiredEntries = @(
+            'CodexUsageDock.exe',
+            'CodexUsageDock.runtimeconfig.json',
+            'coreclr.dll',
+            'hostfxr.dll',
+            'hostpolicy.dll'
+        )
+
+        $entryNames = @($archive.Entries | ForEach-Object FullName)
+        $missingEntries = @($requiredEntries | Where-Object { $_ -notin $entryNames })
+        if ($missingEntries.Count -gt 0) {
+            throw "MSIX is missing self-contained runtime files: $($missingEntries -join ', ')."
+        }
+
+        $runtimeConfigEntry = $archive.GetEntry('CodexUsageDock.runtimeconfig.json')
+        $reader = [IO.StreamReader]::new($runtimeConfigEntry.Open())
+        try {
+            $runtimeConfig = $reader.ReadToEnd() | ConvertFrom-Json
+        }
+        finally {
+            $reader.Dispose()
+        }
+
+        $includedFramework = @($runtimeConfig.runtimeOptions.includedFrameworks) |
+            Where-Object { $_.name -eq 'Microsoft.NETCore.App' } |
+            Select-Object -First 1
+        if (-not $includedFramework) {
+            throw 'MSIX runtimeconfig is framework-dependent; expected an included Microsoft.NETCore.App framework.'
+        }
+    }
+    finally {
+        $archive.Dispose()
+    }
+}
+
 New-Item -ItemType Directory -Force -Path $artifacts | Out-Null
 Get-ChildItem -LiteralPath $artifacts -Filter 'CodexUsageDock-*.msix' -ErrorAction SilentlyContinue | Remove-Item -Force
 
@@ -74,6 +118,7 @@ try {
         if (-not $package) {
             throw "No MSIX package was produced for $platform."
         }
+        Assert-SelfContainedMsix -PackagePath $package.FullName
         Copy-Item -LiteralPath $package.FullName -Destination (Join-Path $artifacts "CodexUsageDock-$Version-$platform.msix") -Force
     }
 }

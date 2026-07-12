@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Reflection;
 using Microsoft.CommandPalette.Extensions;
 using Microsoft.CommandPalette.Extensions.Toolkit;
 
@@ -6,6 +7,7 @@ namespace CodexUsageDock;
 
 internal sealed partial class CodexUsageDockPage : ContentPage, IDisposable
 {
+    private static readonly string Version = GetDisplayVersion();
     private readonly CodexUsageService _usage;
 
     public CodexUsageDockPage(CodexUsageService usage)
@@ -32,7 +34,7 @@ internal sealed partial class CodexUsageDockPage : ContentPage, IDisposable
         return
         [
             new MarkdownContent($"""
-                # Codex Usage
+                # Codex Usage · v{Version}
 
                 {FormatSummary(snapshot, now)}
 
@@ -227,6 +229,17 @@ internal sealed partial class CodexUsageDockPage : ContentPage, IDisposable
         : age < TimeSpan.FromDays(1) ? $"{(int)age.TotalHours} uur" : $"{(int)age.TotalDays} dagen";
 
     private static string FormatError(string? error) => error is null ? string.Empty : $"> ⚠ Technisch detail: {error}";
+
+    private static string GetDisplayVersion()
+    {
+        var informationalVersion = typeof(CodexUsageDockPage).Assembly
+            .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?
+            .InformationalVersion;
+
+        return string.IsNullOrWhiteSpace(informationalVersion)
+            ? "onbekend"
+            : informationalVersion.Split('+', 2)[0];
+    }
 
     private void OnUpdated(object? sender, EventArgs e) => RaiseItemsChanged(0);
 
