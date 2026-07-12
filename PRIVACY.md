@@ -2,7 +2,7 @@
 
 Last updated: July 12, 2026
 
-Codex Usage Dock is a local Windows extension for PowerToys Command Palette. It displays Codex usage limits and reset times in the Command Palette Dock.
+Codex Usage Dock is a local Windows extension for PowerToys Command Palette. It displays Codex usage limits, earned resets, reset expiry times, and available credits in the Command Palette Dock.
 
 ## Data accessed
 

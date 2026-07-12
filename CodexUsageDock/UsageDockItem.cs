@@ -1,4 +1,5 @@
 using Microsoft.CommandPalette.Extensions.Toolkit;
+using System.Globalization;
 
 namespace CodexUsageDock;
 
@@ -6,7 +7,7 @@ internal enum UsageDockItemKind
 {
     FiveHour,
     Weekly,
-    Status,
+    ResetsAndCredits,
 }
 
 internal sealed partial class UsageDockItem : ListItem, IDisposable
@@ -29,11 +30,11 @@ internal sealed partial class UsageDockItem : ListItem, IDisposable
     {
         var snapshot = _usage.Current;
         var window = _kind == UsageDockItemKind.FiveHour ? snapshot.Primary : snapshot.Secondary;
-        if (_kind == UsageDockItemKind.Status)
+        if (_kind == UsageDockItemKind.ResetsAndCredits)
         {
-            Title = snapshot.ActiveThreads is > 0 ? $"Codex ● {snapshot.ActiveThreads}" : "Codex ✓";
+            Title = FormatResetsAndCredits(snapshot);
             Subtitle = $"{snapshot.PlanType ?? "account"} · {snapshot.UpdatedAt.ToLocalTime():HH:mm}";
-            Icon = new IconInfo("\uE943");
+            Icon = new IconInfo("\uE777");
             return;
         }
 
@@ -49,6 +50,23 @@ internal sealed partial class UsageDockItem : ListItem, IDisposable
         Title = $"{label} {window.RemainingPercent:0}%";
         Subtitle = $"reset {FormatReset(window.ResetsAt)}";
         Icon = new IconInfo(window.RemainingPercent <= 10 ? "\uE7BA" : "\uE916");
+    }
+
+    internal static string FormatResetsAndCredits(CodexUsageSnapshot snapshot)
+    {
+        var resets = snapshot.ResetCredits is null ? "--" : snapshot.ResetCredits.AvailableCount.ToString(CultureInfo.CurrentCulture);
+        var title = $"↻ {resets}";
+        if (snapshot.Credits is { Unlimited: true })
+        {
+            return $"{title} · Onbeperkt";
+        }
+
+        if (snapshot.Credits is { HasCredits: true, Balance: { Length: > 0 } balance })
+        {
+            return $"{title} · {balance}";
+        }
+
+        return title;
     }
 
     private static string FormatReset(DateTimeOffset reset)

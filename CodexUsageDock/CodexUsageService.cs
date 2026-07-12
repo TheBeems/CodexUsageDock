@@ -8,12 +8,18 @@ internal sealed record RateLimitWindow(double UsedPercent, int WindowMinutes, Da
     public double RemainingPercent => Math.Clamp(100 - UsedPercent, 0, 100);
 }
 
+internal sealed record CreditBalance(bool HasCredits, bool Unlimited, string? Balance);
+
+internal sealed record RateLimitResetCredit(string? Title, string? Status, DateTimeOffset? ExpiresAt);
+
+internal sealed record RateLimitResetCredits(int AvailableCount, IReadOnlyList<RateLimitResetCredit>? Credits);
+
 internal sealed record CodexUsageSnapshot(
     RateLimitWindow? Primary,
     RateLimitWindow? Secondary,
     string? PlanType,
-    string? Credits,
-    int? ActiveThreads,
+    CreditBalance? Credits,
+    RateLimitResetCredits? ResetCredits,
     DateTimeOffset UpdatedAt,
     string Source,
     string? Error)
@@ -96,11 +102,9 @@ internal sealed class CodexUsageService : IDisposable
             await SendAsync(process, new { method = "initialized" }, cancellationToken).ConfigureAwait(false);
             await SendAsync(process, new { method = "account/rateLimits/read", id = 2 }, cancellationToken).ConfigureAwait(false);
             await SendAsync(process, new { method = "account/read", id = 3, @params = new { refreshToken = false } }, cancellationToken).ConfigureAwait(false);
-            await SendAsync(process, new { method = "thread/list", id = 4, @params = new { limit = 100 } }, cancellationToken).ConfigureAwait(false);
 
             using var rateResponse = await ReadResponseAsync(process, 2, cancellationToken).ConfigureAwait(false);
             using var accountResponse = await ReadResponseAsync(process, 3, cancellationToken).ConfigureAwait(false);
-            using var threadsResponse = await ReadResponseAsync(process, 4, cancellationToken).ConfigureAwait(false);
 
             ThrowIfError(rateResponse.RootElement);
             var rateResult = rateResponse.RootElement.GetProperty("result");
@@ -108,15 +112,15 @@ internal sealed class CodexUsageService : IDisposable
             var primary = TryParseWindow(limits, "primary");
             var secondary = TryParseWindow(limits, "secondary");
             var credits = ParseCredits(rateResult, limits);
+            var resetCredits = ParseResetCredits(rateResult);
             var plan = ParsePlan(accountResponse.RootElement);
-            var activeThreads = ParseActiveThreads(threadsResponse.RootElement);
 
             return new CodexUsageSnapshot(
                 primary,
                 secondary,
                 plan,
                 credits,
-                activeThreads,
+                resetCredits,
                 DateTimeOffset.Now,
                 "Codex app-server",
                 null);
@@ -225,53 +229,67 @@ internal sealed class CodexUsageService : IDisposable
         return plan.GetString();
     }
 
-    private static string? ParseCredits(JsonElement result, JsonElement limits)
+    internal static CreditBalance? ParseCredits(JsonElement result, JsonElement limits)
     {
-        if (limits.TryGetProperty("credits", out var nested) && nested.ValueKind != JsonValueKind.Null)
+        var credits = default(JsonElement);
+        if (limits.TryGetProperty("credits", out var nested) && nested.ValueKind == JsonValueKind.Object)
         {
-            return nested.TryGetProperty("balance", out var balance) ? balance.ToString() : nested.ToString();
+            credits = nested;
         }
-
-        if (result.TryGetProperty("credits", out var credits) && credits.ValueKind != JsonValueKind.Null)
-        {
-            return credits.TryGetProperty("balance", out var balance) ? balance.ToString() : credits.ToString();
-        }
-
-        if (result.TryGetProperty("rateLimitResetCredits", out var resets)
-            && resets.ValueKind != JsonValueKind.Null
-            && resets.TryGetProperty("availableCount", out var count))
-        {
-            return $"{count.GetInt32()} volledige reset(s)";
-        }
-
-        return null;
-    }
-
-    private static int? ParseActiveThreads(JsonElement response)
-    {
-        if (!response.TryGetProperty("result", out var result) || !result.TryGetProperty("data", out var data))
+        else if (!result.TryGetProperty("credits", out credits) || credits.ValueKind != JsonValueKind.Object)
         {
             return null;
         }
 
-        var active = 0;
-        foreach (var thread in data.EnumerateArray())
-        {
-            if (!thread.TryGetProperty("status", out var status))
-            {
-                continue;
-            }
+        var hasCredits = credits.TryGetProperty("hasCredits", out var hasCreditsValue)
+            && hasCreditsValue.ValueKind is JsonValueKind.True or JsonValueKind.False
+            ? hasCreditsValue.GetBoolean()
+            : credits.TryGetProperty("balance", out var existingBalance) && existingBalance.ValueKind != JsonValueKind.Null;
+        var unlimited = credits.TryGetProperty("unlimited", out var unlimitedValue)
+            && unlimitedValue.ValueKind is JsonValueKind.True or JsonValueKind.False
+            && unlimitedValue.GetBoolean();
+        var balance = credits.TryGetProperty("balance", out var balanceValue)
+            && balanceValue.ValueKind != JsonValueKind.Null
+            ? balanceValue.ToString()
+            : null;
+        return new CreditBalance(hasCredits, unlimited, balance);
+    }
 
-            var value = status.ValueKind == JsonValueKind.String
-                ? status.GetString()
-                : status.TryGetProperty("type", out var type) ? type.GetString() : null;
-            if (string.Equals(value, "active", StringComparison.OrdinalIgnoreCase))
-            {
-                active++;
-            }
+    internal static RateLimitResetCredits? ParseResetCredits(JsonElement result)
+    {
+        if (!result.TryGetProperty("rateLimitResetCredits", out var resets)
+            || resets.ValueKind != JsonValueKind.Object
+            || !resets.TryGetProperty("availableCount", out var count)
+            || !count.TryGetInt32(out var availableCount))
+        {
+            return null;
         }
 
-        return active;
+        if (!resets.TryGetProperty("credits", out var creditDetails) || creditDetails.ValueKind == JsonValueKind.Null)
+        {
+            return new RateLimitResetCredits(availableCount, null);
+        }
+
+        if (creditDetails.ValueKind != JsonValueKind.Array)
+        {
+            return new RateLimitResetCredits(availableCount, null);
+        }
+
+        var parsed = new List<RateLimitResetCredit>();
+        foreach (var credit in creditDetails.EnumerateArray())
+        {
+            var title = credit.TryGetProperty("title", out var titleValue) ? titleValue.GetString() : null;
+            var status = credit.TryGetProperty("status", out var statusValue) ? statusValue.GetString() : null;
+            DateTimeOffset? expiresAt = null;
+            if (credit.TryGetProperty("expiresAt", out var expiresValue) && expiresValue.TryGetInt64(out var seconds))
+            {
+                expiresAt = DateTimeOffset.FromUnixTimeSeconds(seconds);
+            }
+
+            parsed.Add(new RateLimitResetCredit(title, status, expiresAt));
+        }
+
+        return new RateLimitResetCredits(availableCount, parsed);
     }
 
     private static CodexUsageSnapshot ReadLatestRollout()
