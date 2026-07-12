@@ -22,7 +22,7 @@ internal sealed partial class CodexUsageDockPage : ContentPage, IDisposable
         [
             new CommandContextItem(new RefreshUsageCommand(_usage))
             {
-                Title = "Nu vernieuwen",
+                Title = "Refresh now",
             },
         ];
     }
@@ -38,23 +38,23 @@ internal sealed partial class CodexUsageDockPage : ContentPage, IDisposable
 
                 {FormatSummary(snapshot, now)}
 
-                {FormatWindow("5-uursvenster", snapshot.Primary, now)}
+                {FormatWindow("5-hour window", snapshot.Primary, now, snapshot.Secondary is not null ? "Currently inactive" : null)}
 
-                {FormatWindow("Weekvenster", snapshot.Secondary, now)}
+                {FormatWindow("Weekly window", snapshot.Secondary, now)}
 
                 {FormatTrend(_usage.PrimaryHistory, now)}
 
-                ## Resets en credits
+                ## Resets and credits
 
                 {FormatResetSummary(snapshot.ResetCredits, now)}
                 {FormatResetCredits(snapshot.ResetCredits)}
                 - **Credits:** {FormatCredits(snapshot.Credits)}
 
-                ## Account en gegevens
+                ## Account and data
 
-                - **Abonnement:** {FormatPlan(snapshot.PlanType)}
+                - **Plan:** {FormatPlan(snapshot.PlanType)}
                 - **Status:** {FormatDataStatus(snapshot, now)}
-                - **Bron:** {snapshot.Source}
+                - **Source:** {snapshot.Source}
                 {FormatError(snapshot.Error)}
                 """),
         ];
@@ -62,37 +62,40 @@ internal sealed partial class CodexUsageDockPage : ContentPage, IDisposable
 
     internal static string FormatSummary(CodexUsageSnapshot snapshot, DateTimeOffset now)
     {
-        if (snapshot.Primary is null)
+        var activeWindow = snapshot.Primary ?? snapshot.Secondary;
+        if (activeWindow is null)
         {
-            return $"> ⚪ **Gebruiksruimte onbekend**  \n> {FormatDataStatus(snapshot, now)}";
+            return $"> ⚪ **Usage allowance unknown**  \n> {FormatDataStatus(snapshot, now)}";
         }
 
-        var remaining = snapshot.Primary.RemainingPercent;
+        var remaining = activeWindow.RemainingPercent;
         var (icon, title) = remaining switch
         {
-            <= 10 => ("🔴", "Bijna aan je limiet"),
-            <= 30 => ("🟠", "Beperkte ruimte beschikbaar"),
-            _ => ("🟢", "Ruim voldoende ruimte"),
+            <= 10 => ("🔴", "Almost at your limit"),
+            <= 30 => ("🟠", "Limited allowance available"),
+            _ => ("🟢", "Plenty of allowance available"),
         };
-        var weekly = snapshot.Secondary is null ? string.Empty : $" Weekbudget: {snapshot.Secondary.RemainingPercent:0}%.";
-        return $"> {icon} **{title}**  \n> {remaining:0}% beschikbaar; reset {FormatRelativeTime(snapshot.Primary.ResetsAt, now)}.{weekly}";
+        var weekly = snapshot.Primary is not null && snapshot.Secondary is not null
+            ? $" Weekly allowance: {snapshot.Secondary.RemainingPercent:0}%."
+            : string.Empty;
+        return $"> {icon} **{title}**  \n> {remaining:0}% available; resets {FormatRelativeTime(activeWindow.ResetsAt, now)}.{weekly}";
     }
 
     internal static string FormatCredits(CreditBalance? credits)
     {
         if (credits is null)
         {
-            return "niet beschikbaar";
+            return "not available";
         }
 
         if (credits.Unlimited)
         {
-            return "Onbeperkt";
+            return "Unlimited";
         }
 
         return credits.HasCredits && !string.IsNullOrWhiteSpace(credits.Balance)
             ? credits.Balance
-            : "geen beschikbaar saldo";
+            : "no available balance";
     }
 
     internal static string FormatResetCredits(RateLimitResetCredits? resets)
@@ -106,27 +109,27 @@ internal sealed partial class CodexUsageDockPage : ContentPage, IDisposable
         {
             var title = string.IsNullOrWhiteSpace(credit.Title) ? $"Reset {index + 1}" : credit.Title;
             var expiry = credit.ExpiresAt is null
-                ? "vervaldatum onbekend"
-                : $"verloopt {credit.ExpiresAt.Value.ToLocalTime():ddd d MMM HH:mm}";
+                ? "expiration unknown"
+                : $"expires {credit.ExpiresAt.Value.ToLocalTime():ddd d MMM HH:mm}";
             return $"  - **{title}:** {expiry}";
         }).ToList();
 
         if (resets.AvailableCount > credits.Count)
         {
-            lines.Add($"  - Voor {resets.AvailableCount - credits.Count} reset(s) zijn geen vervaldetails beschikbaar.");
+            lines.Add($"  - No expiration details are available for {resets.AvailableCount - credits.Count} reset(s).");
         }
 
         return string.Join(Environment.NewLine, lines);
     }
 
-    internal static string FormatWindow(string name, RateLimitWindow? window, DateTimeOffset now)
+    internal static string FormatWindow(string name, RateLimitWindow? window, DateTimeOffset now, string? inactiveMessage = null)
     {
         if (window is null)
         {
-            return $"## {name}\n\n⚪ Niet beschikbaar";
+            return $"## {name}\n\n⚪ {inactiveMessage ?? "Not available"}";
         }
 
-        return $"## {name}\n\n{ProgressBar(window.RemainingPercent)} **{window.RemainingPercent:0}% beschikbaar**  \nReset {FormatRelativeTime(window.ResetsAt, now)} · {window.ResetsAt.ToLocalTime():ddd d MMM HH:mm}";
+        return $"## {name}\n\n{ProgressBar(window.RemainingPercent)} **{window.RemainingPercent:0}% available**  \nResets {FormatRelativeTime(window.ResetsAt, now)} · {window.ResetsAt.ToLocalTime():ddd d MMM HH:mm}";
     }
 
     internal static string ProgressBar(double remainingPercent)
@@ -141,21 +144,21 @@ internal sealed partial class CodexUsageDockPage : ContentPage, IDisposable
         var duration = target - now;
         if (duration <= TimeSpan.Zero)
         {
-            return "nu";
+            return "now";
         }
 
-        if (duration < TimeSpan.FromMinutes(1)) return "over minder dan een minuut";
-        if (duration < TimeSpan.FromHours(1)) return $"over {(int)Math.Ceiling(duration.TotalMinutes)} minuten";
+        if (duration < TimeSpan.FromMinutes(1)) return "in less than a minute";
+        if (duration < TimeSpan.FromHours(1)) return $"in {(int)Math.Ceiling(duration.TotalMinutes)} minutes";
         if (duration < TimeSpan.FromHours(24))
         {
             var hours = (int)duration.TotalHours;
             var minutes = duration.Minutes;
-            return minutes == 0 ? $"over {hours} uur" : $"over {hours} uur en {minutes} minuten";
+            return minutes == 0 ? $"in {hours} hours" : $"in {hours} hours and {minutes} minutes";
         }
 
         var local = target.ToLocalTime();
-        if (local.Date == now.ToLocalTime().Date.AddDays(1)) return $"morgen om {local:HH:mm}";
-        return $"over {(int)Math.Ceiling(duration.TotalDays)} dagen";
+        if (local.Date == now.ToLocalTime().Date.AddDays(1)) return $"tomorrow at {local:HH:mm}";
+        return $"in {(int)Math.Ceiling(duration.TotalDays)} days";
     }
 
     internal static string FormatTrend(IReadOnlyList<UsageHistoryEntry> history, DateTimeOffset now)
@@ -172,7 +175,7 @@ internal sealed partial class CodexUsageDockPage : ContentPage, IDisposable
         var currentWindow = history.Skip(segmentStart).ToArray();
         if (currentWindow.Length < 2)
         {
-            return "## Gebruikstrend\n\nNog onvoldoende historie voor een schatting.";
+            return "## Usage trend\n\nNot enough history for an estimate yet.";
         }
 
         var samples = currentWindow.Length <= 5 ? currentWindow : currentWindow.Where((_, index) => index % Math.Max(1, currentWindow.Length / 4) == 0).Take(4).Append(currentWindow[^1]).ToArray();
@@ -183,52 +186,52 @@ internal sealed partial class CodexUsageDockPage : ContentPage, IDisposable
         var consumed = first.RemainingPercent - last.RemainingPercent;
         if (elapsedMinutes < 2 || consumed <= 0.5)
         {
-            return $"## Gebruikstrend\n\n{values}  \nNog onvoldoende verandering voor een betrouwbare schatting.";
+            return $"## Usage trend\n\n{values}  \nNot enough change for a reliable estimate yet.";
         }
 
         if (now - last.RecordedAt > TimeSpan.FromMinutes(5))
         {
-            return $"## Gebruikstrend\n\n{values}  \nDe nieuwste meting is te oud voor een betrouwbare schatting.";
+            return $"## Usage trend\n\n{values}  \nThe latest measurement is too old for a reliable estimate.";
         }
 
         var minutesToEmpty = last.RemainingPercent / (consumed / elapsedMinutes);
         var estimated = last.RecordedAt.AddMinutes(minutesToEmpty);
-        return $"## Gebruikstrend\n\n{values}  \n*Schatting bij huidig tempo: limiet rond {estimated.ToLocalTime():HH:mm}.*";
+        return $"## Usage trend\n\n{values}  \n*Estimate at the current rate: limit around {estimated.ToLocalTime():HH:mm}.*";
     }
 
     internal static string FormatResetSummary(RateLimitResetCredits? resets, DateTimeOffset now)
     {
-        if (resets is null) return "- **Resets:** niet beschikbaar";
+        if (resets is null) return "- **Resets:** not available";
         var nextExpiry = resets.Credits?.Where(credit => credit.ExpiresAt > now).MinBy(credit => credit.ExpiresAt)?.ExpiresAt;
-        var expiry = nextExpiry is null ? string.Empty : $" · eerstvolgende vervalt {FormatRelativeTime(nextExpiry.Value, now)}";
-        return $"- **Resets:** {resets.AvailableCount.ToString(CultureInfo.CurrentCulture)} beschikbaar{expiry}";
+        var expiry = nextExpiry is null ? string.Empty : $" · next one expires {FormatRelativeTime(nextExpiry.Value, now)}";
+        return $"- **Resets:** {resets.AvailableCount.ToString(CultureInfo.CurrentCulture)} available{expiry}";
     }
 
     internal static string FormatDataStatus(CodexUsageSnapshot snapshot, DateTimeOffset now)
     {
         var age = now - snapshot.UpdatedAt;
         var freshness = age < TimeSpan.FromMinutes(2)
-            ? $"zojuist bijgewerkt om {snapshot.UpdatedAt.ToLocalTime():HH:mm}"
-            : $"mogelijk verouderd · {FormatRelativeAge(age)} geleden bijgewerkt";
+            ? $"just updated at {snapshot.UpdatedAt.ToLocalTime():HH:mm}"
+            : $"possibly outdated · updated {FormatRelativeAge(age)} ago";
         var mode = snapshot.Source switch
         {
             "Codex app-server" => "Live",
-            "lokale Codex-sessie" => "Lokale reservegegevens",
-            "initialiseren" => "Gegevens worden geladen",
-            _ => "Gegevens niet beschikbaar",
+            "local Codex session" => "Local fallback data",
+            "initializing" => "Loading data",
+            _ => "Data not available",
         };
         return $"{mode} · {freshness}";
     }
 
     internal static string FormatPlan(string? plan) => string.IsNullOrWhiteSpace(plan)
-        ? "Onbekend"
+        ? "Unknown"
         : CultureInfo.CurrentCulture.TextInfo.ToTitleCase(plan.Replace('_', ' '));
 
     private static string FormatRelativeAge(TimeSpan age) => age < TimeSpan.FromHours(1)
-        ? $"{Math.Max(1, (int)age.TotalMinutes)} minuten"
-        : age < TimeSpan.FromDays(1) ? $"{(int)age.TotalHours} uur" : $"{(int)age.TotalDays} dagen";
+        ? $"{Math.Max(1, (int)age.TotalMinutes)} minutes"
+        : age < TimeSpan.FromDays(1) ? $"{(int)age.TotalHours} hours" : $"{(int)age.TotalDays} days";
 
-    private static string FormatError(string? error) => error is null ? string.Empty : $"> ⚠ Technisch detail: {error}";
+    private static string FormatError(string? error) => error is null ? string.Empty : $"> ⚠ Technical detail: {error}";
 
     private static string GetDisplayVersion()
     {
@@ -237,7 +240,7 @@ internal sealed partial class CodexUsageDockPage : ContentPage, IDisposable
             .InformationalVersion;
 
         return string.IsNullOrWhiteSpace(informationalVersion)
-            ? "onbekend"
+            ? "unknown"
             : informationalVersion.Split('+', 2)[0];
     }
 

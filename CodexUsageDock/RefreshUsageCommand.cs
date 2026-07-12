@@ -5,7 +5,7 @@ namespace CodexUsageDock;
 
 internal sealed partial class RefreshUsageCommand(CodexUsageService usage) : InvokableCommand
 {
-    public override string Name => "Codex-gebruik vernieuwen";
+    public override string Name => "Refresh Codex usage";
 
     public override ICommandResult Invoke()
     {

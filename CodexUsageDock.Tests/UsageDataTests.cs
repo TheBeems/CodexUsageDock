@@ -5,6 +5,52 @@ namespace CodexUsageDock.Tests;
 public sealed class UsageDataTests
 {
     [Fact]
+    public void ClassifyWindows_RecognizesWeeklyWindowWhenItIsPrimary()
+    {
+        var weekly = new RateLimitWindow(3, 10080, DateTimeOffset.Now.AddDays(7));
+
+        var result = CodexUsageService.ClassifyWindows(weekly, null);
+
+        Assert.Null(result.FiveHour);
+        Assert.Same(weekly, result.Weekly);
+    }
+
+    [Fact]
+    public void Summary_UsesWeeklyWindowWhenFiveHourWindowIsInactive()
+    {
+        var now = new DateTimeOffset(2026, 7, 12, 14, 0, 0, TimeSpan.Zero);
+        var snapshot = CodexUsageSnapshot.Loading with
+        {
+            Secondary = new RateLimitWindow(3, 10080, now.AddDays(7)),
+            UpdatedAt = now,
+            Error = null,
+        };
+
+        var summary = CodexUsageDockPage.FormatSummary(snapshot, now);
+
+        Assert.Contains("97% available", summary, StringComparison.Ordinal);
+        Assert.DoesNotContain("Usage allowance unknown", summary, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void MissingFiveHourWindow_CanBeDescribedAsInactive()
+    {
+        var text = CodexUsageDockPage.FormatWindow("5-hour window", null, DateTimeOffset.Now, "Currently inactive");
+
+        Assert.Contains("Currently inactive", text, StringComparison.Ordinal);
+        Assert.DoesNotContain("Not available", text, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void AppServerWorkingDirectory_IsNeverInheritedFromSystem32ForBareCommand()
+    {
+        var workingDirectory = CodexUsageService.GetSafeWorkingDirectory("codex.exe");
+
+        Assert.True(Path.IsPathRooted(workingDirectory));
+        Assert.False(string.Equals(Environment.SystemDirectory, workingDirectory, StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
     public void ParseResetCredits_UsesAvailableCountAndExpiryDetails()
     {
         using var json = JsonDocument.Parse("""
@@ -81,7 +127,7 @@ public sealed class UsageDataTests
         var text = CodexUsageDockPage.FormatResetCredits(resets);
 
         Assert.Contains("Full reset", text, StringComparison.Ordinal);
-        Assert.Contains("Voor 1 reset(s)", text, StringComparison.Ordinal);
+        Assert.Contains("1 reset(s)", text, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -100,9 +146,9 @@ public sealed class UsageDataTests
 
         var summary = CodexUsageDockPage.FormatSummary(snapshot, now);
 
-        Assert.Contains("Bijna aan je limiet", summary, StringComparison.Ordinal);
-        Assert.Contains("8% beschikbaar", summary, StringComparison.Ordinal);
-        Assert.Contains("over 36 minuten", summary, StringComparison.Ordinal);
+        Assert.Contains("Almost at your limit", summary, StringComparison.Ordinal);
+        Assert.Contains("8% available", summary, StringComparison.Ordinal);
+        Assert.Contains("in 36 minutes", summary, StringComparison.Ordinal);
     }
 
     [Theory]
@@ -127,7 +173,7 @@ public sealed class UsageDataTests
         var trend = CodexUsageDockPage.FormatTrend(history, now);
 
         Assert.Contains("80% → 60%", trend, StringComparison.Ordinal);
-        Assert.Contains($"limiet rond {now.AddMinutes(90).ToLocalTime():HH:mm}", trend, StringComparison.Ordinal);
+        Assert.Contains($"limit around {now.AddMinutes(90).ToLocalTime():HH:mm}", trend, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -146,7 +192,7 @@ public sealed class UsageDataTests
 
         Assert.Contains("100% → 80%", trend, StringComparison.Ordinal);
         Assert.DoesNotContain("10%", trend, StringComparison.Ordinal);
-        Assert.Contains($"limiet rond {now.AddHours(2).ToLocalTime():HH:mm}", trend, StringComparison.Ordinal);
+        Assert.Contains($"limit around {now.AddHours(2).ToLocalTime():HH:mm}", trend, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -161,8 +207,8 @@ public sealed class UsageDataTests
 
         var trend = CodexUsageDockPage.FormatTrend(history, now);
 
-        Assert.Contains("te oud voor een betrouwbare schatting", trend, StringComparison.Ordinal);
-        Assert.DoesNotContain("limiet rond", trend, StringComparison.Ordinal);
+        Assert.Contains("too old for a reliable estimate", trend, StringComparison.Ordinal);
+        Assert.DoesNotContain("limit around", trend, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -172,13 +218,13 @@ public sealed class UsageDataTests
         var snapshot = CodexUsageSnapshot.Loading with
         {
             UpdatedAt = now.AddMinutes(-18),
-            Source = "lokale Codex-sessie",
+            Source = "local Codex session",
         };
 
         var status = CodexUsageDockPage.FormatDataStatus(snapshot, now);
 
-        Assert.Contains("Lokale reservegegevens", status, StringComparison.Ordinal);
-        Assert.Contains("18 minuten", status, StringComparison.Ordinal);
+        Assert.Contains("Local fallback data", status, StringComparison.Ordinal);
+        Assert.Contains("18 minutes", status, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -188,8 +234,8 @@ public sealed class UsageDataTests
 
         var status = CodexUsageDockPage.FormatDataStatus(CodexUsageSnapshot.Loading, now);
 
-        Assert.Contains("Gegevens worden geladen", status, StringComparison.Ordinal);
-        Assert.DoesNotContain("Lokale reservegegevens", status, StringComparison.Ordinal);
+        Assert.Contains("Loading data", status, StringComparison.Ordinal);
+        Assert.DoesNotContain("Local fallback data", status, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -201,7 +247,7 @@ public sealed class UsageDataTests
         {
             Primary = new RateLimitWindow(40, 300, now.AddHours(1)),
             UpdatedAt = now.AddHours(-6),
-            Source = "lokale Codex-sessie",
+            Source = "local Codex session",
         };
 
         service.RecordHistory(staleSnapshot, now.AddHours(-5));
@@ -227,7 +273,7 @@ public sealed class UsageDataTests
         {
             Primary = new RateLimitWindow(40, 300, now.AddHours(1)),
             UpdatedAt = now.AddMinutes(-30),
-            Source = "lokale Codex-sessie",
+            Source = "local Codex session",
         };
 
         service.RecordHistory(liveSnapshot, now);

@@ -28,7 +28,7 @@ public partial class CodexUsageDockCommandsProvider : CommandProvider
             new CommandItem(details)
             {
                 Title = DisplayName,
-                Subtitle = "Limieten, resets en Codex-status",
+                Subtitle = "Limits, resets, and Codex status",
             },
         ];
 

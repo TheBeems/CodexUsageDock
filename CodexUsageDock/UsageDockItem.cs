@@ -38,11 +38,14 @@ internal sealed partial class UsageDockItem : ListItem, IDisposable
             return;
         }
 
-        var label = _kind == UsageDockItemKind.FiveHour ? "5u" : "Week";
+        var label = _kind == UsageDockItemKind.FiveHour ? "5h" : "Week";
         if (window is null)
         {
-            Title = $"{label} --";
-            Subtitle = snapshot.Error ?? "Wachten op Codex";
+            var dataWasLoaded = snapshot.Primary is not null || snapshot.Secondary is not null;
+            Title = _kind == UsageDockItemKind.FiveHour && dataWasLoaded ? "5h inactive" : $"{label} --";
+            Subtitle = _kind == UsageDockItemKind.FiveHour && dataWasLoaded
+                ? "No five-hour limit currently active"
+                : snapshot.Error ?? "Waiting for Codex";
             Icon = new IconInfo("\uE783");
             return;
         }
@@ -58,7 +61,7 @@ internal sealed partial class UsageDockItem : ListItem, IDisposable
         var title = $"↻ {resets}";
         if (snapshot.Credits is { Unlimited: true })
         {
-            return $"{title} · Onbeperkt";
+            return $"{title} · Unlimited";
         }
 
         if (snapshot.Credits is { HasCredits: true, Balance: { Length: > 0 } balance })

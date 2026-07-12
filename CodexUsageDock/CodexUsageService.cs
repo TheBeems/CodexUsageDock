@@ -8,6 +8,8 @@ internal sealed record RateLimitWindow(double UsedPercent, int WindowMinutes, Da
     public double RemainingPercent => Math.Clamp(100 - UsedPercent, 0, 100);
 }
 
+internal readonly record struct ClassifiedRateLimitWindows(RateLimitWindow? FiveHour, RateLimitWindow? Weekly);
+
 internal sealed record CreditBalance(bool HasCredits, bool Unlimited, string? Balance);
 
 internal sealed record RateLimitResetCredit(string? Title, string? Status, DateTimeOffset? ExpiresAt);
@@ -33,8 +35,8 @@ internal sealed record CodexUsageSnapshot(
         null,
         null,
         DateTimeOffset.Now,
-        "initialiseren",
-        "Wachten op Codex");
+        "initializing",
+        "Waiting for Codex");
 }
 
 internal sealed class CodexUsageService : IDisposable
@@ -147,15 +149,16 @@ internal sealed class CodexUsageService : IDisposable
             ThrowIfError(rateResponse.RootElement);
             var rateResult = rateResponse.RootElement.GetProperty("result");
             var limits = rateResult.GetProperty("rateLimits");
-            var primary = TryParseWindow(limits, "primary");
-            var secondary = TryParseWindow(limits, "secondary");
+            var windows = ClassifyWindows(
+                TryParseWindow(limits, "primary"),
+                TryParseWindow(limits, "secondary"));
             var credits = ParseCredits(rateResult, limits);
             var resetCredits = ParseResetCredits(rateResult);
             var plan = ParsePlan(accountResponse.RootElement);
 
             return new CodexUsageSnapshot(
-                primary,
-                secondary,
+                windows.FiveHour,
+                windows.Weekly,
                 plan,
                 credits,
                 resetCredits,
@@ -174,17 +177,19 @@ internal sealed class CodexUsageService : IDisposable
 
     private static Process StartAppServer()
     {
+        var executable = FindCodexExecutable();
         var startInfo = new ProcessStartInfo
         {
-            FileName = FindCodexExecutable(),
+            FileName = executable,
             Arguments = "app-server --stdio",
+            WorkingDirectory = GetSafeWorkingDirectory(executable),
             UseShellExecute = false,
             RedirectStandardInput = true,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             CreateNoWindow = true,
         };
-        var process = Process.Start(startInfo) ?? throw new InvalidOperationException("Codex app-server kon niet starten.");
+        var process = Process.Start(startInfo) ?? throw new InvalidOperationException("Codex app-server could not be started.");
         _ = Task.Run(async () =>
         {
             while (await process.StandardError.ReadLineAsync().ConfigureAwait(false) is not null)
@@ -202,8 +207,81 @@ internal sealed class CodexUsageService : IDisposable
             return configured;
         }
 
+        foreach (var process in Process.GetProcessesByName("Codex"))
+        {
+            using (process)
+            {
+                try
+                {
+                    var runningExecutable = process.MainModule?.FileName;
+                    if (!string.IsNullOrWhiteSpace(runningExecutable))
+                    {
+                        if (string.Equals(Path.GetFileName(runningExecutable), "codex.exe", StringComparison.OrdinalIgnoreCase)
+                            && File.Exists(runningExecutable))
+                        {
+                            return runningExecutable;
+                        }
+
+                        var bundledCli = Path.Combine(Path.GetDirectoryName(runningExecutable)!, "resources", "codex.exe");
+                        if (File.Exists(bundledCli))
+                        {
+                            return bundledCli;
+                        }
+                    }
+                }
+                catch (Exception error) when (error is InvalidOperationException or System.ComponentModel.Win32Exception or NotSupportedException)
+                {
+                }
+            }
+        }
+
+        var path = Environment.GetEnvironmentVariable("PATH");
+        foreach (var directory in (path ?? string.Empty).Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            var candidate = Path.Combine(directory, "codex.exe");
+            if (File.Exists(candidate))
+            {
+                return candidate;
+            }
+        }
+
         var alias = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Microsoft", "WindowsApps", "codex.exe");
         return File.Exists(alias) ? alias : "codex.exe";
+    }
+
+    internal static string GetSafeWorkingDirectory(string executable)
+    {
+        if (Path.IsPathRooted(executable) && Path.GetDirectoryName(executable) is { Length: > 0 } directory)
+        {
+            return directory;
+        }
+
+        var profile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        return Directory.Exists(profile) ? profile : Environment.CurrentDirectory;
+    }
+
+    internal static ClassifiedRateLimitWindows ClassifyWindows(params RateLimitWindow?[] windows)
+    {
+        RateLimitWindow? fiveHour = null;
+        RateLimitWindow? weekly = null;
+        foreach (var window in windows)
+        {
+            if (window is null)
+            {
+                continue;
+            }
+
+            if (window.WindowMinutes == (int)TimeSpan.FromHours(5).TotalMinutes)
+            {
+                fiveHour = window;
+            }
+            else if (window.WindowMinutes == (int)TimeSpan.FromDays(7).TotalMinutes)
+            {
+                weekly = window;
+            }
+        }
+
+        return new ClassifiedRateLimitWindows(fiveHour, weekly);
     }
 
     private static async Task SendAsync(Process process, object message, CancellationToken cancellationToken)
@@ -220,7 +298,7 @@ internal sealed class CodexUsageService : IDisposable
             var line = await process.StandardOutput.ReadLineAsync(cancellationToken).ConfigureAwait(false);
             if (line is null)
             {
-                throw new InvalidOperationException("Codex app-server stopte onverwacht.");
+                throw new InvalidOperationException("Codex app-server stopped unexpectedly.");
             }
 
             var document = JsonDocument.Parse(line);
@@ -375,11 +453,12 @@ internal sealed class CodexUsageService : IDisposable
 
             if (primary is not null || secondary is not null)
             {
-                return new CodexUsageSnapshot(primary, secondary, plan, null, null, file.LastWriteTime, "lokale Codex-sessie", null);
+                var windows = ClassifyWindows(primary, secondary);
+                return new CodexUsageSnapshot(windows.FiveHour, windows.Weekly, plan, null, null, file.LastWriteTime, "local Codex session", null);
             }
         }
 
-        throw new InvalidOperationException("Geen recente Codex-gebruiksgegevens gevonden.");
+        throw new InvalidOperationException("No recent Codex usage data was found.");
     }
 
     private static RateLimitWindow? TryParseRolloutWindow(JsonElement limits, string propertyName)
