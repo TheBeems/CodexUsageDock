@@ -218,52 +218,55 @@ internal static class CodexAppServerReader
 
     private static string FindCodexExecutable()
     {
+        var candidates = new List<string>();
         var configured = Environment.GetEnvironmentVariable("CODEX_USAGE_DOCK_CODEX_PATH");
-        if (!string.IsNullOrWhiteSpace(configured) && File.Exists(configured))
+        if (!string.IsNullOrWhiteSpace(configured))
         {
-            return configured;
-        }
-
-        foreach (var process in Process.GetProcessesByName("Codex"))
-        {
-            using (process)
-            {
-                try
-                {
-                    var runningExecutable = process.MainModule?.FileName;
-                    if (!string.IsNullOrWhiteSpace(runningExecutable))
-                    {
-                        if (string.Equals(Path.GetFileName(runningExecutable), "codex.exe", StringComparison.OrdinalIgnoreCase)
-                            && File.Exists(runningExecutable))
-                        {
-                            return runningExecutable;
-                        }
-
-                        var bundledCli = Path.Combine(Path.GetDirectoryName(runningExecutable)!, "resources", "codex.exe");
-                        if (File.Exists(bundledCli))
-                        {
-                            return bundledCli;
-                        }
-                    }
-                }
-                catch (Exception error) when (error is InvalidOperationException or System.ComponentModel.Win32Exception or NotSupportedException)
-                {
-                }
-            }
+            candidates.Add(configured);
         }
 
         var path = Environment.GetEnvironmentVariable("PATH");
         foreach (var directory in (path ?? string.Empty).Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
         {
-            var candidate = Path.Combine(directory, "codex.exe");
-            if (File.Exists(candidate))
+            candidates.Add(Path.Combine(directory, "codex.exe"));
+        }
+
+        return SelectLaunchableCliPath(candidates)
+            ?? throw new InvalidOperationException(
+                "No launchable Codex CLI was found. Install a standalone Codex CLI or set CODEX_USAGE_DOCK_CODEX_PATH to its codex.exe path.");
+    }
+
+    internal static string? SelectLaunchableCliPath(IEnumerable<string> candidates)
+    {
+        foreach (var candidate in candidates)
+        {
+            if (File.Exists(candidate) && !IsWindowsAppsPath(candidate))
             {
                 return candidate;
             }
         }
 
-        var alias = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Microsoft", "WindowsApps", "codex.exe");
-        return File.Exists(alias) ? alias : "codex.exe";
+        return null;
+    }
+
+    internal static bool IsWindowsAppsPath(string path)
+    {
+        try
+        {
+            var fullPath = Path.GetFullPath(path);
+            return IsUnderDirectory(fullPath, Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "WindowsApps"))
+                || IsUnderDirectory(fullPath, Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Microsoft", "WindowsApps"));
+        }
+        catch (Exception error) when (error is ArgumentException or NotSupportedException or PathTooLongException)
+        {
+            return true;
+        }
+    }
+
+    private static bool IsUnderDirectory(string path, string directory)
+    {
+        var fullDirectory = Path.TrimEndingDirectorySeparator(Path.GetFullPath(directory)) + Path.DirectorySeparatorChar;
+        return path.StartsWith(fullDirectory, StringComparison.OrdinalIgnoreCase);
     }
 
     private static async Task SendAsync(Process process, object message, CancellationToken cancellationToken)

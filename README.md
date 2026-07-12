@@ -16,7 +16,7 @@ The values refresh once per minute. The extension reads them from the local Code
 - Windows 10 build 19041 or newer, or Windows 11
 - [PowerToys 0.100.0 or newer](https://github.com/microsoft/PowerToys) with Command Palette enabled
 - Codex installed and signed in
-- `codex` available on `PATH`
+- A standalone `codex.exe` CLI available on `PATH`, or `CODEX_USAGE_DOCK_CODEX_PATH` set to its full path. The protected CLI bundled with the Microsoft Store Codex Desktop app cannot be launched by this extension.
 
 The Microsoft Store package includes the required .NET runtime. You do not need the .NET SDK to install or use the extension.
 
@@ -47,7 +47,7 @@ Open **Windows Settings > Apps > Installed apps**, find **Codex Usage Dock**, an
 
 ## Troubleshooting
 
-- Confirm that `codex --version` works in a new PowerShell window.
+- Confirm that a standalone `codex.exe` is available on `PATH`, or set `CODEX_USAGE_DOCK_CODEX_PATH` to its full path and restart PowerToys. The extension will show local fallback data when no launchable CLI is found.
 - Confirm that Codex is signed in.
 - Confirm that PowerToys Command Palette is enabled and running.
 - Confirm that PowerToys is version 0.100.0 or newer.

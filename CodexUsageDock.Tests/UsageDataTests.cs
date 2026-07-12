@@ -60,6 +60,53 @@ public sealed class UsageDataTests
     }
 
     [Fact]
+    public void CliSelectionPrefersStandaloneCliAndRecognizesWindowsApps()
+    {
+        var temporaryDirectory = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(temporaryDirectory);
+        try
+        {
+            var standaloneCli = Path.Combine(temporaryDirectory, "codex.exe");
+            File.WriteAllText(standaloneCli, string.Empty);
+            var windowsAppsCli = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
+                "WindowsApps",
+                "OpenAI.Codex_test",
+                "app",
+                "resources",
+                "codex.exe");
+
+            var selected = CodexAppServerReader.SelectLaunchableCliPath([windowsAppsCli, standaloneCli]);
+
+            Assert.Equal(standaloneCli, selected);
+            Assert.True(CodexAppServerReader.IsWindowsAppsPath(windowsAppsCli));
+        }
+        finally
+        {
+            Directory.Delete(temporaryDirectory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void FallbackMessageExplainsThatLiveDataIsUnavailable()
+    {
+        var message = CodexUsageDockPage.FormatError("No launchable Codex CLI was found.");
+
+        Assert.Contains("Live Codex data is unavailable", message, StringComparison.Ordinal);
+        Assert.Contains("local fallback data", message, StringComparison.Ordinal);
+        Assert.Contains("No launchable Codex CLI was found", message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void DetailsPageUsesTheRequestedVersionedTitle()
+    {
+        using var service = new CodexUsageService();
+        using var page = new CodexUsageDockPage(service);
+
+        Assert.Equal($"Codex Usuage - {CodexUsageDockMetadata.Version}", page.Title);
+    }
+
+    [Fact]
     public void ParseWindowSupportsAppServerAndRolloutSchemas()
     {
         using var appServer = JsonDocument.Parse("""{ "primary": { "usedPercent": 25, "windowDurationMins": 300, "resetsAt": 1784246400 } }""");
