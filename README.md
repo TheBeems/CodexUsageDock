@@ -1,85 +1,77 @@
 # Codex Usage Dock
 
-A Windows Command Palette extension that displays your current Codex usage directly in the PowerToys Command Palette Dock.
+Codex Usage Dock is a Windows Command Palette extension that shows your Codex limits directly in the PowerToys Dock.
 
-The first version shows:
+It displays:
 
-- Remaining percentage in the rolling five-hour usage window
-- Remaining percentage in the weekly usage window
-- Codex connection status
-- Reset times in the item details
+- the percentage remaining in the rolling five-hour usage window;
+- the percentage remaining in the weekly usage window;
+- the Codex connection status;
+- reset times in the item details.
 
-The extension refreshes once per minute. It reads the current limits from the local Codex app-server and falls back to local Codex session data when necessary.
+The values refresh once per minute. The extension reads them from the local Codex app-server and uses local Codex session metadata as a fallback.
 
 ## Requirements
 
-- Windows 10 version 2004 (build 19041) or newer
-- PowerToys with Command Palette and Dock support
-- The Codex CLI installed and signed in (`codex` must be available on `PATH`)
-- .NET 10 SDK
-- Windows Developer Mode enabled for local package deployment
+- Windows 10 build 19041 or newer, or Windows 11
+- [PowerToys 0.100.0 or newer](https://github.com/microsoft/PowerToys) with Command Palette enabled
+- Codex installed and signed in
+- `codex` available on `PATH`
 
-## Build and install
+The release installer includes the required .NET runtime. You do not need the .NET SDK to install or use the extension.
 
-Clone the repository and open PowerShell in its root directory.
+## Install
 
-Choose the platform that matches your Windows device. Most Intel and AMD PCs use `x64`; Snapdragon Windows devices use `ARM64`.
+1. Open the [latest release](https://github.com/TheBeems/CodexUsageDock/releases/latest).
+2. Download the installer for your device:
+   - `x64` for most Intel and AMD Windows PCs;
+   - `arm64` for Windows-on-ARM devices such as Snapdragon PCs.
+3. Run the downloaded installer.
+4. Reopen PowerToys Command Palette if it was running during installation.
 
-```powershell
-dotnet restore CodexUsageDock.sln -p:Platform=ARM64
-dotnet build CodexUsageDock.sln -c Debug -p:Platform=ARM64 --no-restore
-```
+The installer is per-user and does not require administrator privileges.
 
-For an x64 PC, replace `ARM64` with `x64` in both commands.
+> [!NOTE]
+> Phase-one GitHub installers are not yet code-signed. Windows SmartScreen may display an **Unknown publisher** warning. Release assets include `SHA256SUMS.txt` so you can verify the download before running it.
 
-Register the unpackaged development build for your platform:
-
-```powershell
-Add-AppxPackage -Register .\CodexUsageDock\bin\ARM64\Debug\net10.0-windows10.0.26100.0\win-arm64\AppxManifest.xml
-```
-
-For x64, use the corresponding `bin\x64` and `win-x64` output directories. If the exact framework output folder differs after a future SDK update, locate the generated `AppxManifest.xml` under `CodexUsageDock\bin` and register that file.
-
-## Enable the extension
-
-1. Open PowerToys Command Palette.
-2. Open **Settings**.
-3. Select **Extensions**.
-4. Find **Codex Usage** and enable it.
-
-Restart Command Palette if the extension does not appear immediately.
-
-## Add it to the Dock
+## Add Codex Usage to the Dock
 
 1. Open Command Palette settings.
-2. Select **Dock (Preview)** and enable the Dock.
-3. Open the Dock customization interface.
-4. Choose **Add command** (or the `+` button) in the section where you want the widget.
-5. Search for and select **Codex Usage**.
-6. Select the **Codex Usage** Dock band.
+2. Select **Extensions** and make sure **Codex Usage** is enabled.
+3. Select **Dock (Preview)** and enable the Dock.
+4. Open the Dock customization interface.
+5. Choose **Add command** (`+`) in the section where you want the widget.
+6. Search for **Codex Usage** and select its Dock band.
 
-The Dock should now display entries similar to `5h 47%`, `Week 86%`, and `Codex ✓`. The percentages represent the amount remaining. Select an entry to view reset details or refresh the data manually.
+The Dock will show entries similar to `5h 47%`, `Week 86%`, and `Codex ✓`. The percentages represent the amount remaining. Select an entry to see reset details or refresh the data manually.
+
+## Update
+
+Download and run the installer from the newest GitHub Release. It replaces the previous version while retaining the same installation location and Command Palette registration.
+
+Automated updates through WinGet are planned for the next distribution phase.
+
+## Uninstall
+
+Open **Windows Settings > Apps > Installed apps**, find **Codex Usage Dock**, and select **Uninstall**.
 
 ## Troubleshooting
 
 - Confirm that `codex --version` works in a new PowerShell window.
-- Confirm that Codex is signed in and has local session data.
-- Check that **Codex Usage** is enabled under Command Palette **Settings > Extensions**.
-- If rebuilding fails because a file is locked by `CodexUsageDock.exe`, close Command Palette or stop the running extension, rebuild, and reopen Command Palette.
-- If registration fails, enable Windows Developer Mode and run the registration command again.
+- Confirm that Codex is signed in.
+- Confirm that PowerToys Command Palette is enabled and running.
+- Confirm that PowerToys is version 0.100.0 or newer; earlier Command Palette versions do not discover unpackaged release installers.
+- If the extension does not appear, close and reopen Command Palette and check **Settings > Extensions**.
+- If usage cannot be loaded, start Codex once so local account and session metadata are available.
 
 ## Privacy
 
-The extension runs locally. It communicates with the locally installed Codex app-server and reads local Codex session metadata for its fallback path. It does not send usage information to a separate service.
+The extension runs locally. It talks to the locally installed Codex app-server and may read local Codex session metadata for its fallback path. It does not send usage information to a separate service.
 
 ## Development
 
-The extension targets both x64 and ARM64. The main implementation is in:
-
-- `CodexUsageService.cs` — app-server communication and session fallback
-- `UsageDockItem.cs` — Dock labels and details
-- `CodexUsageDockCommandsProvider.cs` — Command Palette provider and Dock band
+Build, test, packaging, and release instructions are in [DEVELOPMENT.md](DEVELOPMENT.md).
 
 ## License
 
-No license has been selected yet. All rights are reserved by the repository owner unless a license is added later.
+Codex Usage Dock is available under the [MIT License](LICENSE).

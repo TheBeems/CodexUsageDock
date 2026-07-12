@@ -10,9 +10,9 @@
 *.msixbundle
 AppPackages/
 BundleArtifacts/
+artifacts/
 TestResults/
 Generated Files/
 *.pfx
 *.cer
 *.pvk
-
