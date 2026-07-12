@@ -83,4 +83,66 @@ public sealed class UsageDataTests
         Assert.Contains("Full reset", text, StringComparison.Ordinal);
         Assert.Contains("Voor 1 reset(s)", text, StringComparison.Ordinal);
     }
+
+    [Fact]
+    public void DashboardSummary_WarnsWhenPrimaryLimitIsLow()
+    {
+        var now = new DateTimeOffset(2026, 7, 12, 14, 0, 0, TimeSpan.Zero);
+        var snapshot = new CodexUsageSnapshot(
+            new RateLimitWindow(92, 300, now.AddMinutes(36)),
+            new RateLimitWindow(14, 10080, now.AddDays(2)),
+            "pro",
+            null,
+            null,
+            now,
+            "Codex app-server",
+            null);
+
+        var summary = CodexUsageDockPage.FormatSummary(snapshot, now);
+
+        Assert.Contains("Bijna aan je limiet", summary, StringComparison.Ordinal);
+        Assert.Contains("8% beschikbaar", summary, StringComparison.Ordinal);
+        Assert.Contains("over 36 minuten", summary, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(100, "██████████")]
+    [InlineData(47, "█████░░░░░")]
+    [InlineData(0, "░░░░░░░░░░")]
+    public void ProgressBar_RendersTenSegments(double remaining, string expected)
+    {
+        Assert.Equal(expected, CodexUsageDockPage.ProgressBar(remaining));
+    }
+
+    [Fact]
+    public void Trend_EstimatesLimitTimeFromObservedConsumption()
+    {
+        var now = new DateTimeOffset(2026, 7, 12, 14, 30, 0, TimeSpan.Zero);
+        UsageHistoryEntry[] history =
+        [
+            new(now.AddMinutes(-30), 80),
+            new(now, 60),
+        ];
+
+        var trend = CodexUsageDockPage.FormatTrend(history, now);
+
+        Assert.Contains("80% → 60%", trend, StringComparison.Ordinal);
+        Assert.Contains($"limiet rond {now.AddMinutes(90).ToLocalTime():HH:mm}", trend, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void DataStatus_IdentifiesStaleFallbackData()
+    {
+        var now = new DateTimeOffset(2026, 7, 12, 14, 30, 0, TimeSpan.Zero);
+        var snapshot = CodexUsageSnapshot.Loading with
+        {
+            UpdatedAt = now.AddMinutes(-18),
+            Source = "lokale Codex-sessie",
+        };
+
+        var status = CodexUsageDockPage.FormatDataStatus(snapshot, now);
+
+        Assert.Contains("Lokale reservegegevens", status, StringComparison.Ordinal);
+        Assert.Contains("18 minuten", status, StringComparison.Ordinal);
+    }
 }
