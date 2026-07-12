@@ -176,4 +176,30 @@ public sealed class UsageDataTests
         service.RecordHistory(staleSnapshot, now);
         Assert.Empty(service.PrimaryHistory);
     }
+
+    [Fact]
+    public void History_RejectsFallbackSamplesOlderThanLatestLiveSample()
+    {
+        using var service = new CodexUsageService();
+        var now = new DateTimeOffset(2026, 7, 12, 14, 30, 0, TimeSpan.Zero);
+        var liveSnapshot = CodexUsageSnapshot.Loading with
+        {
+            Primary = new RateLimitWindow(35, 300, now.AddHours(1)),
+            UpdatedAt = now,
+            Source = "Codex app-server",
+        };
+        var olderFallback = liveSnapshot with
+        {
+            Primary = new RateLimitWindow(40, 300, now.AddHours(1)),
+            UpdatedAt = now.AddMinutes(-30),
+            Source = "lokale Codex-sessie",
+        };
+
+        service.RecordHistory(liveSnapshot, now);
+        service.RecordHistory(olderFallback, now);
+
+        var entry = Assert.Single(service.PrimaryHistory);
+        Assert.Equal(now, entry.RecordedAt);
+        Assert.Equal(65, entry.RemainingPercent);
+    }
 }

@@ -114,9 +114,7 @@ internal sealed class CodexUsageService : IDisposable
                 return;
             }
 
-            if (_primaryHistory.Count > 0
-                && _primaryHistory[^1].RecordedAt == snapshot.UpdatedAt
-                && _primaryHistory[^1].RemainingPercent == snapshot.Primary.RemainingPercent)
+            if (_primaryHistory.Count > 0 && snapshot.UpdatedAt <= _primaryHistory[^1].RecordedAt)
             {
                 return;
             }
