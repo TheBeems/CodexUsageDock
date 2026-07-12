@@ -1,5 +1,4 @@
 using System.Globalization;
-using System.Reflection;
 using Microsoft.CommandPalette.Extensions;
 using Microsoft.CommandPalette.Extensions.Toolkit;
 
@@ -7,7 +6,7 @@ namespace CodexUsageDock;
 
 internal sealed partial class CodexUsageDockPage : ContentPage, IDisposable
 {
-    private static readonly string Version = GetDisplayVersion();
+    private static readonly string Version = CodexUsageDockMetadata.Version;
     private readonly CodexUsageService _usage;
 
     public CodexUsageDockPage(CodexUsageService usage)
@@ -54,7 +53,7 @@ internal sealed partial class CodexUsageDockPage : ContentPage, IDisposable
 
                 - **Plan:** {FormatPlan(snapshot.PlanType)}
                 - **Status:** {FormatDataStatus(snapshot, now)}
-                - **Source:** {snapshot.Source}
+                - **Source:** {snapshot.SourceDisplayName}
                 {FormatError(snapshot.Error)}
                 """),
         ];
@@ -215,9 +214,9 @@ internal sealed partial class CodexUsageDockPage : ContentPage, IDisposable
             : $"possibly outdated · updated {FormatRelativeAge(age)} ago";
         var mode = snapshot.Source switch
         {
-            "Codex app-server" => "Live",
-            "local Codex session" => "Local fallback data",
-            "initializing" => "Loading data",
+            UsageDataSource.AppServer => "Live",
+            UsageDataSource.LocalSession => "Local fallback data",
+            UsageDataSource.Initializing => "Loading data",
             _ => "Data not available",
         };
         return $"{mode} · {freshness}";
@@ -232,17 +231,6 @@ internal sealed partial class CodexUsageDockPage : ContentPage, IDisposable
         : age < TimeSpan.FromDays(1) ? $"{(int)age.TotalHours} hours" : $"{(int)age.TotalDays} days";
 
     private static string FormatError(string? error) => error is null ? string.Empty : $"> ⚠ Technical detail: {error}";
-
-    private static string GetDisplayVersion()
-    {
-        var informationalVersion = typeof(CodexUsageDockPage).Assembly
-            .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?
-            .InformationalVersion;
-
-        return string.IsNullOrWhiteSpace(informationalVersion)
-            ? "unknown"
-            : informationalVersion.Split('+', 2)[0];
-    }
 
     private void OnUpdated(object? sender, EventArgs e) => RaiseItemsChanged(0);
 

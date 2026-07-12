@@ -9,10 +9,19 @@ public sealed class UsageDataTests
     {
         var weekly = new RateLimitWindow(3, 10080, DateTimeOffset.Now.AddDays(7));
 
-        var result = CodexUsageService.ClassifyWindows(weekly, null);
+        var result = RateLimitWindowParser.Classify(weekly, null);
 
         Assert.Null(result.FiveHour);
         Assert.Same(weekly, result.Weekly);
+    }
+
+    [Fact]
+    public void MissingKnownWindowsAreRejectedForAppServerData()
+    {
+        Assert.Throws<InvalidOperationException>(() => RateLimitWindowParser.ThrowIfNoKnownWindow(default));
+
+        var weekly = new RateLimitWindow(3, 10080, DateTimeOffset.Now.AddDays(7));
+        RateLimitWindowParser.ThrowIfNoKnownWindow(new ClassifiedRateLimitWindows(null, weekly));
     }
 
     [Fact]
@@ -44,10 +53,59 @@ public sealed class UsageDataTests
     [Fact]
     public void AppServerWorkingDirectory_IsNeverInheritedFromSystem32ForBareCommand()
     {
-        var workingDirectory = CodexUsageService.GetSafeWorkingDirectory("codex.exe");
+        var workingDirectory = CodexAppServerReader.GetSafeWorkingDirectory("codex.exe");
 
         Assert.True(Path.IsPathRooted(workingDirectory));
         Assert.False(string.Equals(Environment.SystemDirectory, workingDirectory, StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void ParseWindowSupportsAppServerAndRolloutSchemas()
+    {
+        using var appServer = JsonDocument.Parse("""{ "primary": { "usedPercent": 25, "windowDurationMins": 300, "resetsAt": 1784246400 } }""");
+        using var rollout = JsonDocument.Parse("""{ "primary": { "used_percent": 25, "window_minutes": 300, "resets_at": 1784246400 } }""");
+
+        var appServerWindow = RateLimitWindowParser.TryParse(appServer.RootElement, "primary", "usedPercent", "windowDurationMins", "resetsAt");
+        var rolloutWindow = RateLimitWindowParser.TryParse(rollout.RootElement, "primary", "used_percent", "window_minutes", "resets_at");
+
+        Assert.Equal(appServerWindow, rolloutWindow);
+        Assert.Equal(75, appServerWindow!.RemainingPercent);
+        Assert.Equal(DateTimeOffset.FromUnixTimeSeconds(1784246400), appServerWindow.ResetsAt);
+    }
+
+    [Fact]
+    public void ParseWindowRejectsMalformedData()
+    {
+        using var malformed = JsonDocument.Parse("""{ "primary": { "usedPercent": "25", "windowDurationMins": 300, "resetsAt": 1784246400 } }""");
+
+        var window = RateLimitWindowParser.TryParse(malformed.RootElement, "primary", "usedPercent", "windowDurationMins", "resetsAt");
+
+        Assert.Null(window);
+    }
+
+    [Fact]
+    public async Task ReadResponsesPreservesOutOfOrderExpectedResponses()
+    {
+        using var output = new StringReader("""
+            { "id": 3, "result": { "account": {} } }
+            { "method": "codex/event" }
+            { "id": 2, "result": { "rateLimits": {} } }
+            """);
+
+        var responses = await CodexAppServerReader.ReadResponsesAsync(output, CancellationToken.None, 2, 3);
+        try
+        {
+            Assert.Equal(2, responses.Count);
+            Assert.True(responses.ContainsKey(2));
+            Assert.True(responses.ContainsKey(3));
+        }
+        finally
+        {
+            foreach (var response in responses.Values)
+            {
+                response.Dispose();
+            }
+        }
     }
 
     [Fact]
@@ -64,7 +122,7 @@ public sealed class UsageDataTests
             }
             """);
 
-        var resets = CodexUsageService.ParseResetCredits(json.RootElement);
+        var resets = CodexAppServerReader.ParseResetCredits(json.RootElement);
 
         Assert.NotNull(resets);
         Assert.Equal(2, resets.AvailableCount);
@@ -78,7 +136,7 @@ public sealed class UsageDataTests
     {
         using var json = JsonDocument.Parse("""{ "rateLimitResetCredits": { "availableCount": 3, "credits": null } }""");
 
-        var resets = CodexUsageService.ParseResetCredits(json.RootElement);
+        var resets = CodexAppServerReader.ParseResetCredits(json.RootElement);
 
         Assert.Equal(3, resets!.AvailableCount);
         Assert.Null(resets.Credits);
@@ -91,8 +149,8 @@ public sealed class UsageDataTests
         using var balanceLimits = JsonDocument.Parse("""{ "credits": { "hasCredits": true, "unlimited": false, "balance": "10.00" } }""");
         using var unlimitedLimits = JsonDocument.Parse("""{ "credits": { "hasCredits": true, "unlimited": true, "balance": null } }""");
 
-        var balance = CodexUsageService.ParseCredits(result.RootElement, balanceLimits.RootElement);
-        var unlimited = CodexUsageService.ParseCredits(result.RootElement, unlimitedLimits.RootElement);
+        var balance = CodexAppServerReader.ParseCredits(result.RootElement, balanceLimits.RootElement);
+        var unlimited = CodexAppServerReader.ParseCredits(result.RootElement, unlimitedLimits.RootElement);
 
         Assert.Equal("10.00", balance!.Balance);
         Assert.True(unlimited!.Unlimited);
@@ -111,7 +169,7 @@ public sealed class UsageDataTests
             balance is null ? null : new CreditBalance(true, false, balance),
             resetCount is null ? null : new RateLimitResetCredits(resetCount.Value, null),
             DateTimeOffset.Now,
-            "test",
+            UsageDataSource.Initializing,
             null);
 
         Assert.Equal(expected, UsageDockItem.FormatResetsAndCredits(snapshot));
@@ -141,7 +199,7 @@ public sealed class UsageDataTests
             null,
             null,
             now,
-            "Codex app-server",
+            UsageDataSource.AppServer,
             null);
 
         var summary = CodexUsageDockPage.FormatSummary(snapshot, now);
@@ -218,13 +276,14 @@ public sealed class UsageDataTests
         var snapshot = CodexUsageSnapshot.Loading with
         {
             UpdatedAt = now.AddMinutes(-18),
-            Source = "local Codex session",
+            Source = UsageDataSource.LocalSession,
         };
 
         var status = CodexUsageDockPage.FormatDataStatus(snapshot, now);
 
         Assert.Contains("Local fallback data", status, StringComparison.Ordinal);
         Assert.Contains("18 minutes", status, StringComparison.Ordinal);
+        Assert.Equal("local Codex session", snapshot.SourceDisplayName);
     }
 
     [Fact]
@@ -247,7 +306,7 @@ public sealed class UsageDataTests
         {
             Primary = new RateLimitWindow(40, 300, now.AddHours(1)),
             UpdatedAt = now.AddHours(-6),
-            Source = "local Codex session",
+            Source = UsageDataSource.LocalSession,
         };
 
         service.RecordHistory(staleSnapshot, now.AddHours(-5));
@@ -267,13 +326,13 @@ public sealed class UsageDataTests
         {
             Primary = new RateLimitWindow(35, 300, now.AddHours(1)),
             UpdatedAt = now,
-            Source = "Codex app-server",
+            Source = UsageDataSource.AppServer,
         };
         var olderFallback = liveSnapshot with
         {
             Primary = new RateLimitWindow(40, 300, now.AddHours(1)),
             UpdatedAt = now.AddMinutes(-30),
-            Source = "local Codex session",
+            Source = UsageDataSource.LocalSession,
         };
 
         service.RecordHistory(liveSnapshot, now);
@@ -293,7 +352,7 @@ public sealed class UsageDataTests
         {
             Primary = new RateLimitWindow(35, 300, now.AddHours(-5)),
             UpdatedAt = now.AddHours(-6),
-            Source = "Codex app-server",
+            Source = UsageDataSource.AppServer,
         };
 
         service.RecordHistory(liveSnapshot, now.AddHours(-5));
