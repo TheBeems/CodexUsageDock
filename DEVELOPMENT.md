@@ -87,6 +87,25 @@ GitHub Actions then:
 
 The workflow can also be run manually to validate a version without publishing a GitHub Release.
 
+## WinGet publishing
+
+The initial WinGet manifests are kept in `packaging/winget`. Validate them with:
+
+```powershell
+winget validate --manifest .\packaging\winget
+```
+
+The first package version is submitted to `microsoft/winget-pkgs` manually. After that PR has been accepted, `.github/workflows/update-winget.yml` submits updates whenever a new GitHub Release is published.
+
+The update workflow requires a repository secret named `WINGET_PAT`. Use a dedicated fine-grained GitHub token with only the access required to create branches and pull requests in the `TheBeems/winget-pkgs` fork. Do not reuse a broad personal token.
+
+Every default-locale manifest must retain this tag so Command Palette can discover the package:
+
+```yaml
+Tags:
+- windows-commandpalette-extension
+```
+
 ## Architecture
 
 - `CodexUsageService.cs` handles app-server communication and the local-session fallback.
@@ -94,3 +113,5 @@ The workflow can also be run manually to validate a version without publishing a
 - `CodexUsageDockCommandsProvider.cs` exposes the Command Palette provider and Dock band.
 - `installer/CodexUsageDock.iss` installs the files and registers the COM LocalServer.
 - `scripts/build-release.ps1` creates reproducible release assets.
+- `packaging/winget` contains the source manifests for the first WinGet submission.
+- `.github/workflows/update-winget.yml` automates later WinGet update PRs.

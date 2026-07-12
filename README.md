@@ -49,7 +49,7 @@ The Dock will show entries similar to `5h 47%`, `Week 86%`, and `Codex ✓`. The
 
 Download and run the installer from the newest GitHub Release. It replaces the previous version while retaining the same installation location and Command Palette registration.
 
-Automated updates through WinGet are planned for the next distribution phase.
+WinGet publication is under review in [microsoft/winget-pkgs#401316](https://github.com/microsoft/winget-pkgs/pull/401316). Once the initial package submission is accepted, future GitHub Releases will automatically submit WinGet updates.
 
 ## Uninstall
 
