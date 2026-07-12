@@ -6,8 +6,8 @@ It displays:
 
 - the percentage remaining in the rolling five-hour usage window;
 - the percentage remaining in the weekly usage window;
-- the Codex connection status;
-- reset times in the item details.
+- the number of available earned resets and their expiry times;
+- the remaining credits balance when Codex provides it.
 
 The values refresh once per minute. The extension reads them from the local Codex app-server and uses local Codex session metadata as a fallback.
 
@@ -35,7 +35,7 @@ The Store provides the trusted signature, architecture-specific package, and aut
 5. Choose **Add command** (`+`) in the section where you want the widget.
 6. Search for **Codex Usage** and select its Dock band.
 
-The Dock will show entries similar to `5h 47%`, `Week 86%`, and `Codex ✓`. The percentages represent the amount remaining. Select an entry to see reset details or refresh the data manually.
+The Dock will show entries similar to `5h 47%`, `Week 86%`, and `↻ 2 · 10.00`. The percentages represent the amount remaining. The final entry shows available earned resets and, when available, the credits balance. Select an entry to see reset expiry details or refresh the data manually.
 
 ## Update
 

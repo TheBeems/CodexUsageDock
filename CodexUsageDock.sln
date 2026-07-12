@@ -5,6 +5,8 @@ VisualStudioVersion = 17.13.35507.96 d17.13
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CodexUsageDock", "CodexUsageDock\CodexUsageDock.csproj", "{79F86DE5-70B1-4EC1-9832-DF428B55E466}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CodexUsageDock.Tests", "CodexUsageDock.Tests\CodexUsageDock.Tests.csproj", "{9D1C3D5B-915D-48FA-B1B2-D7DAB1D1E7B2}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|ARM64 = Debug|ARM64
@@ -15,6 +17,14 @@ Global
 		Release|x86 = Release|x86
 	EndGlobalSection
 	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{9D1C3D5B-915D-48FA-B1B2-D7DAB1D1E7B2}.Debug|ARM64.ActiveCfg = Debug|Any CPU
+		{9D1C3D5B-915D-48FA-B1B2-D7DAB1D1E7B2}.Debug|ARM64.Build.0 = Debug|Any CPU
+		{9D1C3D5B-915D-48FA-B1B2-D7DAB1D1E7B2}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{9D1C3D5B-915D-48FA-B1B2-D7DAB1D1E7B2}.Debug|x64.Build.0 = Debug|Any CPU
+		{9D1C3D5B-915D-48FA-B1B2-D7DAB1D1E7B2}.Release|ARM64.ActiveCfg = Release|Any CPU
+		{9D1C3D5B-915D-48FA-B1B2-D7DAB1D1E7B2}.Release|ARM64.Build.0 = Release|Any CPU
+		{9D1C3D5B-915D-48FA-B1B2-D7DAB1D1E7B2}.Release|x64.ActiveCfg = Release|Any CPU
+		{9D1C3D5B-915D-48FA-B1B2-D7DAB1D1E7B2}.Release|x64.Build.0 = Release|Any CPU
 		{79F86DE5-70B1-4EC1-9832-DF428B55E466}.Debug|ARM64.ActiveCfg = Debug|ARM64
 		{79F86DE5-70B1-4EC1-9832-DF428B55E466}.Debug|ARM64.Build.0 = Debug|ARM64
 		{79F86DE5-70B1-4EC1-9832-DF428B55E466}.Debug|ARM64.Deploy.0 = Debug|ARM64

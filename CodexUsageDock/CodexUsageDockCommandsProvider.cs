@@ -8,7 +8,7 @@ public partial class CodexUsageDockCommandsProvider : CommandProvider
     private readonly CodexUsageService _usage = new();
     private readonly UsageDockItem _fiveHour;
     private readonly UsageDockItem _weekly;
-    private readonly UsageDockItem _status;
+    private readonly UsageDockItem _resetsAndCredits;
     private readonly ICommandItem[] _commands;
     private readonly ICommandItem[] _dockBands;
 
@@ -21,7 +21,7 @@ public partial class CodexUsageDockCommandsProvider : CommandProvider
         var details = new CodexUsageDockPage(_usage);
         _fiveHour = new UsageDockItem(_usage, UsageDockItemKind.FiveHour, details);
         _weekly = new UsageDockItem(_usage, UsageDockItemKind.Weekly, details);
-        _status = new UsageDockItem(_usage, UsageDockItemKind.Status, details);
+        _resetsAndCredits = new UsageDockItem(_usage, UsageDockItemKind.ResetsAndCredits, details);
 
         _commands =
         [
@@ -35,7 +35,7 @@ public partial class CodexUsageDockCommandsProvider : CommandProvider
         _dockBands =
         [
             new WrappedDockItem(
-                [_fiveHour, _weekly, _status],
+                [_fiveHour, _weekly, _resetsAndCredits],
                 "nl.mathijs.codexusage.dock",
                 DisplayName),
         ];
@@ -51,7 +51,7 @@ public partial class CodexUsageDockCommandsProvider : CommandProvider
     {
         _fiveHour.Dispose();
         _weekly.Dispose();
-        _status.Dispose();
+        _resetsAndCredits.Dispose();
         _usage.Dispose();
         base.Dispose();
         GC.SuppressFinalize(this);
