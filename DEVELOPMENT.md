@@ -40,7 +40,7 @@ The **Build Store package** GitHub Actions workflow provides the same build as a
 
 ## Architecture
 
-- `CodexUsageDockProvider.cs` exposes the Command Palette provider.
+- `CodexUsageDock.cs` exposes the Command Palette extension.
 - `CodexUsageDockCommandsProvider.cs` provides commands and the Dock band.
 - `CodexUsageService.cs` reads limits from the local Codex app-server and falls back to local session metadata.
 - `Package.appxmanifest` contains the packaged COM server and Command Palette AppExtension registration.

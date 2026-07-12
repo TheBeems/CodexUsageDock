@@ -18,10 +18,27 @@ $repoRoot = Split-Path -Parent $PSScriptRoot
 $project = Join-Path $repoRoot 'CodexUsageDock\CodexUsageDock.csproj'
 $manifest = Join-Path $repoRoot 'CodexUsageDock\Package.appxmanifest'
 $artifacts = Join-Path $repoRoot 'artifacts\store'
+$packageVersions = [xml](Get-Content -LiteralPath (Join-Path $repoRoot 'Directory.Packages.props') -Raw)
 $originalManifest = Get-Content -LiteralPath $manifest -Raw
 $versionParts = @($Version.Split('.'))
 while ($versionParts.Count -lt 4) { $versionParts += '0' }
 $msixVersion = $versionParts[0..3] -join '.'
+
+function Get-CentralPackageVersion {
+    param(
+        [Parameter(Mandatory)]
+        [string]$PackageId
+    )
+
+    $packageVersion = $packageVersions.Project.ItemGroup.PackageVersion |
+        Where-Object { $_.Include -eq $PackageId } |
+        Select-Object -First 1
+    if ($null -eq $packageVersion -or [string]::IsNullOrWhiteSpace($packageVersion.Version)) {
+        throw "No central package version is configured for $PackageId."
+    }
+
+    return [string]$packageVersion.Version
+}
 
 function Assert-SelfContainedMsix {
     param(
@@ -75,8 +92,10 @@ if ($LASTEXITCODE -ne 0) { throw 'dotnet restore failed.' }
 
 # Current MSIX BuildTools omit a runtime dependency used by their .NET MSBuild task.
 $nugetRoot = if ($env:NUGET_PACKAGES) { $env:NUGET_PACKAGES } else { Join-Path $env:USERPROFILE '.nuget\packages' }
-$permissionsDll = Join-Path $nugetRoot 'system.security.permissions\8.0.0\lib\net6.0\System.Security.Permissions.dll'
-$msixToolsDir = Join-Path $nugetRoot 'microsoft.windows.sdk.buildtools.msix\1.7.260610101\tools\net6.0'
+$permissionsVersion = Get-CentralPackageVersion 'System.Security.Permissions'
+$msixBuildToolsVersion = Get-CentralPackageVersion 'Microsoft.Windows.SDK.BuildTools.MSIX'
+$permissionsDll = Join-Path $nugetRoot "system.security.permissions\$permissionsVersion\lib\net6.0\System.Security.Permissions.dll"
+$msixToolsDir = Join-Path $nugetRoot "microsoft.windows.sdk.buildtools.msix\$msixBuildToolsVersion\tools\net6.0"
 if (-not (Test-Path -LiteralPath $permissionsDll) -or -not (Test-Path -LiteralPath $msixToolsDir)) {
     throw 'Required MSIX build task dependencies were not restored.'
 }
