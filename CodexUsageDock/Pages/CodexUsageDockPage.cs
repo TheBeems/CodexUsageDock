@@ -14,8 +14,7 @@ internal sealed partial class CodexUsageDockPage : ContentPage, IDisposable
         _usage = usage;
         _usage.Updated += OnUpdated;
         Id = "nl.mathijs.codexusage.details";
-        Icon = new IconInfo("\uE943");
-        Title = "Codex Usage";
+        Title = $"Codex Usuage - {Version}";
         Name = "Open";
         Commands =
         [
@@ -33,7 +32,7 @@ internal sealed partial class CodexUsageDockPage : ContentPage, IDisposable
         return
         [
             new MarkdownContent($"""
-                # Codex Usage · v{Version}
+                # Codex Usuage - {Version}
 
                 {FormatSummary(snapshot, now)}
 
@@ -230,7 +229,9 @@ internal sealed partial class CodexUsageDockPage : ContentPage, IDisposable
         ? $"{Math.Max(1, (int)age.TotalMinutes)} minutes"
         : age < TimeSpan.FromDays(1) ? $"{(int)age.TotalHours} hours" : $"{(int)age.TotalDays} days";
 
-    private static string FormatError(string? error) => error is null ? string.Empty : $"> ⚠ Technical detail: {error}";
+    internal static string FormatError(string? error) => error is null
+        ? string.Empty
+        : $"> ⚠ **Live Codex data is unavailable. Showing local fallback data.**  \n> {error}";
 
     private void OnUpdated(object? sender, EventArgs e) => RaiseItemsChanged(0);
 
