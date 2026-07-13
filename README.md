@@ -37,6 +37,10 @@ GitHub Actions artifacts are inputs for Microsoft Store certification, not publi
 
 The Dock will show entries similar to `5h 47%`, `Week 86%`, and `↻ 2 · 10.00`. The percentages represent the amount remaining. The final entry shows available earned resets and, when available, the credits balance. Select an entry to see reset expiry details or refresh the data manually.
 
+## Customize the Dock
+
+Open Command Palette and select **Codex Usage settings** to choose which usage entries appear in the Dock. You can independently show or hide the five-hour limit, weekly limit, and resets and credits, choose whether usage entries show their reset time, and set the local data refresh interval to 1, 5, or 15 minutes. Command Palette stores these settings for the current user.
+
 ## Update
 
 Microsoft Store installs updates automatically. You can also check for updates from **Microsoft Store > Library**.

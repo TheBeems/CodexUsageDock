@@ -10,6 +10,7 @@ Each entry links to the commit or pull request that introduced the change.
 
 ### Added
 
+- Per-extension Dock display settings for the five-hour limit, weekly limit, resets and credits, reset times, and refresh interval.
 - Repository contribution rules now require every change to update this changelog and link its entry to the implementing commit or pull request before it is committed or merged. [commit 192f313](https://github.com/TheBeems/CodexUsageDock/commit/192f313)
 
 ### Changed

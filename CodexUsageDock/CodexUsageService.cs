@@ -2,9 +2,8 @@ namespace CodexUsageDock;
 
 internal sealed class CodexUsageService : IDisposable
 {
-    private static readonly TimeSpan RefreshInterval = TimeSpan.FromMinutes(1);
     private readonly SemaphoreSlim _refreshLock = new(1, 1);
-    private readonly System.Timers.Timer _timer = new(RefreshInterval.TotalMilliseconds) { AutoReset = true };
+    private readonly System.Timers.Timer _timer = new(TimeSpan.FromMinutes(1).TotalMilliseconds) { AutoReset = true };
     private readonly object _historyLock = new();
     private readonly List<UsageHistoryEntry> _primaryHistory = [];
     private bool _disposed;
@@ -29,6 +28,16 @@ internal sealed class CodexUsageService : IDisposable
         _timer.Elapsed += OnTimer;
         _timer.Start();
         _ = RefreshAsync();
+    }
+
+    internal void SetRefreshInterval(TimeSpan interval)
+    {
+        if (interval < TimeSpan.FromMinutes(1))
+        {
+            throw new ArgumentOutOfRangeException(nameof(interval), "The refresh interval must be at least one minute.");
+        }
+
+        _timer.Interval = interval.TotalMilliseconds;
     }
 
     public async Task RefreshAsync()

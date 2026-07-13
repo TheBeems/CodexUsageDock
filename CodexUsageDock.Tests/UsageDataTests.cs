@@ -5,6 +5,28 @@ namespace CodexUsageDock.Tests;
 public sealed class UsageDataTests
 {
     [Fact]
+    public void SettingsDefaultToShowingAllDockUsageInformation()
+    {
+        var settings = new CodexUsageDockSettingsPage();
+
+        Assert.True(settings.ShowFiveHourLimit);
+        Assert.True(settings.ShowWeeklyLimit);
+        Assert.True(settings.ShowResetsAndCredits);
+        Assert.True(settings.ShowResetTime);
+        Assert.Equal(TimeSpan.FromMinutes(1), settings.RefreshInterval);
+    }
+
+    [Theory]
+    [InlineData("1", 1)]
+    [InlineData("5", 5)]
+    [InlineData("15", 15)]
+    [InlineData("unexpected", 1)]
+    public void RefreshIntervalUsesOnlySupportedValues(string value, int expectedMinutes)
+    {
+        Assert.Equal(TimeSpan.FromMinutes(expectedMinutes), CodexUsageDockSettingsPage.ParseRefreshInterval(value));
+    }
+
+    [Fact]
     public void ClassifyWindows_RecognizesWeeklyWindowWhenItIsPrimary()
     {
         var weekly = new RateLimitWindow(3, 10080, DateTimeOffset.Now.AddDays(7));

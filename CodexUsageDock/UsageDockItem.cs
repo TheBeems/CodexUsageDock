@@ -14,12 +14,14 @@ internal sealed partial class UsageDockItem : ListItem, IDisposable
 {
     private readonly CodexUsageService _usage;
     private readonly UsageDockItemKind _kind;
+    private readonly CodexUsageDockSettingsPage? _settings;
 
-    public UsageDockItem(CodexUsageService usage, UsageDockItemKind kind, CodexUsageDockPage details)
+    public UsageDockItem(CodexUsageService usage, UsageDockItemKind kind, CodexUsageDockPage details, CodexUsageDockSettingsPage? settings = null)
         : base(details)
     {
         _usage = usage;
         _kind = kind;
+        _settings = settings;
         _usage.Updated += OnUpdated;
         UpdateText();
     }
@@ -51,9 +53,11 @@ internal sealed partial class UsageDockItem : ListItem, IDisposable
         }
 
         Title = $"{label} {window.RemainingPercent:0}%";
-        Subtitle = $"reset {FormatReset(window.ResetsAt)}";
+        Subtitle = _settings?.ShowResetTime == false ? string.Empty : $"reset {FormatReset(window.ResetsAt)}";
         Icon = new IconInfo(window.RemainingPercent <= 10 ? "\uE7BA" : "\uE916");
     }
+
+    internal void Refresh() => UpdateText();
 
     internal static string FormatResetsAndCredits(CodexUsageSnapshot snapshot)
     {
