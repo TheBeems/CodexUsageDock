@@ -22,15 +22,9 @@ The package includes the required .NET runtime. You do not need the .NET SDK to 
 
 ## Install
 
-Install the signed x64 or ARM64 package from the WinGet community source:
+Microsoft Store publication for version `0.2.1` is currently pending. Once certification is complete, the Store listing will be linked here as the only supported production installer.
 
-```powershell
-winget install --id TheBeems.CodexUsageDock --exact --source winget
-```
-
-Reopen PowerToys Command Palette if it was already running. The MSIX package is installed per user and does not require administrator privileges.
-
-The signed `.msixbundle` and `SHA256SUMS.txt` are also available on the [latest GitHub release](https://github.com/TheBeems/CodexUsageDock/releases/latest). Use the direct bundle only when the WinGet community index is temporarily unavailable.
+GitHub Actions artifacts are inputs for Microsoft Store certification, not public installers. Do not distribute or install them directly.
 
 ## Add Codex Usage to the Dock
 
@@ -45,17 +39,11 @@ The Dock will show entries similar to `5h 47%`, `Week 86%`, and `↻ 2 · 10.00`
 
 ## Update
 
-```powershell
-winget upgrade --id TheBeems.CodexUsageDock --exact --source winget
-```
+Microsoft Store installs updates automatically. You can also check for updates from **Microsoft Store > Library**.
 
 ## Uninstall
 
-```powershell
-winget uninstall --id TheBeems.CodexUsageDock --exact --source winget
-```
-
-You can also remove **Codex Usage Dock** from **Windows Settings > Apps > Installed apps**.
+Remove **Codex Usage Dock** from **Windows Settings > Apps > Installed apps**.
 
 ## Troubleshooting
 
@@ -68,7 +56,7 @@ You can also remove **Codex Usage Dock** from **Windows Settings > Apps > Instal
 
 ## Distribution status
 
-Community WinGet is the canonical production channel starting with version `0.2.1`. Microsoft Store publication is paused because Store product `9NFCPJXQG9FG` has a different publisher identity. Store submission will not resume until an explicit identity-migration plan is approved. Release `v0.2.0` remains unchanged.
+Microsoft Store product `9NFCPJXQG9FG` is the only production and update channel starting with version `0.2.1`. Publication is currently awaiting Store certification. Release `v0.2.0` remains unchanged.
 
 ## Privacy
 
@@ -78,7 +66,7 @@ See the full [Privacy Policy](PRIVACY.md).
 
 ## Development
 
-Build, test, signing, packaging, and release instructions are in [DEVELOPMENT.md](DEVELOPMENT.md).
+Build, test, Store packaging, and release instructions are in [DEVELOPMENT.md](DEVELOPMENT.md).
 
 ## License
 

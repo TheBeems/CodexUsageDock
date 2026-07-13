@@ -1,5 +1,7 @@
-# Microsoft Store publication is paused
+# Microsoft Store publication
 
-The Store identity publisher differs from the Azure Artifact Signing Public Trust publisher used for community WinGet. The manual **Build Store package (paused)** workflow may create unsigned diagnostic artifacts, but it contains no Partner Center publication step.
+Run the manual **Store package** workflow with the intended three-part version. Download the resulting `.msixupload`, verify its checksum, and upload it to existing Partner Center product `9NFCPJXQG9FG`.
 
-Do not submit Store packages, change Store identity values, or reuse the community-WinGet publisher for Store builds until an explicit identity-migration plan has been reviewed and approved. See `DEVELOPMENT.md` for the preserved Store identity.
+Partner Center performs signing and certification. Do not distribute the workflow artifact, add publication credentials to GitHub, or change the assigned Store identity. Wait until the product is publicly installable before adding the Store link to `README.md`, tagging the release, or opening the Command Palette Gallery pull request.
+
+See `DEVELOPMENT.md` for the canonical release checklist and verification steps.
