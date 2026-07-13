@@ -20,6 +20,26 @@ Development RID builds are self-contained. Do not override `SelfContained=false`
 app-local .NET host files in the output, and combining those files with a framework-dependent
 runtime configuration prevents the host from finding either an app-local or machine-wide framework.
 
+## Build GitHub release installers
+
+Install Inno Setup 6, then run:
+
+```powershell
+winget install JRSoftware.InnoSetup
+.\scripts\build-github-release.ps1 -Version 0.2.0
+```
+
+The script creates self-contained, per-user x64 and ARM64 installers plus `SHA256SUMS.txt` in `artifacts\installers`. The installers use the unpackaged Command Palette distribution mode and register the COM server under the current user.
+
+Push a semantic version tag to publish a GitHub release:
+
+```powershell
+git tag -a v0.2.0 -m "Release v0.2.0"
+git push origin v0.2.0
+```
+
+The **GitHub Release** workflow tests the application, builds both installers, smoke-tests x64 installation and uninstallation, and publishes the installers with checksums. GitHub installers are currently unsigned and can trigger a Windows SmartScreen warning.
+
 ## Build Microsoft Store packages
 
 ```powershell

@@ -22,9 +22,19 @@ The Microsoft Store package includes the required .NET runtime. You do not need 
 
 ## Install
 
-Install **Codex Usage Dock** from the Microsoft Store and reopen PowerToys Command Palette if it was already running. Store publication is currently being prepared under Store ID `9NFCPJXQG9FG`.
+1. Open the [latest GitHub release](https://github.com/TheBeems/CodexUsageDock/releases/latest).
+2. Download the installer for your device:
+   - `x64` for most Intel and AMD Windows PCs;
+   - `arm64` for Windows-on-ARM devices such as Snapdragon PCs.
+3. Run the downloaded installer.
+4. Reopen PowerToys Command Palette if it was already running.
 
-The Store provides the trusted signature, architecture-specific package, and automatic updates. Installation is per-user and does not require administrator privileges.
+The installer is per-user and does not require administrator privileges. It includes the required .NET runtime.
+
+> [!NOTE]
+> GitHub installers are not code-signed yet. Windows SmartScreen may display an **Unknown publisher** warning. Every release includes `SHA256SUMS.txt` so you can verify the download before running it.
+
+Microsoft Store publication is also being prepared under Store ID `9NFCPJXQG9FG`.
 
 ## Add Codex Usage to the Dock
 
@@ -39,7 +49,7 @@ The Dock will show entries similar to `5h 47%`, `Week 86%`, and `↻ 2 · 10.00`
 
 ## Update
 
-Updates are delivered automatically through the Microsoft Store. Once published, command-line installation will also be available through the Store-backed WinGet source.
+Download and run the installer from the newest GitHub release. It replaces the previous version while retaining the same installation location and Command Palette registration. Automatic updates will become available with the Microsoft Store release.
 
 ## Uninstall
 
