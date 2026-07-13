@@ -10,11 +10,11 @@ Each entry links to the commit or pull request that introduced the change.
 
 ### Added
 
-- Repository contribution rules now require every change to update this changelog and link its entry to the implementing commit or pull request before it is committed or merged. *(Commit pending.)*
+- Repository contribution rules now require every change to update this changelog and link its entry to the implementing commit or pull request before it is committed or merged. [commit 192f313](https://github.com/TheBeems/CodexUsageDock/commit/192f313)
 
 ### Changed
 
-- The details page now distinguishes the standalone Codex CLI app-server from local session metadata, which may have been written by another local Codex client. *(Commit pending.)*
+- The details page now distinguishes the standalone Codex CLI app-server from local session metadata, which may have been written by another local Codex client. [commit 192f313](https://github.com/TheBeems/CodexUsageDock/commit/192f313)
 - Future production releases use the Microsoft Store as the sole distribution and update channel. [commit 0440e98](https://github.com/TheBeems/CodexUsageDock/commit/0440e98cb1aaa01d75595e52fdb0fcd333378006)
 - The Store release workflow now takes its version from the project file, avoiding a separately maintained release version. [commit 4a10eb2](https://github.com/TheBeems/CodexUsageDock/commit/4a10eb2a94f16d55b59fdefe790c79b3d4f98e17)
 
