@@ -229,11 +229,12 @@ internal static class CodexAppServerReader
         foreach (var directory in (path ?? string.Empty).Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
         {
             candidates.Add(Path.Combine(directory, "codex.exe"));
+            candidates.Add(Path.Combine(directory, "codex.cmd"));
         }
 
         return SelectLaunchableCliPath(candidates)
             ?? throw new InvalidOperationException(
-                "No launchable Codex CLI was found. Install a standalone Codex CLI or set CODEX_USAGE_DOCK_CODEX_PATH to its codex.exe path.");
+                "No launchable Codex CLI was found. Install a standalone Codex CLI or set CODEX_USAGE_DOCK_CODEX_PATH to its executable path.");
     }
 
     internal static string? SelectLaunchableCliPath(IEnumerable<string> candidates)

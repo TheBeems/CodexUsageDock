@@ -88,6 +88,26 @@ public sealed class UsageDataTests
     }
 
     [Fact]
+    public void CliSelectionSupportsNpmCommandWrapper()
+    {
+        var temporaryDirectory = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(temporaryDirectory);
+        try
+        {
+            var commandWrapper = Path.Combine(temporaryDirectory, "codex.cmd");
+            File.WriteAllText(commandWrapper, string.Empty);
+
+            var selected = CodexAppServerReader.SelectLaunchableCliPath([commandWrapper]);
+
+            Assert.Equal(commandWrapper, selected);
+        }
+        finally
+        {
+            Directory.Delete(temporaryDirectory, recursive: true);
+        }
+    }
+
+    [Fact]
     public void FallbackMessageExplainsThatLiveDataIsUnavailable()
     {
         var message = CodexUsageDockPage.FormatError("No launchable Codex CLI was found.");
