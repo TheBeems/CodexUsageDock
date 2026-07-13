@@ -118,11 +118,12 @@ public sealed class UsageDataTests
     }
 
     [Fact]
-    public void DetailsPageUsesTheRequestedVersionedTitle()
+    public void DetailsPageUsesTheProjectReleaseVersion()
     {
         using var service = new CodexUsageService();
         using var page = new CodexUsageDockPage(service);
 
+        Assert.Equal("0.2.1", CodexUsageDockMetadata.Version);
         Assert.Equal($"Codex Usuage - {CodexUsageDockMetadata.Version}", page.Title);
     }
 

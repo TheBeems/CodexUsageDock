@@ -32,8 +32,10 @@ dotnet build .\CodexUsageDock\CodexUsageDock.csproj -c Debug -p:Platform=ARM64 -
 
 `scripts/build-release.ps1` is the only release package builder. It always creates one self-contained x64+ARM64 Store upload in Release configuration:
 
+First set the three-part `<Version>` in `CodexUsageDock/CodexUsageDock.csproj` to the release version, then run:
+
 ```powershell
-.\scripts\build-release.ps1 -Version 0.2.1
+.\scripts\build-release.ps1
 ```
 
 The command temporarily applies MSIX version `0.2.1.0`, then restores `Package.appxmanifest` byte-for-byte. It validates:
@@ -58,14 +60,14 @@ The packages inside `.msixupload` are intentionally unsigned. Partner Center sig
 
 `.github/workflows/release.yml` is the only release workflow.
 
-- Pull requests restore, run the x64 test suite, build Debug x64 and ARM64, and validate a Store upload with the non-release version `0.0.1`. No artifact is uploaded.
-- A manual workflow run accepts one three-part release version and retains the `.msixupload` plus checksum for 30 days.
+- Pull requests restore, run the x64 test suite, build Debug x64 and ARM64, and validate a Store upload using the project version. No artifact is uploaded.
+- A manual workflow run uses the project version and retains the `.msixupload` plus checksum for 30 days.
 - The workflow has read-only repository permissions and uses no deployment environment, signing identity, Partner Center credentials, or publication API.
 
 ## Publish version 0.2.1
 
 1. Merge the tested release-flow change into `main`.
-2. Run **Store package** manually with version `0.2.1`.
+2. Set the project `<Version>` to `0.2.1`, commit it, and run **Store package** manually.
 3. Download and extract the `CodexUsageDock-0.2.1-store` Actions artifact.
 4. In Partner Center, open existing product `9NFCPJXQG9FG` and upload `CodexUsageDock-0.2.1.msixupload` to a new submission.
 5. Complete the required Store listing and testing notes, then submit for certification.

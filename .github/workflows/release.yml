@@ -5,11 +5,6 @@ on:
     branches:
       - main
   workflow_dispatch:
-    inputs:
-      version:
-        description: "Store release version, for example 0.2.1"
-        required: true
-        default: "0.2.1"
 
 permissions:
   contents: read
@@ -26,19 +21,14 @@ jobs:
       - uses: actions/setup-dotnet@v5
         with:
           dotnet-version: 10.0.x
-      - name: Determine package version
+      - name: Read package version
         id: version
         shell: pwsh
-        env:
-          REQUESTED_VERSION: ${{ inputs.version }}
         run: |
-          if ("${{ github.event_name }}" -eq "pull_request") {
-            $version = "0.0.1"
-          } else {
-            $version = $env:REQUESTED_VERSION
-          }
+          [xml]$project = Get-Content ./CodexUsageDock/CodexUsageDock.csproj -Raw
+          $version = $project.SelectSingleNode('/Project/PropertyGroup/Version').InnerText.Trim()
           if ($version -notmatch '^\d+\.\d+\.\d+$') {
-            throw "Invalid release version: $version"
+            throw "Invalid project version: $version"
           }
           "value=$version" >> $env:GITHUB_OUTPUT
       - name: Restore
@@ -51,9 +41,7 @@ jobs:
         run: dotnet build ./CodexUsageDock/CodexUsageDock.csproj -c Debug -p:Platform=ARM64 -r win-arm64 --self-contained true
       - name: Build and validate Store package
         shell: pwsh
-        env:
-          PACKAGE_VERSION: ${{ steps.version.outputs.value }}
-        run: ./scripts/build-release.ps1 -Version $env:PACKAGE_VERSION
+        run: ./scripts/build-release.ps1
       - name: Confirm source manifest was restored
         shell: pwsh
         run: |

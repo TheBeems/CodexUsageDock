@@ -1,9 +1,5 @@
 [CmdletBinding()]
-param(
-    [Parameter(Mandatory)]
-    [ValidatePattern('^\d+\.\d+\.\d+$')]
-    [string]$Version
-)
+param()
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
@@ -19,12 +15,34 @@ $originalManifestText = [IO.File]::ReadAllText($manifest)
 $expectedName = 'TheBeems.CodexUsageDock'
 $expectedPublisher = 'CN=F748B633-A4F0-42F4-B6F1-B5BDCAED8E0C'
 $platforms = @('x64', 'arm64')
+
+Add-Type -AssemblyName System.IO.Compression.FileSystem
+
+function Get-ProjectVersion {
+    param(
+        [Parameter(Mandatory)]
+        [string]$ProjectPath
+    )
+
+    [xml]$projectDocument = Get-Content -LiteralPath $ProjectPath -Raw
+    $versionNode = $projectDocument.SelectSingleNode('/Project/PropertyGroup/Version')
+    if ($null -eq $versionNode) {
+        throw "$ProjectPath must define a three-part Version property."
+    }
+
+    $version = $versionNode.InnerText.Trim()
+    if ([string]::IsNullOrWhiteSpace($version) -or $version -notmatch '^\d+\.\d+\.\d+$') {
+        throw "$ProjectPath must define a three-part Version property."
+    }
+
+    return $version
+}
+
+$Version = Get-ProjectVersion -ProjectPath $project
 $msixVersion = "$Version.0"
 $upload = Join-Path $artifacts "CodexUsageDock-$Version.msixupload"
 $checksums = Join-Path $artifacts 'SHA256SUMS.txt'
 $buildCompleted = $false
-
-Add-Type -AssemblyName System.IO.Compression.FileSystem
 
 function Get-XmlIdentity {
     param(

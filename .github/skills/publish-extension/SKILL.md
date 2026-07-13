@@ -11,7 +11,7 @@ Microsoft Store is the only production and update channel. Read `DEVELOPMENT.md`
 
 ## Required release shape
 
-- Build with `scripts/build-release.ps1 -Version <three-part-version>`.
+- Set the project `<Version>` to the three-part release version, then build with `scripts/build-release.ps1`.
 - Preserve the assigned Store identity and self-contained x64 and ARM64 packages in one `.msixupload`.
 - Download the package from the manual **Store package** workflow and upload it to existing Partner Center product `9NFCPJXQG9FG`.
 - Let Microsoft Store sign and distribute the certified package.
