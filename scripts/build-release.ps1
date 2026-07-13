@@ -84,8 +84,56 @@ function Assert-SelfContainedMsix {
     }
 }
 
+function Get-MakeAppxPath {
+    $command = Get-Command 'makeappx.exe' -ErrorAction SilentlyContinue
+    if ($command) {
+        return $command.Source
+    }
+
+    $windowsSdkBin = Join-Path ${env:ProgramFiles(x86)} 'Windows Kits\10\bin'
+    if (Test-Path -LiteralPath $windowsSdkBin) {
+        $makeAppx = Get-ChildItem -LiteralPath $windowsSdkBin -Directory |
+            Sort-Object Name -Descending |
+            ForEach-Object {
+                Join-Path $_.FullName 'x64\makeappx.exe'
+                Join-Path $_.FullName 'arm64\makeappx.exe'
+            } |
+            Where-Object { Test-Path -LiteralPath $_ } |
+            Select-Object -First 1
+        if ($makeAppx) {
+            return $makeAppx
+        }
+    }
+
+    throw 'makeappx.exe was not found. Install the Windows SDK before building Store packages.'
+}
+
+function Assert-MsixBundle {
+    param(
+        [Parameter(Mandatory)]
+        [string]$BundlePath,
+
+        [Parameter(Mandatory)]
+        [string[]]$PackageNames
+    )
+
+    $archive = [IO.Compression.ZipFile]::OpenRead($BundlePath)
+    try {
+        $entryNames = @($archive.Entries | ForEach-Object FullName)
+        $missingEntries = @($PackageNames | Where-Object { $_ -notin $entryNames })
+        if ($missingEntries.Count -gt 0) {
+            throw "MSIX bundle is missing packages: $($missingEntries -join ', ')."
+        }
+    }
+    finally {
+        $archive.Dispose()
+    }
+}
+
 New-Item -ItemType Directory -Force -Path $artifacts | Out-Null
-Get-ChildItem -LiteralPath $artifacts -Filter 'CodexUsageDock-*.msix' -ErrorAction SilentlyContinue | Remove-Item -Force
+Get-ChildItem -LiteralPath $artifacts -File -ErrorAction SilentlyContinue |
+    Where-Object { $_.Name -like 'CodexUsageDock-*.msix' -or $_.Name -like 'CodexUsageDock-*.msixbundle' -or $_.Name -like 'CodexUsageDock-*.msixupload' -or $_.Name -eq 'SHA256SUMS.txt' } |
+    Remove-Item -Force
 
 & dotnet restore $project
 if ($LASTEXITCODE -ne 0) { throw 'dotnet restore failed.' }
@@ -145,7 +193,35 @@ finally {
     [IO.File]::WriteAllText($manifest, $originalManifest, [Text.UTF8Encoding]::new($false))
 }
 
-$checksums = Get-ChildItem -LiteralPath $artifacts -Filter "CodexUsageDock-$Version-*.msix" |
+$bundleInput = Join-Path $artifacts 'bundle-input'
+$uploadInput = Join-Path $artifacts 'upload-input'
+$bundle = Join-Path $artifacts "CodexUsageDock-$Version.msixbundle"
+$upload = Join-Path $artifacts "CodexUsageDock-$Version.msixupload"
+$packageNames = @($Platforms | ForEach-Object { "CodexUsageDock-$Version-$_.msix" })
+
+try {
+    Remove-Item -LiteralPath $bundleInput, $uploadInput -Recurse -Force -ErrorAction SilentlyContinue
+    New-Item -ItemType Directory -Force -Path $bundleInput, $uploadInput | Out-Null
+    foreach ($packageName in $packageNames) {
+        Copy-Item -LiteralPath (Join-Path $artifacts $packageName) -Destination $bundleInput
+    }
+
+    $makeAppx = Get-MakeAppxPath
+    & $makeAppx bundle /d $bundleInput /p $bundle /o
+    if ($LASTEXITCODE -ne 0) {
+        throw "MSIX bundle creation failed with exit code $LASTEXITCODE."
+    }
+    Assert-MsixBundle -BundlePath $bundle -PackageNames $packageNames
+
+    Copy-Item -LiteralPath $bundle -Destination $uploadInput
+    [IO.Compression.ZipFile]::CreateFromDirectory($uploadInput, $upload)
+}
+finally {
+    Remove-Item -LiteralPath $bundleInput, $uploadInput -Recurse -Force -ErrorAction SilentlyContinue
+}
+
+$checksums = Get-ChildItem -LiteralPath $artifacts -File |
+    Where-Object { $_.Name -like "CodexUsageDock-$Version*" } |
     Sort-Object Name |
     ForEach-Object {
         $hash = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
