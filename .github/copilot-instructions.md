@@ -39,7 +39,7 @@ This project includes Copilot skills for common workflows:
 - **add-extension-settings** — Add a settings page to your extension
 - **add-dock-band** — Add persistent toolbar widgets
 - **add-fallback-commands** — Add catch-all search commands
-- **publish-extension** — Publish to Microsoft Store or WinGet
+- **publish-extension** — Publish through Microsoft Store and the Command Palette Gallery
 
 ## Documentation
 

@@ -1,14 +1,8 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory)]
-    [ValidatePattern('^\d+\.\d+\.\d+(?:\.\d+)?$')]
-    [string]$Version,
-
-    [ValidateSet('x64', 'arm64')]
-    [string[]]$Platforms = @('x64', 'arm64'),
-
-    [ValidateSet('Debug', 'Release')]
-    [string]$Configuration = 'Release'
+    [ValidatePattern('^\d+\.\d+\.\d+$')]
+    [string]$Version
 )
 
 $ErrorActionPreference = 'Stop'
@@ -18,11 +12,89 @@ $repoRoot = Split-Path -Parent $PSScriptRoot
 $project = Join-Path $repoRoot 'CodexUsageDock\CodexUsageDock.csproj'
 $manifest = Join-Path $repoRoot 'CodexUsageDock\Package.appxmanifest'
 $artifacts = Join-Path $repoRoot 'artifacts\store'
+$workRoot = Join-Path $artifacts '.work'
 $packageVersions = [xml](Get-Content -LiteralPath (Join-Path $repoRoot 'Directory.Packages.props') -Raw)
-$originalManifest = Get-Content -LiteralPath $manifest -Raw
-$versionParts = @($Version.Split('.'))
-while ($versionParts.Count -lt 4) { $versionParts += '0' }
-$msixVersion = $versionParts[0..3] -join '.'
+$originalManifestBytes = [IO.File]::ReadAllBytes($manifest)
+$originalManifestText = [IO.File]::ReadAllText($manifest)
+$expectedName = 'TheBeems.CodexUsageDock'
+$expectedPublisher = 'CN=F748B633-A4F0-42F4-B6F1-B5BDCAED8E0C'
+$platforms = @('x64', 'arm64')
+$msixVersion = "$Version.0"
+$upload = Join-Path $artifacts "CodexUsageDock-$Version.msixupload"
+$checksums = Join-Path $artifacts 'SHA256SUMS.txt'
+$buildCompleted = $false
+
+Add-Type -AssemblyName System.IO.Compression.FileSystem
+
+function Get-XmlIdentity {
+    param(
+        [Parameter(Mandatory)]
+        [xml]$Document
+    )
+
+    $identityNode = $Document.SelectSingleNode("/*[local-name()='Package' or local-name()='Bundle']/*[local-name()='Identity']")
+    if (-not $identityNode) {
+        throw 'The package identity could not be read.'
+    }
+
+    return [pscustomobject]@{
+        Name = [string]$identityNode.GetAttribute('Name')
+        Publisher = [string]$identityNode.GetAttribute('Publisher')
+        Version = [string]$identityNode.GetAttribute('Version')
+    }
+}
+
+function Read-ZipXml {
+    param(
+        [Parameter(Mandatory)]
+        [string]$ArchivePath,
+
+        [Parameter(Mandatory)]
+        [string]$EntryName
+    )
+
+    $archive = [IO.Compression.ZipFile]::OpenRead($ArchivePath)
+    try {
+        $entry = $archive.GetEntry($EntryName)
+        if (-not $entry) {
+            throw "$ArchivePath does not contain $EntryName."
+        }
+
+        $reader = [IO.StreamReader]::new($entry.Open())
+        try {
+            return [xml]$reader.ReadToEnd()
+        }
+        finally {
+            $reader.Dispose()
+        }
+    }
+    finally {
+        $archive.Dispose()
+    }
+}
+
+function Set-ManifestVersion {
+    param(
+        [Parameter(Mandatory)]
+        [string]$ManifestText,
+
+        [Parameter(Mandatory)]
+        [string]$Value
+    )
+
+    $escapedValue = [Security.SecurityElement]::Escape($Value)
+    $pattern = [regex]::new(
+        '(<Identity\b[\s\S]*?\bVersion=")[^"]+(")',
+        [Text.RegularExpressions.RegexOptions]::IgnoreCase)
+    if (-not $pattern.IsMatch($ManifestText)) {
+        throw 'Package.appxmanifest does not contain Identity Version.'
+    }
+
+    return $pattern.Replace(
+        $ManifestText,
+        { param($match) $match.Groups[1].Value + $escapedValue + $match.Groups[2].Value },
+        1)
+}
 
 function Get-CentralPackageVersion {
     param(
@@ -40,13 +112,61 @@ function Get-CentralPackageVersion {
     return [string]$packageVersion.Version
 }
 
+function Assert-Identity {
+    param(
+        [Parameter(Mandatory)]
+        [object]$Identity,
+
+        [Parameter(Mandatory)]
+        [string]$ExpectedVersion,
+
+        [Parameter(Mandatory)]
+        [string]$Description
+    )
+
+    if ($Identity.Name -cne $expectedName) {
+        throw "$Description identity name '$($Identity.Name)' does not match '$expectedName'."
+    }
+    if ($Identity.Publisher -cne $expectedPublisher) {
+        throw "$Description publisher '$($Identity.Publisher)' does not match '$expectedPublisher'."
+    }
+    if ($Identity.Version -cne $ExpectedVersion) {
+        throw "$Description version '$($Identity.Version)' does not match '$ExpectedVersion'."
+    }
+}
+
+function Assert-CommandPaletteRegistrations {
+    param(
+        [Parameter(Mandatory)]
+        [xml]$PackageManifest
+    )
+
+    $comExtension = $PackageManifest.SelectSingleNode("//*[local-name()='Extension' and @Category='windows.comServer']")
+    if (-not $comExtension) {
+        throw 'MSIX is missing the packaged COM server registration.'
+    }
+
+    $commandPaletteExtension = $PackageManifest.SelectSingleNode("//*[local-name()='AppExtension' and @Name='com.microsoft.commandpalette']")
+    if (-not $commandPaletteExtension) {
+        throw 'MSIX is missing the com.microsoft.commandpalette AppExtension registration.'
+    }
+
+    $comClass = $comExtension.SelectSingleNode(".//*[local-name()='Class']")
+    $activation = $commandPaletteExtension.SelectSingleNode(".//*[local-name()='CreateInstance']")
+    $comClassId = if ($comClass) { [string]$comClass.GetAttribute('Id') } else { '' }
+    $activationClassId = if ($activation) { [string]$activation.GetAttribute('ClassId') } else { '' }
+    if ([string]::IsNullOrWhiteSpace($comClassId) -or
+        -not [string]::Equals($comClassId, $activationClassId, [StringComparison]::OrdinalIgnoreCase)) {
+        throw 'The packaged COM class and Command Palette activation ClassId do not match.'
+    }
+}
+
 function Assert-SelfContainedMsix {
     param(
         [Parameter(Mandatory)]
         [string]$PackagePath
     )
 
-    Add-Type -AssemblyName System.IO.Compression.FileSystem
     $archive = [IO.Compression.ZipFile]::OpenRead($PackagePath)
     try {
         $requiredEntries = @(
@@ -128,12 +248,55 @@ function Assert-MsixBundle {
     finally {
         $archive.Dispose()
     }
+
+    $bundleManifest = Read-ZipXml -ArchivePath $BundlePath -EntryName 'AppxMetadata/AppxBundleManifest.xml'
+    Assert-Identity -Identity (Get-XmlIdentity -Document $bundleManifest) -ExpectedVersion $msixVersion -Description 'MSIX bundle'
+
+    $packageNodes = @($bundleManifest.SelectNodes("/*[local-name()='Bundle']/*[local-name()='Packages']/*[local-name()='Package']"))
+    $architectures = @($packageNodes | ForEach-Object { [string]$_.GetAttribute('Architecture') } | Sort-Object -Unique)
+    $difference = @(Compare-Object -ReferenceObject @('arm64', 'x64') -DifferenceObject $architectures)
+    if ($difference.Count -gt 0) {
+        throw "MSIX bundle architecture mismatch. Found '$($architectures -join ', ')'; expected 'arm64, x64'."
+    }
+}
+
+function Assert-MsixUpload {
+    param(
+        [Parameter(Mandatory)]
+        [string]$UploadPath,
+
+        [Parameter(Mandatory)]
+        [string]$ExpectedBundleName
+    )
+
+    $archive = [IO.Compression.ZipFile]::OpenRead($UploadPath)
+    try {
+        $files = @($archive.Entries | Where-Object { -not [string]::IsNullOrEmpty($_.Name) })
+        if ($files.Count -ne 1 -or $files[0].FullName -cne $ExpectedBundleName) {
+            throw "MSIX upload must contain exactly '$ExpectedBundleName'."
+        }
+    }
+    finally {
+        $archive.Dispose()
+    }
+}
+
+$sourceIdentity = Get-XmlIdentity -Document ([xml]$originalManifestText)
+if ($sourceIdentity.Name -cne $expectedName -or $sourceIdentity.Publisher -cne $expectedPublisher) {
+    throw "Package.appxmanifest does not match Microsoft Store product 9NFCPJXQG9FG."
 }
 
 New-Item -ItemType Directory -Force -Path $artifacts | Out-Null
-Get-ChildItem -LiteralPath $artifacts -File -ErrorAction SilentlyContinue |
-    Where-Object { $_.Name -like 'CodexUsageDock-*.msix' -or $_.Name -like 'CodexUsageDock-*.msixbundle' -or $_.Name -like 'CodexUsageDock-*.msixupload' -or $_.Name -eq 'SHA256SUMS.txt' } |
-    Remove-Item -Force
+Get-ChildItem -LiteralPath $artifacts -Force -ErrorAction SilentlyContinue |
+    Where-Object {
+        $_.Name -eq '.work' -or
+        $_.Name -like 'CodexUsageDock-*.msix' -or
+        $_.Name -like 'CodexUsageDock-*.msixbundle' -or
+        $_.Name -like 'CodexUsageDock-*.msixupload' -or
+        $_.Name -eq 'SHA256SUMS.txt' -or
+        $_.Name -like '*-package'
+    } |
+    Remove-Item -Recurse -Force
 
 & dotnet restore $project
 if ($LASTEXITCODE -ne 0) { throw 'dotnet restore failed.' }
@@ -150,21 +313,19 @@ if (-not (Test-Path -LiteralPath $permissionsDll) -or -not (Test-Path -LiteralPa
 Copy-Item -LiteralPath $permissionsDll -Destination $msixToolsDir -Force
 
 try {
-    $identityVersionPattern = [regex]::new('(<Identity\b[\s\S]*?\bVersion=")[^"]+("\s*/>)', [Text.RegularExpressions.RegexOptions]::IgnoreCase)
-    $updatedManifest = $identityVersionPattern.Replace($originalManifest, "`${1}$msixVersion`${2}", 1)
+    $updatedManifest = Set-ManifestVersion -ManifestText $originalManifestText -Value $msixVersion
     [IO.File]::WriteAllText($manifest, $updatedManifest, [Text.UTF8Encoding]::new($false))
 
-    foreach ($platform in $Platforms) {
+    New-Item -ItemType Directory -Force -Path $workRoot | Out-Null
+    $packageNames = @()
+    foreach ($platform in $platforms) {
         $msbuildPlatform = if ($platform -eq 'arm64') { 'ARM64' } else { 'x64' }
         $runtime = "win-$platform"
-        $packageDir = Join-Path $artifacts "$platform-package"
-        if (Test-Path -LiteralPath $packageDir) {
-            Remove-Item -LiteralPath $packageDir -Recurse -Force
-        }
+        $packageDir = Join-Path $workRoot "$platform-package"
 
-        Write-Host "Building unsigned Store MSIX for $platform..." -ForegroundColor Cyan
+        Write-Host "Building unsigned Microsoft Store MSIX for $platform..." -ForegroundColor Cyan
         & dotnet publish $project `
-            --configuration $Configuration `
+            --configuration Release `
             --runtime $runtime `
             --self-contained true `
             -p:Platform=$msbuildPlatform `
@@ -185,29 +346,28 @@ try {
         if (-not $package) {
             throw "No MSIX package was produced for $platform."
         }
+
         Assert-SelfContainedMsix -PackagePath $package.FullName
-        Copy-Item -LiteralPath $package.FullName -Destination (Join-Path $artifacts "CodexUsageDock-$Version-$platform.msix") -Force
+        $packageManifest = Read-ZipXml -ArchivePath $package.FullName -EntryName 'AppxManifest.xml'
+        Assert-Identity -Identity (Get-XmlIdentity -Document $packageManifest) -ExpectedVersion $msixVersion -Description "$platform MSIX"
+        Assert-CommandPaletteRegistrations -PackageManifest $packageManifest
+
+        $packageName = "CodexUsageDock-$Version-$platform.msix"
+        Copy-Item -LiteralPath $package.FullName -Destination (Join-Path $workRoot $packageName) -Force
+        $packageNames += $packageName
     }
-}
-finally {
-    [IO.File]::WriteAllText($manifest, $originalManifest, [Text.UTF8Encoding]::new($false))
-}
 
-$bundleInput = Join-Path $artifacts 'bundle-input'
-$uploadInput = Join-Path $artifacts 'upload-input'
-$bundle = Join-Path $artifacts "CodexUsageDock-$Version.msixbundle"
-$upload = Join-Path $artifacts "CodexUsageDock-$Version.msixupload"
-$packageNames = @($Platforms | ForEach-Object { "CodexUsageDock-$Version-$_.msix" })
-
-try {
-    Remove-Item -LiteralPath $bundleInput, $uploadInput -Recurse -Force -ErrorAction SilentlyContinue
+    $bundleInput = Join-Path $workRoot 'bundle-input'
+    $uploadInput = Join-Path $workRoot 'upload-input'
+    $bundleName = "CodexUsageDock-$Version.msixbundle"
+    $bundle = Join-Path $workRoot $bundleName
     New-Item -ItemType Directory -Force -Path $bundleInput, $uploadInput | Out-Null
     foreach ($packageName in $packageNames) {
-        Copy-Item -LiteralPath (Join-Path $artifacts $packageName) -Destination $bundleInput
+        Copy-Item -LiteralPath (Join-Path $workRoot $packageName) -Destination $bundleInput
     }
 
     $makeAppx = Get-MakeAppxPath
-    & $makeAppx bundle /d $bundleInput /p $bundle /o
+    & $makeAppx bundle /d $bundleInput /p $bundle /bv $msixVersion /o
     if ($LASTEXITCODE -ne 0) {
         throw "MSIX bundle creation failed with exit code $LASTEXITCODE."
     }
@@ -215,17 +375,23 @@ try {
 
     Copy-Item -LiteralPath $bundle -Destination $uploadInput
     [IO.Compression.ZipFile]::CreateFromDirectory($uploadInput, $upload)
+    Assert-MsixUpload -UploadPath $upload -ExpectedBundleName $bundleName
+
+    $hash = (Get-FileHash -LiteralPath $upload -Algorithm SHA256).Hash.ToLowerInvariant()
+    "$hash  $([IO.Path]::GetFileName($upload))" | Set-Content -LiteralPath $checksums -Encoding ascii
+    $buildCompleted = $true
 }
 finally {
-    Remove-Item -LiteralPath $bundleInput, $uploadInput -Recurse -Force -ErrorAction SilentlyContinue
+    [IO.File]::WriteAllBytes($manifest, $originalManifestBytes)
+    Remove-Item -LiteralPath $workRoot -Recurse -Force -ErrorAction SilentlyContinue
+    if (-not $buildCompleted) {
+        Remove-Item -LiteralPath $upload, $checksums -Force -ErrorAction SilentlyContinue
+    }
 }
 
-$checksums = Get-ChildItem -LiteralPath $artifacts -File |
-    Where-Object { $_.Name -like "CodexUsageDock-$Version*" } |
-    Sort-Object Name |
-    ForEach-Object {
-        $hash = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
-        "$hash  $($_.Name)"
-    }
-$checksums | Set-Content -LiteralPath (Join-Path $artifacts 'SHA256SUMS.txt') -Encoding ascii
+$restoredManifestBytes = [IO.File]::ReadAllBytes($manifest)
+if ([Convert]::ToBase64String($restoredManifestBytes) -cne [Convert]::ToBase64String($originalManifestBytes)) {
+    throw 'Package.appxmanifest was not restored byte-for-byte.'
+}
+
 Get-ChildItem -LiteralPath $artifacts -File | Select-Object Name, Length

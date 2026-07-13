@@ -12,8 +12,7 @@
     Name="TheBeems.CodexUsageDock"
     Publisher="CN=F748B633-A4F0-42F4-B6F1-B5BDCAED8E0C"
     Version="0.0.1.0" />
-  <!-- When you're ready to publish your extension, you'll need to change the
-       Publisher= to match your own identity -->
+  <!-- This identity is assigned to Microsoft Store product 9NFCPJXQG9FG. -->
 
   <Properties>
     <DisplayName>Codex Usage Dock</DisplayName>

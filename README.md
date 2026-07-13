@@ -18,23 +18,13 @@ The values refresh once per minute. The extension reads them from the local Code
 - Codex installed and signed in
 - A standalone `codex.exe` or `codex.cmd` CLI available on `PATH`, or `CODEX_USAGE_DOCK_CODEX_PATH` set to its full path. The protected CLI bundled with the Microsoft Store Codex Desktop app cannot be launched by this extension.
 
-The Microsoft Store package includes the required .NET runtime. You do not need the .NET SDK to install or use the extension.
+The package includes the required .NET runtime. You do not need the .NET SDK to install or use the extension.
 
 ## Install
 
-1. Open the [latest GitHub release](https://github.com/TheBeems/CodexUsageDock/releases/latest).
-2. Download the installer for your device:
-   - `x64` for most Intel and AMD Windows PCs;
-   - `arm64` for Windows-on-ARM devices such as Snapdragon PCs.
-3. Run the downloaded installer.
-4. Reopen PowerToys Command Palette if it was already running.
+Microsoft Store publication for version `0.2.1` is currently pending. Once certification is complete, the Store listing will be linked here as the only supported production installer.
 
-The installer is per-user and does not require administrator privileges. It includes the required .NET runtime.
-
-> [!NOTE]
-> GitHub installers are not code-signed yet. Windows SmartScreen may display an **Unknown publisher** warning. Every release includes `SHA256SUMS.txt` so you can verify the download before running it.
-
-Microsoft Store publication is also being prepared under Store ID `9NFCPJXQG9FG`.
+GitHub Actions artifacts are inputs for Microsoft Store certification, not public installers. Do not distribute or install them directly.
 
 ## Add Codex Usage to the Dock
 
@@ -49,11 +39,11 @@ The Dock will show entries similar to `5h 47%`, `Week 86%`, and `↻ 2 · 10.00`
 
 ## Update
 
-Download and run the installer from the newest GitHub release. It replaces the previous version while retaining the same installation location and Command Palette registration. Automatic updates will become available with the Microsoft Store release.
+Microsoft Store installs updates automatically. You can also check for updates from **Microsoft Store > Library**.
 
 ## Uninstall
 
-Open **Windows Settings > Apps > Installed apps**, find **Codex Usage Dock**, and select **Uninstall**.
+Remove **Codex Usage Dock** from **Windows Settings > Apps > Installed apps**.
 
 ## Troubleshooting
 
@@ -64,6 +54,10 @@ Open **Windows Settings > Apps > Installed apps**, find **Codex Usage Dock**, an
 - If the extension does not appear, close and reopen Command Palette and check **Settings > Extensions**.
 - If usage cannot be loaded, start Codex once so local account and session metadata are available.
 
+## Distribution status
+
+Microsoft Store product `9NFCPJXQG9FG` is the only production and update channel starting with version `0.2.1`. Publication is currently awaiting Store certification. Release `v0.2.0` remains unchanged.
+
 ## Privacy
 
 The extension runs locally. It talks to the locally installed Codex app-server and may read local Codex session metadata for its fallback path. It does not send usage information to a separate service.
@@ -72,7 +66,7 @@ See the full [Privacy Policy](PRIVACY.md).
 
 ## Development
 
-Build, test, packaging, and release instructions are in [DEVELOPMENT.md](DEVELOPMENT.md).
+Build, test, Store packaging, and release instructions are in [DEVELOPMENT.md](DEVELOPMENT.md).
 
 ## License
 

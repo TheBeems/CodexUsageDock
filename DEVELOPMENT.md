@@ -5,6 +5,7 @@
 - Windows 10 build 19041 or newer, or Windows 11
 - .NET 10 SDK
 - PowerToys 0.100.0 or newer
+- Windows SDK with `makeappx.exe` for Store packaging
 - Visual Studio 2022 with Windows application development tools for interactive packaging work
 
 ## Build and register the development package
@@ -16,78 +17,95 @@ Add-AppxPackage -Register .\CodexUsageDock\bin\ARM64\Debug\net10.0-windows10.0.2
 
 Use `x64` instead of `ARM64` on Intel and AMD machines.
 
-Development RID builds are self-contained. Do not override `SelfContained=false`: MSIX tooling places
-app-local .NET host files in the output, and combining those files with a framework-dependent
-runtime configuration prevents the host from finding either an app-local or machine-wide framework.
+Development RID builds are self-contained. Do not override `SelfContained=false`: MSIX tooling places app-local .NET host files in the output, and combining those files with a framework-dependent runtime configuration prevents the host from finding either an app-local or machine-wide framework.
 
-## Build GitHub release installers
-
-Install Inno Setup 6, then run:
+## Verify the application
 
 ```powershell
-winget install JRSoftware.InnoSetup
-.\scripts\build-github-release.ps1 -Version 0.2.0
+dotnet restore .\CodexUsageDock.Tests\CodexUsageDock.Tests.csproj -p:Platform=x64 -r win-x64 -p:SelfContained=true
+dotnet test .\CodexUsageDock.Tests\CodexUsageDock.Tests.csproj -c Debug -p:Platform=x64 -r win-x64 -p:SelfContained=true --no-restore
+dotnet build .\CodexUsageDock\CodexUsageDock.csproj -c Debug -p:Platform=x64 -r win-x64 --self-contained true
+dotnet build .\CodexUsageDock\CodexUsageDock.csproj -c Debug -p:Platform=ARM64 -r win-arm64 --self-contained true
 ```
 
-The script creates self-contained, per-user x64 and ARM64 installers plus `SHA256SUMS.txt` in `artifacts\installers`. The installers use the unpackaged Command Palette distribution mode and register the COM server under the current user.
+## Build the Microsoft Store package
 
-Push a semantic version tag to publish a GitHub release:
+`scripts/build-release.ps1` is the only release package builder. It always creates one self-contained x64+ARM64 Store upload in Release configuration:
 
 ```powershell
-git tag -a v0.2.0 -m "Release v0.2.0"
-git push origin v0.2.0
+.\scripts\build-release.ps1 -Version 0.2.1
 ```
 
-The **GitHub Release** workflow tests the application, builds both installers, smoke-tests x64 installation and uninstallation, and publishes the installers with checksums. GitHub installers are currently unsigned and can trigger a Windows SmartScreen warning.
+The command temporarily applies MSIX version `0.2.1.0`, then restores `Package.appxmanifest` byte-for-byte. It validates:
 
-## WinGet publishing status
+- package name `TheBeems.CodexUsageDock`;
+- publisher `CN=F748B633-A4F0-42F4-B6F1-B5BDCAED8E0C`;
+- x64 and ARM64 architectures;
+- app-local .NET runtime files and `includedFrameworks`;
+- packaged COM and `com.microsoft.commandpalette` registrations;
+- one bundle inside the final `.msixupload`.
 
-Do not submit the current unpackaged Inno installers to WinGet. End-to-end testing with PowerToys 0.100.2 and Command Palette 0.11 showed that they register and activate the COM server correctly, but Command Palette does not discover them as extensions.
+Successful output contains only:
 
-The current loader enumerates `com.microsoft.commandpalette` entries through the Windows `AppExtensionCatalog`, which requires package-manifest registration. This conflicts with the Microsoft Learn page that documents registry-only Inno installers for WinGet. WinGet pull requests `microsoft/winget-pkgs#401316` and `#401645` were closed to avoid distributing an installer that cannot load in the current Command Palette release.
-
-Revisit WinGet publication only when one of these conditions is met:
-
-- Microsoft documents and ships working support for unpackaged registry-only extensions; or
-- the release artifact is a packaged MSIX signed by a certificate trusted on end-user systems.
-
-After a working package is published to WinGet, gallery visibility requires a separate pull request to `microsoft/CmdPal-Extensions`; the current in-product gallery uses that curated feed rather than automatically listing all packages carrying the WinGet tag.
-
-## Build Microsoft Store packages
-
-```powershell
-$version = '0.2.0'
-.\scripts\build-release.ps1 -Version $version
+```text
+artifacts/store/CodexUsageDock-0.2.1.msixupload
+artifacts/store/SHA256SUMS.txt
 ```
 
-The script builds self-contained unsigned x64 and ARM64 MSIX packages, combines them in an MSIX bundle, and creates a Store-ready `.msixupload` file in `artifacts\store`. Their identity matches Microsoft Store product `9NFCPJXQG9FG`. The Microsoft Store signs the packages after certification; do not distribute the unsigned artifacts directly.
+The packages inside `.msixupload` are intentionally unsigned. Partner Center signs packages during Store publication. Never distribute an Actions artifact or a locally built Store upload as an installer.
 
-The **Build Store package** GitHub Actions workflow tests the application, builds the Store artifacts, and can either create a Partner Center draft or submit it for certification. It intentionally does not publish unsigned packages to GitHub Releases.
+## GitHub workflow
 
-### Configure automated Store submission
+`.github/workflows/release.yml` is the only release workflow.
 
-1. In Partner Center, add a Microsoft Entra application under **Account settings > User management > Microsoft Entra applications** and grant it the Manager role required by the Store submission API.
-2. Create the `microsoft-store-production` GitHub environment and configure required reviewers before allowing certification submissions.
-3. Add these environment secrets:
+- Pull requests restore, run the x64 test suite, build Debug x64 and ARM64, and validate a Store upload with the non-release version `0.0.1`. No artifact is uploaded.
+- A manual workflow run accepts one three-part release version and retains the `.msixupload` plus checksum for 30 days.
+- The workflow has read-only repository permissions and uses no deployment environment, signing identity, Partner Center credentials, or publication API.
 
-   - `PARTNER_CENTER_TENANT_ID`
-   - `PARTNER_CENTER_SELLER_ID`
-   - `PARTNER_CENTER_CLIENT_ID`
-   - `PARTNER_CENTER_CLIENT_SECRET`
+## Publish version 0.2.1
 
-4. Run **Build Store package** from GitHub Actions, enter a version higher than the last Store package version, and select one of these submission modes:
+1. Merge the tested release-flow change into `main`.
+2. Run **Store package** manually with version `0.2.1`.
+3. Download and extract the `CodexUsageDock-0.2.1-store` Actions artifact.
+4. In Partner Center, open existing product `9NFCPJXQG9FG` and upload `CodexUsageDock-0.2.1.msixupload` to a new submission.
+5. Complete the required Store listing and testing notes, then submit for certification.
+6. Stop on rejection and address the reported issue in a new package version. Do not use a self-signed or alternate distribution fallback.
+7. After the Store listing is publicly installable, verify x64 and ARM64 installation, removal, Command Palette discovery, and live Dock usage.
+8. Update `README.md` with `https://apps.microsoft.com/detail/9NFCPJXQG9FG`.
+9. Tag the exact published commit as `v0.2.1` and create a GitHub Release containing release notes and the Store link only. Do not attach package files.
 
-   - `draft` uploads the package but leaves the Partner Center submission uncommitted for manual review;
-   - `certification` commits the submission and starts Microsoft Store certification after the environment approval.
+Release `v0.2.0` remains unchanged.
 
-The Store publishing CLI currently supports automated updates for free products. Rotate the Partner Center client secret before it expires. Certification and final publication remain asynchronous Microsoft Store processes; use Partner Center to monitor the complete certification result.
+## Command Palette Gallery
+
+Open a Gallery pull request only after the Store listing is publicly installable. Follow the current [Gallery contribution guide](https://github.com/microsoft/CmdPal-Extensions/blob/main/docs/CONTRIBUTING.md) and add:
+
+```text
+extensions/thebeems/codex-usage-dock/
+├── extension.json
+└── icon.png
+```
+
+Use these fixed values in `extension.json`:
+
+- ID: `thebeems.codex-usage-dock`
+- install source: `{ "type": "msstore", "id": "9NFCPJXQG9FG" }`
+- categories: `developer-tools`, `utilities-and-tools`
+- tags: `codex`, `usage`, `quotas`, `dock`
+- homepage: `https://github.com/TheBeems/CodexUsageDock`
+
+Copy `CodexUsageDock/Assets/Square150x150Logo.scale-200.png` to `icon.png`. It is 300×300 pixels and below the Gallery size limit. Screenshots are optional and are intentionally omitted from the first submission.
 
 ## Store identity
 
-- Package name: `TheBeems.CodexUsageDock`
-- Publisher: `CN=F748B633-A4F0-42F4-B6F1-B5BDCAED8E0C`
-- Publisher display name: `TheBeems`
-- Store ID: `9NFCPJXQG9FG`
+These values are assigned to the existing Partner Center product and are release-critical:
+
+- package name: `TheBeems.CodexUsageDock`
+- publisher: `CN=F748B633-A4F0-42F4-B6F1-B5BDCAED8E0C`
+- publisher display name: `TheBeems`
+- Store product ID: `9NFCPJXQG9FG`
+
+Do not change or override them in release automation.
 
 ## Architecture
 

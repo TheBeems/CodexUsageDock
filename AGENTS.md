@@ -11,7 +11,7 @@ Key locations:
 - `CodexUsageDock/`: application source, manifest, assets, and publish profiles.
 - `CodexUsageDock.Tests/`: xUnit tests.
 - `scripts/`: build and release automation.
-- `packaging/` and `installer/`: distribution-related files.
+- `packaging/`: distribution-related files.
 - `README.md`: user-facing product and installation documentation.
 - `DEVELOPMENT.md`: build, deployment, packaging, and release instructions.
 
