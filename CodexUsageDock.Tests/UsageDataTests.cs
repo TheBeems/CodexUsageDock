@@ -351,7 +351,15 @@ public sealed class UsageDataTests
 
         Assert.Contains("Local fallback data", status, StringComparison.Ordinal);
         Assert.Contains("18 minutes", status, StringComparison.Ordinal);
-        Assert.Equal("local Codex session", snapshot.SourceDisplayName);
+        Assert.Equal("local Codex session metadata (desktop app, CLI, or another client)", snapshot.SourceDisplayName);
+    }
+
+    [Fact]
+    public void SourceDisplayName_IdentifiesTheStandaloneCliAppServer()
+    {
+        var snapshot = CodexUsageSnapshot.Loading with { Source = UsageDataSource.AppServer };
+
+        Assert.Equal("standalone Codex CLI app-server", snapshot.SourceDisplayName);
     }
 
     [Fact]

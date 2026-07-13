@@ -44,8 +44,9 @@ KISS and DRY must be balanced: remove meaningful duplication without creating ab
 3. Preserve existing public behavior unless the task explicitly changes it.
 4. Add or update tests for fixes, business rules, parsing, formatting, and edge cases.
 5. Run the smallest relevant verification first, then the broader test/build checks warranted by the change.
-6. Update user or developer documentation when behavior, requirements, setup, packaging, or release steps change.
-7. Report what changed, which checks ran, and any remaining risk or unverified behavior.
+6. Update `CHANGELOG.md` for every repository change. Add a concise, user-focused entry in the appropriate Keep a Changelog category, link it to the implementing commit or pull request before committing or merging the change, and move Unreleased entries into a dated version section when that version is released.
+7. Update other user or developer documentation when behavior, requirements, setup, packaging, or release steps change.
+8. Report what changed, which checks ran, and any remaining risk or unverified behavior.
 
 Do not modify files generated under `bin/`, `obj/`, or `artifacts/` by hand. Do not commit secrets, signing material, local machine paths, temporary diagnostics, or unpublished credentials.
 
@@ -117,6 +118,7 @@ Testing expectations:
 ## Documentation and Change Quality
 
 - Write documentation and user-facing text in clear English unless a task specifies another language.
+- Keep `CHANGELOG.md` current for every repository change; it is the canonical, user-facing history of shipped and unreleased work.
 - Keep `README.md`, `DEVELOPMENT.md`, and `PRIVACY.md` aligned with actual behavior.
 - Preserve backward compatibility when practical. Call out intentional breaking changes explicitly.
 - Keep commits and pull requests focused, with a concise explanation of the problem, solution, validation, and risks.
@@ -130,6 +132,7 @@ A change is complete when:
 - relevant tests are added or updated and pass;
 - applicable analyzer, build, and architecture checks pass;
 - security, privacy, COM/MSIX, and packaging implications have been considered;
+- `CHANGELOG.md` has been updated with a user-focused entry and, before the change is committed or merged, a link to the implementing commit or pull request;
 - affected documentation is updated;
 - no generated artifacts, secrets, or unrelated changes are included;
 - any manual verification gaps or remaining risks are clearly disclosed.

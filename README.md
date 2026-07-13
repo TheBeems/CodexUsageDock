@@ -9,7 +9,7 @@ It displays:
 - the number of available earned resets and their expiry times;
 - the remaining credits balance when Codex provides it.
 
-The values refresh once per minute. The extension reads them from the local Codex app-server and uses local Codex session metadata as a fallback.
+The values refresh once per minute. The extension reads live data from the standalone Codex CLI app-server and uses local Codex session metadata as a fallback. The details page identifies the source: the live route is explicitly the CLI app-server; session metadata may have been written by the desktop app, CLI, or another local Codex client and cannot be attributed more precisely.
 
 ## Requirements
 
@@ -60,7 +60,7 @@ Microsoft Store product `9NFCPJXQG9FG` is the only production and update channel
 
 ## Privacy
 
-The extension runs locally. It talks to the locally installed Codex app-server and may read local Codex session metadata for its fallback path. It does not send usage information to a separate service.
+The extension runs locally. It talks to the standalone Codex CLI app-server and may read local Codex session metadata for its fallback path. It does not send usage information to a separate service.
 
 See the full [Privacy Policy](PRIVACY.md).
 

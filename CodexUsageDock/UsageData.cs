@@ -36,8 +36,8 @@ internal sealed record CodexUsageSnapshot(
 {
     public string SourceDisplayName => Source switch
     {
-        UsageDataSource.AppServer => "Codex app-server",
-        UsageDataSource.LocalSession => "local Codex session",
+        UsageDataSource.AppServer => "standalone Codex CLI app-server",
+        UsageDataSource.LocalSession => "local Codex session metadata (desktop app, CLI, or another client)",
         _ => "initializing",
     };
 
