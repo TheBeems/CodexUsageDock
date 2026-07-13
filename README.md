@@ -18,23 +18,19 @@ The values refresh once per minute. The extension reads them from the local Code
 - Codex installed and signed in
 - A standalone `codex.exe` or `codex.cmd` CLI available on `PATH`, or `CODEX_USAGE_DOCK_CODEX_PATH` set to its full path. The protected CLI bundled with the Microsoft Store Codex Desktop app cannot be launched by this extension.
 
-The Microsoft Store package includes the required .NET runtime. You do not need the .NET SDK to install or use the extension.
+The package includes the required .NET runtime. You do not need the .NET SDK to install or use the extension.
 
 ## Install
 
-1. Open the [latest GitHub release](https://github.com/TheBeems/CodexUsageDock/releases/latest).
-2. Download the installer for your device:
-   - `x64` for most Intel and AMD Windows PCs;
-   - `arm64` for Windows-on-ARM devices such as Snapdragon PCs.
-3. Run the downloaded installer.
-4. Reopen PowerToys Command Palette if it was already running.
+Install the signed x64 or ARM64 package from the WinGet community source:
 
-The installer is per-user and does not require administrator privileges. It includes the required .NET runtime.
+```powershell
+winget install --id TheBeems.CodexUsageDock --exact --source winget
+```
 
-> [!NOTE]
-> GitHub installers are not code-signed yet. Windows SmartScreen may display an **Unknown publisher** warning. Every release includes `SHA256SUMS.txt` so you can verify the download before running it.
+Reopen PowerToys Command Palette if it was already running. The MSIX package is installed per user and does not require administrator privileges.
 
-Microsoft Store publication is also being prepared under Store ID `9NFCPJXQG9FG`.
+The signed `.msixbundle` and `SHA256SUMS.txt` are also available on the [latest GitHub release](https://github.com/TheBeems/CodexUsageDock/releases/latest). Use the direct bundle only when the WinGet community index is temporarily unavailable.
 
 ## Add Codex Usage to the Dock
 
@@ -49,11 +45,17 @@ The Dock will show entries similar to `5h 47%`, `Week 86%`, and `↻ 2 · 10.00`
 
 ## Update
 
-Download and run the installer from the newest GitHub release. It replaces the previous version while retaining the same installation location and Command Palette registration. Automatic updates will become available with the Microsoft Store release.
+```powershell
+winget upgrade --id TheBeems.CodexUsageDock --exact --source winget
+```
 
 ## Uninstall
 
-Open **Windows Settings > Apps > Installed apps**, find **Codex Usage Dock**, and select **Uninstall**.
+```powershell
+winget uninstall --id TheBeems.CodexUsageDock --exact --source winget
+```
+
+You can also remove **Codex Usage Dock** from **Windows Settings > Apps > Installed apps**.
 
 ## Troubleshooting
 
@@ -64,6 +66,10 @@ Open **Windows Settings > Apps > Installed apps**, find **Codex Usage Dock**, an
 - If the extension does not appear, close and reopen Command Palette and check **Settings > Extensions**.
 - If usage cannot be loaded, start Codex once so local account and session metadata are available.
 
+## Distribution status
+
+Community WinGet is the canonical production channel starting with version `0.2.1`. Microsoft Store publication is paused because Store product `9NFCPJXQG9FG` has a different publisher identity. Store submission will not resume until an explicit identity-migration plan is approved. Release `v0.2.0` remains unchanged.
+
 ## Privacy
 
 The extension runs locally. It talks to the locally installed Codex app-server and may read local Codex session metadata for its fallback path. It does not send usage information to a separate service.
@@ -72,7 +78,7 @@ See the full [Privacy Policy](PRIVACY.md).
 
 ## Development
 
-Build, test, packaging, and release instructions are in [DEVELOPMENT.md](DEVELOPMENT.md).
+Build, test, signing, packaging, and release instructions are in [DEVELOPMENT.md](DEVELOPMENT.md).
 
 ## License
 

@@ -5,6 +5,7 @@
 - Windows 10 build 19041 or newer, or Windows 11
 - .NET 10 SDK
 - PowerToys 0.100.0 or newer
+- Windows SDK tools (`makeappx.exe` and `signtool.exe`) for packaging and signature verification
 - Visual Studio 2022 with Windows application development tools for interactive packaging work
 
 ## Build and register the development package
@@ -16,78 +17,192 @@ Add-AppxPackage -Register .\CodexUsageDock\bin\ARM64\Debug\net10.0-windows10.0.2
 
 Use `x64` instead of `ARM64` on Intel and AMD machines.
 
-Development RID builds are self-contained. Do not override `SelfContained=false`: MSIX tooling places
-app-local .NET host files in the output, and combining those files with a framework-dependent
-runtime configuration prevents the host from finding either an app-local or machine-wide framework.
+Development RID builds are self-contained. Do not override `SelfContained=false`: MSIX tooling places app-local .NET host files in the output, and combining those files with a framework-dependent runtime configuration prevents the host from finding either an app-local or machine-wide framework.
 
-## Build GitHub release installers
-
-Install Inno Setup 6, then run:
+## Verify the application
 
 ```powershell
-winget install JRSoftware.InnoSetup
-.\scripts\build-github-release.ps1 -Version 0.2.0
+dotnet restore .\CodexUsageDock.sln
+dotnet test .\CodexUsageDock.Tests\CodexUsageDock.Tests.csproj -c Debug -p:Platform=x64
+dotnet build .\CodexUsageDock\CodexUsageDock.csproj -c Debug -p:Platform=x64
+dotnet build .\CodexUsageDock\CodexUsageDock.csproj -c Debug -p:Platform=ARM64
 ```
 
-The script creates self-contained, per-user x64 and ARM64 installers plus `SHA256SUMS.txt` in `artifacts\installers`. The installers use the unpackaged Command Palette distribution mode and register the COM server under the current user.
+## Build release packages
 
-Push a semantic version tag to publish a GitHub release:
+`scripts/build-release.ps1` is the canonical package builder. It always restores `Package.appxmanifest`, even after a failed build, and validates the identity, version, self-contained runtime files, and bundle architectures.
+
+Build a community-WinGet bundle with the exact subject shown by the validated Artifact Signing certificate profile:
 
 ```powershell
-git tag -a v0.2.0 -m "Release v0.2.0"
-git push origin v0.2.0
+$publisher = '<exact Artifact Signing certificate subject>'
+.\scripts\build-release.ps1 `
+  -Version 0.2.1 `
+  -Distribution Winget `
+  -Publisher $publisher
 ```
 
-The **GitHub Release** workflow tests the application, builds both installers, smoke-tests x64 installation and uninstallation, and publishes the installers with checksums. GitHub installers are currently unsigned and can trigger a Windows SmartScreen warning.
+The command creates x64 and ARM64 packages and the final `artifacts\winget\CodexUsageDock-0.2.1.msixbundle`. These local outputs are unsigned and must not be distributed. The release workflow signs only the final bundle and regenerates `SHA256SUMS.txt` afterward.
 
-## WinGet publishing status
-
-Do not submit the current unpackaged Inno installers to WinGet. End-to-end testing with PowerToys 0.100.2 and Command Palette 0.11 showed that they register and activate the COM server correctly, but Command Palette does not discover them as extensions.
-
-The current loader enumerates `com.microsoft.commandpalette` entries through the Windows `AppExtensionCatalog`, which requires package-manifest registration. This conflicts with the Microsoft Learn page that documents registry-only Inno installers for WinGet. WinGet pull requests `microsoft/winget-pkgs#401316` and `#401645` were closed to avoid distributing an installer that cannot load in the current Command Palette release.
-
-Revisit WinGet publication only when one of these conditions is met:
-
-- Microsoft documents and ships working support for unpackaged registry-only extensions; or
-- the release artifact is a packaged MSIX signed by a certificate trusted on end-user systems.
-
-After a working package is published to WinGet, gallery visibility requires a separate pull request to `microsoft/CmdPal-Extensions`; the current in-product gallery uses that curated feed rather than automatically listing all packages carrying the WinGet tag.
-
-## Build Microsoft Store packages
+The Store identity can still be built for diagnostics:
 
 ```powershell
-$version = '0.2.0'
-.\scripts\build-release.ps1 -Version $version
+.\scripts\build-release.ps1 -Version 0.2.1 -Distribution Store
 ```
 
-The script builds self-contained unsigned x64 and ARM64 MSIX packages, combines them in an MSIX bundle, and creates a Store-ready `.msixupload` file in `artifacts\store`. Their identity matches Microsoft Store product `9NFCPJXQG9FG`. The Microsoft Store signs the packages after certification; do not distribute the unsigned artifacts directly.
+That command creates an unsigned bundle and `.msixupload` under `artifacts\store`. The **Build Store package (paused)** workflow is manual and build-only. It has no Partner Center credentials or publication step. Never publish these unsigned artifacts.
 
-The **Build Store package** GitHub Actions workflow tests the application, builds the Store artifacts, and can either create a Partner Center draft or submit it for certification. It intentionally does not publish unsigned packages to GitHub Releases.
+## Artifact Signing infrastructure
 
-### Configure automated Store submission
+Production releases use an Azure Artifact Signing Basic account in West Europe with a `PublicTrust` certificate profile. Refer to the current [Artifact Signing quickstart](https://learn.microsoft.com/azure/artifact-signing/quickstart), [role assignment guidance](https://learn.microsoft.com/azure/artifact-signing/tutorial-assign-roles), and [signing integration guide](https://learn.microsoft.com/azure/artifact-signing/how-to-signing-integrations).
 
-1. In Partner Center, add a Microsoft Entra application under **Account settings > User management > Microsoft Entra applications** and grant it the Manager role required by the Store submission API.
-2. Create the `microsoft-store-production` GitHub environment and configure required reviewers before allowing certification submissions.
-3. Add these environment secrets:
+Canonical resource names:
 
-   - `PARTNER_CENTER_TENANT_ID`
-   - `PARTNER_CENTER_SELLER_ID`
-   - `PARTNER_CENTER_CLIENT_ID`
-   - `PARTNER_CENTER_CLIENT_SECRET`
+- resource group: `rg-codexusagedock-signing`
+- preferred account name: `codexusagedock`
+- fallback account name: `codexusagedock-<first eight subscription-id hex characters>`
+- region: `westeurope`
+- SKU: `Basic`
+- certificate profile: `codexusagedock-public`
+- profile type: `PublicTrust`
+- endpoint: `https://weu.codesigning.azure.net`
 
-4. Run **Build Store package** from GitHub Actions, enter a version higher than the last Store package version, and select one of these submission modes:
+If `codexusagedock` is unavailable, check and use the deterministic fallback rather than selecting a random name:
 
-   - `draft` uploads the package but leaves the Partner Center submission uncommitted for manual review;
-   - `certification` commits the submission and starts Microsoft Store certification after the environment approval.
+```powershell
+$suffix = ($subscriptionId -replace '-', '').Substring(0, 8).ToLowerInvariant()
+$accountName = "codexusagedock-$suffix"
+az artifact-signing check-name-availability `
+  --type Microsoft.CodeSigning/codeSigningAccounts `
+  --name $accountName
+```
 
-The Store publishing CLI currently supports automated updates for free products. Rotate the Partner Center client secret before it expires. Certification and final publication remain asynchronous Microsoft Store processes; use Partner Center to monitor the complete certification result.
+Register `Microsoft.CodeSigning`, create the resource group and Basic account, then complete EU organization identity validation in the Azure portal. Identity validation cannot be completed with Azure CLI. Create `codexusagedock-public` only after the validation succeeds:
 
-## Store identity
+```powershell
+az provider register --namespace Microsoft.CodeSigning
+az group create --name rg-codexusagedock-signing --location westeurope
+az artifact-signing create `
+  --resource-group rg-codexusagedock-signing `
+  --account-name $accountName `
+  --location westeurope `
+  --sku Basic
+az artifact-signing certificate-profile create `
+  --resource-group rg-codexusagedock-signing `
+  --account-name $accountName `
+  --name codexusagedock-public `
+  --profile-type PublicTrust `
+  --identity-validation-id $identityValidationId
+```
 
-- Package name: `TheBeems.CodexUsageDock`
-- Publisher: `CN=F748B633-A4F0-42F4-B6F1-B5BDCAED8E0C`
-- Publisher display name: `TheBeems`
+Copy the exact **Certificate Subject Preview** from the validated profile. Do not reconstruct, abbreviate, or guess the distinguished name: the MSIX manifest publisher and signing-certificate subject must match exactly.
+
+## GitHub OIDC and least privilege
+
+Create a Microsoft Entra application/service principal dedicated to GitHub signing. Add one federated credential with:
+
+- issuer: `https://token.actions.githubusercontent.com`
+- subject: `repo:TheBeems/CodexUsageDock:environment:winget-production`
+- audience: `api://AzureADTokenExchange`
+
+Assign only `Artifact Signing Certificate Profile Signer` to that service principal at this scope:
+
+```text
+/subscriptions/<subscription-id>/resourceGroups/rg-codexusagedock-signing/providers/Microsoft.CodeSigning/codeSigningAccounts/<account-name>/certificateProfiles/codexusagedock-public
+```
+
+Do not create a client secret. The release job has `id-token: write` only while it runs inside the protected `winget-production` environment.
+
+Configure required reviewers on that environment and add these environment variables:
+
+- `AZURE_CLIENT_ID`
+- `AZURE_TENANT_ID`
+- `AZURE_SUBSCRIPTION_ID`
+- `ARTIFACT_SIGNING_ENDPOINT`
+- `ARTIFACT_SIGNING_ACCOUNT_NAME`
+- `ARTIFACT_SIGNING_CERTIFICATE_PROFILE`
+- `ARTIFACT_SIGNING_PUBLISHER`
+
+Add the same `ARTIFACT_SIGNING_PUBLISHER` value as a repository variable. This non-secret mirror lets the unprivileged build job create and validate the bundle before the environment grants OIDC signing access. The protected job fails when the two values differ.
+
+The only signing-related secret is the existing `WINGET_PAT`; it is used for WinGet pull requests, not Azure authentication.
+
+## Signed GitHub release
+
+The **Signed MSIX Release** workflow performs these stages:
+
+1. restore, 31 xUnit tests, and x64/ARM64 Release builds without signing access;
+2. build and inspect one self-contained x64+ARM64 bundle;
+3. wait for `winget-production` approval;
+4. authenticate to Azure with GitHub OIDC and sign only the final bundle with the pinned official Artifact Signing action;
+5. verify the public chain, RFC3161 timestamp, exact subject, version, and architectures with SignTool;
+6. install the bundle on a clean x64 runner, inspect packaged COM and `com.microsoft.commandpalette` registration, and uninstall it;
+7. publish exactly the signed bundle and `SHA256SUMS.txt` for version tags.
+
+Pull requests run only stages 1 and 2 with a non-production CI publisher and one-day unsigned artifact retention. They never request the protected environment or signing permission.
+
+The timestamp authority is `http://timestamp.acs.microsoft.com`. A workflow-dispatch run signs and uploads a temporary Actions artifact but does not create a GitHub release. A tag run refuses to replace an existing release, so published assets remain immutable.
+
+Release `0.2.1` only after a successful workflow-dispatch rehearsal:
+
+```powershell
+git tag -a v0.2.1 -m "Release v0.2.1"
+git push origin v0.2.1
+```
+
+## Initial WinGet publication
+
+Do not construct identity-derived values by hand. After the signed `v0.2.1` asset exists, run WingetCreate against its direct URL. Inspect the generated manifest and set schema version `1.12.0` with:
+
+- `PackageIdentifier: TheBeems.CodexUsageDock`
+- `PackageVersion: 0.2.1`
+- `InstallerType: msix`
+- `Scope: user`
+- `UpgradeBehavior: install`
+- x64 and ARM64 installer nodes that use the same `.msixbundle` URL
+- `PackageFamilyName`, `InstallerSha256`, and `SignatureSha256` derived from the signed bundle
+- `windows-commandpalette-extension` in `Tags`
+- no Windows App Runtime dependency; this project does not reference the Windows App SDK runtime package and both RID packages are self-contained
+
+Validate the generated directory before submission:
+
+```powershell
+winget validate --manifest .\path\to\TheBeems.CodexUsageDock\0.2.1
+winget install --manifest .\path\to\TheBeems.CodexUsageDock\0.2.1
+winget uninstall --id TheBeems.CodexUsageDock --exact
+```
+
+Use the existing `WINGET_PAT` when WingetCreate opens the initial PR. Follow the PR through merge, refresh the public source, and verify:
+
+```powershell
+winget source update --name winget
+winget show --id TheBeems.CodexUsageDock --exact --source winget
+winget install --id TheBeems.CodexUsageDock --exact --source winget
+winget uninstall --id TheBeems.CodexUsageDock --exact --source winget
+```
+
+Keep repository variable `WINGET_AUTOMATION_ENABLED` unset or `false` until those checks pass. Set it to `true` only after the initial PR is merged; `.github/workflows/winget-update.yml` then submits future published bundles with `wingetcreate update --submit`.
+
+## Command Palette Gallery
+
+After WinGet is public, open a separate pull request in `microsoft/CmdPal-Extensions` for:
+
+```text
+extensions/thebeems/codex-usage-dock/
+```
+
+Use `TheBeems.CodexUsageDock` as the install source and `CodexUsageDock/Assets/Square150x150Logo.scale-200.png` as the 300×300 icon. Validate the entry against the current [Command Palette extension Gallery requirements](https://learn.microsoft.com/windows/powertoys/command-palette/extension-gallery).
+
+## Store identity is paused
+
+The unchanged Store identity is:
+
+- package name: `TheBeems.CodexUsageDock`
+- publisher: `CN=F748B633-A4F0-42F4-B6F1-B5BDCAED8E0C`
+- publisher display name: `TheBeems`
 - Store ID: `9NFCPJXQG9FG`
+
+That publisher differs from the Artifact Signing Public Trust subject. Store publication is paused until a separate migration plan resolves the identity conflict. Do not change the Store identity, submit a Store package, or modify release `v0.2.0` as part of the community-WinGet release.
 
 ## Architecture
 
