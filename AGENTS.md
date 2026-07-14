@@ -79,16 +79,20 @@ Do not modify files generated under `bin/`, `obj/`, or `artifacts/` by hand. Do 
 Use the commands appropriate to the change:
 
 ```powershell
-dotnet restore .\CodexUsageDock.sln
-dotnet test .\CodexUsageDock.Tests\CodexUsageDock.Tests.csproj -c Debug -p:Platform=x64
-dotnet build .\CodexUsageDock\CodexUsageDock.csproj -c Debug -p:Platform=x64
+dotnet restore .\CodexUsageDock.Tests\CodexUsageDock.Tests.csproj -p:Platform=x64 -r win-x64 -p:SelfContained=true
+dotnet test .\CodexUsageDock.Tests\CodexUsageDock.Tests.csproj -c Debug -p:Platform=x64 -r win-x64 -p:SelfContained=true --no-restore
+dotnet build .\CodexUsageDock\CodexUsageDock.csproj -c Debug -p:Platform=x64 -r win-x64 --self-contained true
 ```
 
 Also verify ARM64 when changing project files, runtime-sensitive code, native/COM integration, manifests, publishing, or packaging:
 
 ```powershell
-dotnet build .\CodexUsageDock\CodexUsageDock.csproj -c Debug -p:Platform=ARM64
+dotnet restore .\CodexUsageDock.Tests\CodexUsageDock.Tests.csproj -p:Platform=ARM64 -r win-arm64 -p:SelfContained=true
+dotnet test .\CodexUsageDock.Tests\CodexUsageDock.Tests.csproj -c Debug -p:Platform=ARM64 -r win-arm64 -p:SelfContained=true --no-restore
+dotnet build .\CodexUsageDock\CodexUsageDock.csproj -c Debug -p:Platform=ARM64 -r win-arm64 --self-contained true
 ```
+
+Always keep `Platform` and the RID paired (`x64` with `win-x64`, `ARM64` with `win-arm64`). On ARM64 Windows, running the x64 testhost also requires an installed x64 .NET 10 runtime; the application's self-contained RID build does not provide the separate testhost runtime. Prefer the native ARM64 testhost when x64 emulation is not part of the change being verified.
 
 Testing expectations:
 
@@ -96,7 +100,7 @@ Testing expectations:
 - Tests must be deterministic and independent of network access, local Codex authentication, wall-clock timing, locale, and execution order unless the test explicitly controls those inputs.
 - Prefer testing externally observable behavior over implementation details.
 - Do not weaken, skip, or delete a test merely to make a change pass. If expected behavior changes, update the test and explain why.
-- A successful build alone does not prove MSIX registration or Command Palette integration. For integration changes, follow the deployment and reload steps in `DEVELOPMENT.md` and clearly state when manual verification was not performed.
+- A successful build alone does not prove MSIX registration or Command Palette integration. For integration changes, run `scripts/test-integration.ps1`, follow the deployment and **Reload Command Palette Extension** steps in `DEVELOPMENT.md`, and clearly state when manual verification was not performed.
 
 ## Security and Privacy
 

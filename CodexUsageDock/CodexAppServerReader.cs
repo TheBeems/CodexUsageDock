@@ -1,36 +1,60 @@
+using System.Buffers;
 using System.Diagnostics;
+using System.Text;
 using System.Text.Json;
 
 namespace CodexUsageDock;
 
 internal static class CodexAppServerReader
 {
-    internal static async Task<CodexUsageSnapshot> ReadAsync()
+    internal static async Task<CodexUsageSnapshot> ReadAsync(CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         using var process = StartAppServer();
-        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(20));
-        var cancellationToken = timeout.Token;
+        var standardErrorDrain = DrainAsync(process.StandardError);
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(TimeSpan.FromSeconds(20));
+        var readCancellationToken = timeout.Token;
 
         try
         {
-            await SendAsync(process, new
-            {
-                method = "initialize",
-                id = 1,
-                @params = new
+            await SendAsync(
+                process,
+                "initialize",
+                1,
+                static writer =>
                 {
-                    clientInfo = new { name = "codex_usage_dock", title = "Codex Usage Dock", version = CodexUsageDockMetadata.Version },
+                    writer.WritePropertyName("params");
+                    writer.WriteStartObject();
+                    writer.WritePropertyName("clientInfo");
+                    writer.WriteStartObject();
+                    writer.WriteString("name", "codex_usage_dock");
+                    writer.WriteString("title", "Codex Usage Dock");
+                    writer.WriteString("version", CodexUsageDockMetadata.Version);
+                    writer.WriteEndObject();
+                    writer.WriteEndObject();
                 },
-            }, cancellationToken).ConfigureAwait(false);
-            var initializationResponses = await ReadResponsesAsync(process.StandardOutput, cancellationToken, 1).ConfigureAwait(false);
+                readCancellationToken).ConfigureAwait(false);
+            var initializationResponses = await ReadResponsesAsync(process.StandardOutput, readCancellationToken, 1).ConfigureAwait(false);
             using var initializationResponse = initializationResponses[1];
             ThrowIfError(initializationResponse.RootElement);
 
-            await SendAsync(process, new { method = "initialized" }, cancellationToken).ConfigureAwait(false);
-            await SendAsync(process, new { method = "account/rateLimits/read", id = 2 }, cancellationToken).ConfigureAwait(false);
-            await SendAsync(process, new { method = "account/read", id = 3, @params = new { refreshToken = false } }, cancellationToken).ConfigureAwait(false);
+            await SendAsync(process, "initialized", null, null, readCancellationToken).ConfigureAwait(false);
+            await SendAsync(process, "account/rateLimits/read", 2, null, readCancellationToken).ConfigureAwait(false);
+            await SendAsync(
+                process,
+                "account/read",
+                3,
+                static writer =>
+                {
+                    writer.WritePropertyName("params");
+                    writer.WriteStartObject();
+                    writer.WriteBoolean("refreshToken", false);
+                    writer.WriteEndObject();
+                },
+                readCancellationToken).ConfigureAwait(false);
 
-            var responses = await ReadResponsesAsync(process.StandardOutput, cancellationToken, 2, 3).ConfigureAwait(false);
+            var responses = await ReadResponsesAsync(process.StandardOutput, readCancellationToken, 2, 3).ConfigureAwait(false);
             using var rateResponse = responses[2];
             using var accountResponse = responses[3];
 
@@ -57,10 +81,18 @@ internal static class CodexAppServerReader
         }
         finally
         {
-            if (!process.HasExited)
+            try
             {
-                process.Kill(entireProcessTree: true);
+                if (!process.HasExited)
+                {
+                    process.Kill(entireProcessTree: true);
+                }
             }
+            catch (Exception exception) when (exception is InvalidOperationException or System.ComponentModel.Win32Exception or NotSupportedException)
+            {
+            }
+
+            await ObserveProcessExitAsync(process, standardErrorDrain).ConfigureAwait(false);
         }
     }
 
@@ -132,17 +164,24 @@ internal static class CodexAppServerReader
             return null;
         }
 
-        var hasCredits = credits.TryGetProperty("hasCredits", out var hasCreditsValue)
-            && hasCreditsValue.ValueKind is JsonValueKind.True or JsonValueKind.False
-            ? hasCreditsValue.GetBoolean()
-            : credits.TryGetProperty("balance", out var existingBalance) && existingBalance.ValueKind != JsonValueKind.Null;
         var unlimited = credits.TryGetProperty("unlimited", out var unlimitedValue)
             && unlimitedValue.ValueKind is JsonValueKind.True or JsonValueKind.False
             && unlimitedValue.GetBoolean();
-        var balance = credits.TryGetProperty("balance", out var balanceValue)
-            && balanceValue.ValueKind != JsonValueKind.Null
-            ? balanceValue.ToString()
-            : null;
+        string? balance = null;
+        if (credits.TryGetProperty("balance", out var balanceValue))
+        {
+            balance = balanceValue.ValueKind switch
+            {
+                JsonValueKind.String => UsageText.SanitizeExternal(balanceValue.GetString(), 64),
+                JsonValueKind.Number => UsageText.SanitizeExternal(balanceValue.GetRawText(), 64),
+                _ => null,
+            };
+        }
+
+        var hasCredits = credits.TryGetProperty("hasCredits", out var hasCreditsValue)
+            && hasCreditsValue.ValueKind is JsonValueKind.True or JsonValueKind.False
+            ? hasCreditsValue.GetBoolean()
+            : balance is not null;
         return new CreditBalance(hasCredits, unlimited, balance);
     }
 
@@ -151,7 +190,9 @@ internal static class CodexAppServerReader
         if (!result.TryGetProperty("rateLimitResetCredits", out var resets)
             || resets.ValueKind != JsonValueKind.Object
             || !resets.TryGetProperty("availableCount", out var count)
-            || !count.TryGetInt32(out var availableCount))
+            || count.ValueKind != JsonValueKind.Number
+            || !count.TryGetInt32(out var availableCount)
+            || availableCount < 0)
         {
             return null;
         }
@@ -175,15 +216,23 @@ internal static class CodexAppServerReader
             }
 
             var title = credit.TryGetProperty("title", out var titleValue) && titleValue.ValueKind == JsonValueKind.String
-                ? titleValue.GetString()
+                ? UsageText.SanitizeExternal(titleValue.GetString())
                 : null;
             var status = credit.TryGetProperty("status", out var statusValue) && statusValue.ValueKind == JsonValueKind.String
-                ? statusValue.GetString()
+                ? UsageText.SanitizeExternal(statusValue.GetString(), 32)
                 : null;
             DateTimeOffset? expiresAt = null;
-            if (credit.TryGetProperty("expiresAt", out var expiresValue) && expiresValue.TryGetInt64(out var seconds))
+            if (credit.TryGetProperty("expiresAt", out var expiresValue)
+                && expiresValue.ValueKind == JsonValueKind.Number
+                && expiresValue.TryGetInt64(out var seconds))
             {
-                expiresAt = DateTimeOffset.FromUnixTimeSeconds(seconds);
+                try
+                {
+                    expiresAt = DateTimeOffset.FromUnixTimeSeconds(seconds);
+                }
+                catch (ArgumentOutOfRangeException)
+                {
+                }
             }
 
             parsed.Add(new RateLimitResetCredit(title, status, expiresAt));
@@ -206,14 +255,7 @@ internal static class CodexAppServerReader
             RedirectStandardError = true,
             CreateNoWindow = true,
         };
-        var process = Process.Start(startInfo) ?? throw new InvalidOperationException("Codex app-server could not be started.");
-        _ = Task.Run(async () =>
-        {
-            while (await process.StandardError.ReadLineAsync().ConfigureAwait(false) is not null)
-            {
-            }
-        });
-        return process;
+        return Process.Start(startInfo) ?? throw new InvalidOperationException("Codex app-server could not be started.");
     }
 
     private static string FindCodexExecutable()
@@ -270,11 +312,73 @@ internal static class CodexAppServerReader
         return path.StartsWith(fullDirectory, StringComparison.OrdinalIgnoreCase);
     }
 
-    private static async Task SendAsync(Process process, object message, CancellationToken cancellationToken)
+    internal static string CreateRequestJson(string method, int? id, Action<Utf8JsonWriter>? writeParameters = null)
     {
-        var json = JsonSerializer.Serialize(message);
+        var buffer = new ArrayBufferWriter<byte>();
+        using (var writer = new Utf8JsonWriter(buffer))
+        {
+            writer.WriteStartObject();
+            writer.WriteString("method", method);
+            if (id.HasValue)
+            {
+                writer.WriteNumber("id", id.Value);
+            }
+
+            writeParameters?.Invoke(writer);
+            writer.WriteEndObject();
+        }
+
+        return Encoding.UTF8.GetString(buffer.WrittenSpan);
+    }
+
+    private static async Task SendAsync(
+        Process process,
+        string method,
+        int? id,
+        Action<Utf8JsonWriter>? writeParameters,
+        CancellationToken cancellationToken)
+    {
+        var json = CreateRequestJson(method, id, writeParameters);
         await process.StandardInput.WriteLineAsync(json.AsMemory(), cancellationToken).ConfigureAwait(false);
         await process.StandardInput.FlushAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    private static async Task DrainAsync(TextReader standardError)
+    {
+        try
+        {
+            while (await standardError.ReadLineAsync().ConfigureAwait(false) is not null)
+            {
+            }
+        }
+        catch (IOException)
+        {
+        }
+        catch (ObjectDisposedException)
+        {
+        }
+    }
+
+    private static async Task ObserveProcessExitAsync(Process process, Task standardErrorDrain)
+    {
+        try
+        {
+            await process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(2)).ConfigureAwait(false);
+        }
+        catch (Exception exception) when (exception is InvalidOperationException or System.ComponentModel.Win32Exception or NotSupportedException)
+        {
+        }
+        catch (TimeoutException)
+        {
+        }
+
+        try
+        {
+            await standardErrorDrain.WaitAsync(TimeSpan.FromSeconds(2)).ConfigureAwait(false);
+        }
+        catch (TimeoutException)
+        {
+        }
     }
 
     private static void ThrowIfError(JsonElement response)
@@ -296,6 +400,6 @@ internal static class CodexAppServerReader
             return null;
         }
 
-        return plan.GetString();
+        return UsageText.SanitizeExternal(plan.GetString(), 32);
     }
 }

@@ -8,16 +8,25 @@ Each entry links to the commit or pull request that introduced the change.
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-07-14
+
 ### Added
 
+- A pre-Store integration smoke check now validates package registration, COM and AppExtension metadata, and Command Palette readiness on x64 and ARM64. [PR #6](https://github.com/TheBeems/CodexUsageDock/pull/6)
 - Per-extension Dock display settings for the five-hour limit, weekly limit, resets and credits, reset times, and refresh interval. [commit 9ea548d](https://github.com/TheBeems/CodexUsageDock/commit/9ea548d)
 - Repository contribution rules now require every change to update this changelog and link its entry to the implementing commit or pull request before it is committed or merged. [commit 192f313](https://github.com/TheBeems/CodexUsageDock/commit/192f313)
 
 ### Changed
 
+- Usage refreshes now coalesce overlapping requests, show progress, cancel safely during shutdown, and report privacy-safe errors when live and fallback sources are unavailable. [PR #6](https://github.com/TheBeems/CodexUsageDock/pull/6)
+- Store packaging now uses a consistent Codex Usage visual identity, validates artwork independently of host-specific PNG encoding and anti-aliasing, checks the complete required asset set, targets current Windows behavior, requests only the required full-trust capability, and uses isolated NuGet and build state. [PR #6](https://github.com/TheBeems/CodexUsageDock/pull/6)
 - The details page now distinguishes the standalone Codex CLI app-server from local session metadata, which may have been written by another local Codex client. [commit 192f313](https://github.com/TheBeems/CodexUsageDock/commit/192f313)
 - Future production releases use the Microsoft Store as the sole distribution and update channel. [commit 0440e98](https://github.com/TheBeems/CodexUsageDock/commit/0440e98cb1aaa01d75595e52fdb0fcd333378006)
 - The Store release workflow now takes its version from the project file, avoiding a separately maintained release version. [commit 4a10eb2](https://github.com/TheBeems/CodexUsageDock/commit/4a10eb2a94f16d55b59fdefe790c79b3d4f98e17)
+
+### Fixed
+
+- App-server requests are trimming-safe, malformed reset-credit fields and external display text no longer break or distort live data, locale-sensitive reset formatting is explicit, and the details-page title is spelled correctly. [PR #6](https://github.com/TheBeems/CodexUsageDock/pull/6)
 
 ### Removed
 
@@ -50,6 +59,7 @@ Each entry links to the commit or pull request that introduced the change.
 - Initial release of the Windows Command Palette extension for viewing local Codex usage. [commit ac72fe5](https://github.com/TheBeems/CodexUsageDock/commit/ac72fe50fcd1af36f41cda896f1d792899573351)
 - Automated release installer creation and smoke-test handling. [commit 64a3305](https://github.com/TheBeems/CodexUsageDock/commit/64a33058b7486dea12f026561c545b362eb2d622), [commit 21790a1](https://github.com/TheBeems/CodexUsageDock/commit/21790a1ea60a9bfec14ec578d77356c5576472fb)
 
-[Unreleased]: https://github.com/TheBeems/CodexUsageDock/compare/v0.2.0...main
+[Unreleased]: https://github.com/TheBeems/CodexUsageDock/compare/v0.3.0...main
+[0.3.0]: https://github.com/TheBeems/CodexUsageDock/releases/tag/v0.3.0
 [0.2.0]: https://github.com/TheBeems/CodexUsageDock/releases/tag/v0.2.0
 [0.1.0]: https://github.com/TheBeems/CodexUsageDock/releases/tag/v0.1.0

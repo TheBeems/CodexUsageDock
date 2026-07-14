@@ -14,7 +14,7 @@ internal sealed partial class CodexUsageDockPage : ContentPage, IDisposable
         _usage = usage;
         _usage.Updated += OnUpdated;
         Id = "nl.mathijs.codexusage.details";
-        Title = $"Codex Usuage - {Version}";
+        Title = $"Codex Usage - {Version}";
         Name = "Open";
         Commands =
         [
@@ -32,7 +32,9 @@ internal sealed partial class CodexUsageDockPage : ContentPage, IDisposable
         return
         [
             new MarkdownContent($"""
-                # Codex Usuage - {Version}
+                # Codex Usage - {Version}
+
+                {FormatRefreshStatus(_usage.IsLoading)}
 
                 {FormatSummary(snapshot, now)}
 
@@ -40,7 +42,7 @@ internal sealed partial class CodexUsageDockPage : ContentPage, IDisposable
 
                 {FormatWindow("Weekly window", snapshot.Secondary, now)}
 
-                {FormatTrend(_usage.PrimaryHistory, now)}
+                {FormatTrend(_usage.PrimaryHistory, now, snapshot.Source != UsageDataSource.Unavailable)}
 
                 ## Resets and credits
 
@@ -53,10 +55,14 @@ internal sealed partial class CodexUsageDockPage : ContentPage, IDisposable
                 - **Plan:** {FormatPlan(snapshot.PlanType)}
                 - **Status:** {FormatDataStatus(snapshot, now)}
                 - **Source:** {snapshot.SourceDisplayName}
-                {FormatError(snapshot.Error)}
+                {FormatError(snapshot)}
                 """),
         ];
     }
+
+    internal static string FormatRefreshStatus(bool isLoading) => isLoading
+        ? "> ⏳ **Refreshing Codex usage…**"
+        : string.Empty;
 
     internal static string FormatSummary(CodexUsageSnapshot snapshot, DateTimeOffset now)
     {
@@ -91,8 +97,9 @@ internal sealed partial class CodexUsageDockPage : ContentPage, IDisposable
             return "Unlimited";
         }
 
-        return credits.HasCredits && !string.IsNullOrWhiteSpace(credits.Balance)
-            ? credits.Balance
+        var balance = UsageText.SanitizeExternal(credits.Balance, 64);
+        return credits.HasCredits && balance is not null
+            ? UsageText.EscapeMarkdown(balance)
             : "no available balance";
     }
 
@@ -105,10 +112,12 @@ internal sealed partial class CodexUsageDockPage : ContentPage, IDisposable
 
         var lines = credits.Select((credit, index) =>
         {
-            var title = string.IsNullOrWhiteSpace(credit.Title) ? $"Reset {index + 1}" : credit.Title;
+            var title = UsageText.SanitizeExternal(credit.Title) is { } externalTitle
+                ? UsageText.EscapeMarkdown(externalTitle)
+                : $"Reset {index + 1}";
             var expiry = credit.ExpiresAt is null
                 ? "expiration unknown"
-                : $"expires {credit.ExpiresAt.Value.ToLocalTime():ddd d MMM HH:mm}";
+                : $"expires {FormatLocalTime(credit.ExpiresAt.Value, "ddd d MMM HH:mm")}";
             return $"  - **{title}:** {expiry}";
         }).ToList();
 
@@ -127,7 +136,7 @@ internal sealed partial class CodexUsageDockPage : ContentPage, IDisposable
             return $"## {name}\n\n⚪ {inactiveMessage ?? "Not available"}";
         }
 
-        return $"## {name}\n\n{ProgressBar(window.RemainingPercent)} **{window.RemainingPercent:0}% available**  \nResets {FormatRelativeTime(window.ResetsAt, now)} · {window.ResetsAt.ToLocalTime():ddd d MMM HH:mm}";
+        return $"## {name}\n\n{ProgressBar(window.RemainingPercent)} **{window.RemainingPercent:0}% available**  \nResets {FormatRelativeTime(window.ResetsAt, now)} · {FormatLocalTime(window.ResetsAt, "ddd d MMM HH:mm")}";
     }
 
     internal static string ProgressBar(double remainingPercent)
@@ -155,12 +164,17 @@ internal sealed partial class CodexUsageDockPage : ContentPage, IDisposable
         }
 
         var local = target.ToLocalTime();
-        if (local.Date == now.ToLocalTime().Date.AddDays(1)) return $"tomorrow at {local:HH:mm}";
+        if (local.Date == now.ToLocalTime().Date.AddDays(1)) return $"tomorrow at {local.ToString("HH:mm", CultureInfo.CurrentCulture)}";
         return $"in {(int)Math.Ceiling(duration.TotalDays)} days";
     }
 
-    internal static string FormatTrend(IReadOnlyList<UsageHistoryEntry> history, DateTimeOffset now)
+    internal static string FormatTrend(IReadOnlyList<UsageHistoryEntry> history, DateTimeOffset now, bool dataAvailable = true)
     {
+        if (!dataAvailable)
+        {
+            return "## Usage trend\n\nUnavailable until a fresh usage sample is loaded.";
+        }
+
         var segmentStart = 0;
         for (var index = 1; index < history.Count; index++)
         {
@@ -194,7 +208,7 @@ internal sealed partial class CodexUsageDockPage : ContentPage, IDisposable
 
         var minutesToEmpty = last.RemainingPercent / (consumed / elapsedMinutes);
         var estimated = last.RecordedAt.AddMinutes(minutesToEmpty);
-        return $"## Usage trend\n\n{values}  \n*Estimate at the current rate: limit around {estimated.ToLocalTime():HH:mm}.*";
+        return $"## Usage trend\n\n{values}  \n*Estimate at the current rate: limit around {FormatLocalTime(estimated, "HH:mm")}.*";
     }
 
     internal static string FormatResetSummary(RateLimitResetCredits? resets, DateTimeOffset now)
@@ -207,31 +221,52 @@ internal sealed partial class CodexUsageDockPage : ContentPage, IDisposable
 
     internal static string FormatDataStatus(CodexUsageSnapshot snapshot, DateTimeOffset now)
     {
+        if (snapshot.Source == UsageDataSource.Unavailable)
+        {
+            return $"Data not available · last attempt at {FormatLocalTime(snapshot.UpdatedAt, "HH:mm")}";
+        }
+
         var age = now - snapshot.UpdatedAt;
         var freshness = age < TimeSpan.FromMinutes(2)
-            ? $"just updated at {snapshot.UpdatedAt.ToLocalTime():HH:mm}"
+            ? $"just updated at {FormatLocalTime(snapshot.UpdatedAt, "HH:mm")}"
             : $"possibly outdated · updated {FormatRelativeAge(age)} ago";
         var mode = snapshot.Source switch
         {
             UsageDataSource.AppServer => "Live",
             UsageDataSource.LocalSession => "Local fallback data",
             UsageDataSource.Initializing => "Loading data",
+            UsageDataSource.Unavailable => "Data not available",
             _ => "Data not available",
         };
         return $"{mode} · {freshness}";
     }
 
-    internal static string FormatPlan(string? plan) => string.IsNullOrWhiteSpace(plan)
-        ? "Unknown"
-        : CultureInfo.CurrentCulture.TextInfo.ToTitleCase(plan.Replace('_', ' '));
+    internal static string FormatPlan(string? plan)
+    {
+        var safePlan = UsageText.SanitizeExternal(plan, 32);
+        return safePlan is null
+            ? "Unknown"
+            : UsageText.EscapeMarkdown(CultureInfo.CurrentCulture.TextInfo.ToTitleCase(safePlan.Replace('_', ' ')));
+    }
 
     private static string FormatRelativeAge(TimeSpan age) => age < TimeSpan.FromHours(1)
         ? $"{Math.Max(1, (int)age.TotalMinutes)} minutes"
         : age < TimeSpan.FromDays(1) ? $"{(int)age.TotalHours} hours" : $"{(int)age.TotalDays} days";
 
-    internal static string FormatError(string? error) => error is null
-        ? string.Empty
-        : $"> ⚠ **Live Codex data is unavailable. Showing local fallback data.**  \n> {error}";
+    internal static string FormatError(CodexUsageSnapshot snapshot)
+    {
+        if (snapshot.Source == UsageDataSource.LocalSession && snapshot.Error is not null)
+        {
+            return $"> ⚠ **Live Codex data is unavailable. Showing local fallback data.**  \n> {CodexUsageService.LiveDataUnavailableMessage}";
+        }
+
+        return snapshot.Source == UsageDataSource.Unavailable
+            ? $"> ⚠ **Codex usage data is unavailable.**  \n> {CodexUsageService.AllDataUnavailableMessage}"
+            : string.Empty;
+    }
+
+    private static string FormatLocalTime(DateTimeOffset value, string format) =>
+        value.ToLocalTime().ToString(format, CultureInfo.CurrentCulture);
 
     private void OnUpdated(object? sender, EventArgs e) => RaiseItemsChanged(0);
 
