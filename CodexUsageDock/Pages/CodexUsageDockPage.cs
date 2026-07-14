@@ -42,7 +42,9 @@ internal sealed partial class CodexUsageDockPage : ContentPage, IDisposable
 
                 {FormatWindow("Weekly window", snapshot.Secondary, now)}
 
-                {FormatTrend(_usage.PrimaryHistory, now, snapshot.Source != UsageDataSource.Unavailable)}
+                {FormatTrend("5-hour usage trend", _usage.PrimaryHistory, snapshot.Primary, now, snapshot.Source != UsageDataSource.Unavailable, TrendFreshness(_usage.RefreshInterval))}
+
+                {FormatTrend("Weekly usage trend", _usage.WeeklyHistory, snapshot.Secondary, now, snapshot.Source != UsageDataSource.Unavailable, TrendFreshness(_usage.RefreshInterval))}
 
                 ## Resets and credits
 
@@ -168,11 +170,36 @@ internal sealed partial class CodexUsageDockPage : ContentPage, IDisposable
         return $"in {(int)Math.Ceiling(duration.TotalDays)} days";
     }
 
-    internal static string FormatTrend(IReadOnlyList<UsageHistoryEntry> history, DateTimeOffset now, bool dataAvailable = true)
+    internal static string FormatTrend(IReadOnlyList<UsageHistoryEntry> history, DateTimeOffset now, bool dataAvailable = true) =>
+        FormatTrendForReset("Usage trend", history, null, now, dataAvailable, TimeSpan.FromMinutes(5));
+
+    internal static string FormatTrend(
+        string title,
+        IReadOnlyList<UsageHistoryEntry> history,
+        RateLimitWindow? window,
+        DateTimeOffset now,
+        bool dataAvailable,
+        TimeSpan maximumSampleAge)
+    {
+        if (window is null)
+        {
+            return string.Empty;
+        }
+
+        return FormatTrendForReset(title, history, window.ResetsAt, now, dataAvailable, maximumSampleAge);
+    }
+
+    private static string FormatTrendForReset(
+        string title,
+        IReadOnlyList<UsageHistoryEntry> history,
+        DateTimeOffset? resetsAt,
+        DateTimeOffset now,
+        bool dataAvailable,
+        TimeSpan maximumSampleAge)
     {
         if (!dataAvailable)
         {
-            return "## Usage trend\n\nUnavailable until a fresh usage sample is loaded.";
+            return $"## {title}\n\nUnavailable until a fresh usage sample is loaded.";
         }
 
         var segmentStart = 0;
@@ -187,7 +214,7 @@ internal sealed partial class CodexUsageDockPage : ContentPage, IDisposable
         var currentWindow = history.Skip(segmentStart).ToArray();
         if (currentWindow.Length < 2)
         {
-            return "## Usage trend\n\nNot enough history for an estimate yet.";
+            return $"## {title}\n\nNot enough history for an estimate yet.";
         }
 
         var samples = currentWindow.Length <= 5 ? currentWindow : currentWindow.Where((_, index) => index % Math.Max(1, currentWindow.Length / 4) == 0).Take(4).Append(currentWindow[^1]).ToArray();
@@ -198,18 +225,27 @@ internal sealed partial class CodexUsageDockPage : ContentPage, IDisposable
         var consumed = first.RemainingPercent - last.RemainingPercent;
         if (elapsedMinutes < 2 || consumed <= 0.5)
         {
-            return $"## Usage trend\n\n{values}  \nNot enough change for a reliable estimate yet.";
+            return $"## {title}\n\n{values}  \nNot enough change for a reliable estimate yet.";
         }
 
-        if (now - last.RecordedAt > TimeSpan.FromMinutes(5))
+        if (now - last.RecordedAt > maximumSampleAge)
         {
-            return $"## Usage trend\n\n{values}  \nThe latest measurement is too old for a reliable estimate.";
+            return $"## {title}\n\n{values}  \nThe latest measurement is too old for a reliable estimate.";
         }
 
         var minutesToEmpty = last.RemainingPercent / (consumed / elapsedMinutes);
         var estimated = last.RecordedAt.AddMinutes(minutesToEmpty);
-        return $"## Usage trend\n\n{values}  \n*Estimate at the current rate: limit around {FormatLocalTime(estimated, "HH:mm")}.*";
+        if (resetsAt is { } reset && estimated >= reset)
+        {
+            var remainingAtReset = Math.Max(0, last.RemainingPercent - (consumed / elapsedMinutes) * (reset - last.RecordedAt).TotalMinutes);
+            return $"## {title}\n\n{values}  \n*Estimate at the current rate: {remainingAtReset:0}% available at reset.*";
+        }
+
+        return $"## {title}\n\n{values}  \n*Estimate at the current rate: limit around {FormatLocalTime(estimated, "HH:mm")}.*";
     }
+
+    private static TimeSpan TrendFreshness(TimeSpan refreshInterval) =>
+        refreshInterval > TimeSpan.FromMinutes(5) ? refreshInterval : TimeSpan.FromMinutes(5);
 
     internal static string FormatResetSummary(RateLimitResetCredits? resets, DateTimeOffset now)
     {

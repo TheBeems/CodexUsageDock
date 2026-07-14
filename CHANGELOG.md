@@ -8,6 +8,15 @@ Each entry links to the commit or pull request that introduced the change.
 
 ## [Unreleased]
 
+### Added
+
+- Separate five-hour and weekly usage trends, including a local rolling seven-day weekly history that survives Command Palette restarts.
+
+### Fixed
+
+- Five-hour trend history is no longer shown while the five-hour limit is inactive.
+- Development and CI now use the published .NET SDK 10.0.301, avoiding restores for unavailable 10.0.10 runtime packs.
+
 ## [0.3.0] - 2026-07-14
 
 ### Added

@@ -11,6 +11,8 @@ internal sealed partial class CodexUsageService : IDisposable
     private readonly object _historyLock = new();
     private readonly object _refreshStateLock = new();
     private readonly List<UsageHistoryEntry> _primaryHistory = [];
+    private readonly List<UsageHistoryEntry> _weeklyHistory = [];
+    private readonly WeeklyUsageHistoryStore _weeklyHistoryStore;
     private readonly CancellationTokenSource _lifetimeCancellation = new();
     private readonly Func<CancellationToken, Task<CodexUsageSnapshot>> _appServerReader;
     private readonly Func<CancellationToken, CodexUsageSnapshot> _localSessionReader;
@@ -26,16 +28,20 @@ internal sealed partial class CodexUsageService : IDisposable
 
     internal CodexUsageService(
         Func<CancellationToken, Task<CodexUsageSnapshot>> appServerReader,
-        Func<CancellationToken, CodexUsageSnapshot> localSessionReader)
+        Func<CancellationToken, CodexUsageSnapshot> localSessionReader,
+        WeeklyUsageHistoryStore? weeklyHistoryStore = null)
     {
         _appServerReader = appServerReader;
         _localSessionReader = localSessionReader;
+        _weeklyHistoryStore = weeklyHistoryStore ?? WeeklyUsageHistoryStore.CreateDefault();
+        _weeklyHistory.AddRange(_weeklyHistoryStore.Load(DateTimeOffset.Now));
     }
 
     internal CodexUsageService(
         Func<CancellationToken, Task<CodexUsageSnapshot>> appServerReader,
-        Func<CodexUsageSnapshot> localSessionReader)
-        : this(appServerReader, _ => localSessionReader())
+        Func<CodexUsageSnapshot> localSessionReader,
+        WeeklyUsageHistoryStore? weeklyHistoryStore = null)
+        : this(appServerReader, _ => localSessionReader(), weeklyHistoryStore)
     {
     }
 
@@ -62,6 +68,19 @@ internal sealed partial class CodexUsageService : IDisposable
             }
         }
     }
+
+    public IReadOnlyList<UsageHistoryEntry> WeeklyHistory
+    {
+        get
+        {
+            lock (_historyLock)
+            {
+                return _weeklyHistory.ToArray();
+            }
+        }
+    }
+
+    public TimeSpan RefreshInterval => TimeSpan.FromMilliseconds(_timer.Interval);
 
     public event EventHandler? Updated;
 
@@ -122,20 +141,34 @@ internal sealed partial class CodexUsageService : IDisposable
         lock (_historyLock)
         {
             var now = recordedAt ?? DateTimeOffset.Now;
-            var cutoff = now - TimeSpan.FromHours(5);
-            _primaryHistory.RemoveAll(entry => entry.RecordedAt < cutoff);
-            if (snapshot.Primary is null || snapshot.UpdatedAt < cutoff)
+            RecordWindowHistory(_primaryHistory, snapshot.Primary, snapshot.UpdatedAt, now, now - TimeSpan.FromHours(5));
+            if (RecordWindowHistory(_weeklyHistory, snapshot.Secondary, snapshot.UpdatedAt, now, now - TimeSpan.FromDays(7)))
             {
-                return;
+                _weeklyHistoryStore.Save(_weeklyHistory);
             }
-
-            if (_primaryHistory.Count > 0 && snapshot.UpdatedAt <= _primaryHistory[^1].RecordedAt)
-            {
-                return;
-            }
-
-            _primaryHistory.Add(new UsageHistoryEntry(snapshot.UpdatedAt, snapshot.Primary.RemainingPercent));
         }
+    }
+
+    private static bool RecordWindowHistory(
+        List<UsageHistoryEntry> history,
+        RateLimitWindow? window,
+        DateTimeOffset updatedAt,
+        DateTimeOffset now,
+        DateTimeOffset cutoff)
+    {
+        var changed = history.RemoveAll(entry => entry.RecordedAt < cutoff) > 0;
+        if (window is null || updatedAt < cutoff || updatedAt > now || !double.IsFinite(window.RemainingPercent))
+        {
+            return changed;
+        }
+
+        if (history.Count > 0 && updatedAt <= history[^1].RecordedAt)
+        {
+            return changed;
+        }
+
+        history.Add(new UsageHistoryEntry(updatedAt, window.RemainingPercent));
+        return true;
     }
 
     private async Task ExecuteRefreshAsync(TaskCompletionSource completion, CancellationToken cancellationToken)

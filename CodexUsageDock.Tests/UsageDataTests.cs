@@ -799,4 +799,176 @@ public sealed class UsageDataTests
 
         Assert.Empty(service.PrimaryHistory);
     }
+
+    [Fact]
+    public void WeeklyHistoryStorePersistsAndRestoresValidSamples()
+    {
+        var temporaryDirectory = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
+        var path = Path.Combine(temporaryDirectory, "weekly-history.json");
+        var now = DateTimeOffset.Now;
+        try
+        {
+            var store = new WeeklyUsageHistoryStore(path);
+            UsageHistoryEntry[] entries =
+            [
+                new(now.AddHours(-2), 80),
+                new(now.AddMinutes(-1), 70),
+            ];
+
+            store.Save(entries);
+
+            Assert.Equal(entries, store.Load(now).ToArray());
+        }
+        finally
+        {
+            Directory.Delete(temporaryDirectory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void WeeklyHistoryStoreIgnoresCorruptAndExpiredEntries()
+    {
+        var temporaryDirectory = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
+        var path = Path.Combine(temporaryDirectory, "weekly-history.json");
+        var now = DateTimeOffset.Now;
+        try
+        {
+            Directory.CreateDirectory(temporaryDirectory);
+            File.WriteAllText(path, "not json");
+            var store = new WeeklyUsageHistoryStore(path);
+
+            Assert.Empty(store.Load(now));
+
+            store.Save(
+            [
+                new UsageHistoryEntry(now.AddDays(-8), 80),
+                new UsageHistoryEntry(now.AddMinutes(1), 60),
+                new UsageHistoryEntry(now.AddMinutes(-1), 70),
+            ]);
+
+            var entry = Assert.Single(store.Load(now));
+            Assert.Equal(70, entry.RemainingPercent);
+        }
+        finally
+        {
+            Directory.Delete(temporaryDirectory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void WeeklyHistoryPersistsAcrossServiceRestartsAndStaysSeparateFromFiveHourHistory()
+    {
+        var temporaryDirectory = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
+        var path = Path.Combine(temporaryDirectory, "weekly-history.json");
+        var now = DateTimeOffset.Now;
+        var snapshot = CodexUsageSnapshot.Loading with
+        {
+            Primary = new RateLimitWindow(20, 300, now.AddHours(4)),
+            Secondary = new RateLimitWindow(40, 10080, now.AddDays(6)),
+            UpdatedAt = now,
+            Source = UsageDataSource.AppServer,
+        };
+        try
+        {
+            using (var service = new CodexUsageService(_ => Task.FromResult(snapshot), () => snapshot, new WeeklyUsageHistoryStore(path)))
+            {
+                service.RecordHistory(snapshot, now);
+                service.RecordHistory(snapshot, now);
+
+                Assert.Single(service.PrimaryHistory);
+                Assert.Single(service.WeeklyHistory);
+            }
+
+            using var restarted = new CodexUsageService(_ => Task.FromResult(snapshot), () => snapshot, new WeeklyUsageHistoryStore(path));
+            Assert.Empty(restarted.PrimaryHistory);
+            Assert.Single(restarted.WeeklyHistory);
+        }
+        finally
+        {
+            Directory.Delete(temporaryDirectory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void FiveHourTrendIsNotRenderedWhenFiveHourWindowIsInactive()
+    {
+        var now = DateTimeOffset.Now;
+        var trend = CodexUsageDockPage.FormatTrend(
+            "5-hour usage trend",
+            [new UsageHistoryEntry(now.AddMinutes(-30), 80), new UsageHistoryEntry(now, 60)],
+            window: null,
+            now: now,
+            dataAvailable: true,
+            maximumSampleAge: TimeSpan.FromMinutes(5));
+
+        Assert.Empty(trend);
+    }
+
+    [Fact]
+    public void WeeklyTrendEstimatesRemainingAllowanceAtResetWhenLimitWillNotBeReached()
+    {
+        var now = DateTimeOffset.Now;
+        var trend = CodexUsageDockPage.FormatTrend(
+            "Weekly usage trend",
+            [new UsageHistoryEntry(now.AddDays(-1), 80), new UsageHistoryEntry(now, 70)],
+            new RateLimitWindow(30, 10080, now.AddDays(3)),
+            now,
+            dataAvailable: true,
+            maximumSampleAge: TimeSpan.FromMinutes(5));
+
+        Assert.Contains("Weekly usage trend", trend, StringComparison.Ordinal);
+        Assert.Contains("40% available at reset", trend, StringComparison.Ordinal);
+        Assert.DoesNotContain("limit around", trend, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void WeeklyTrendEstimatesLimitWhenConsumptionWillExceedAllowanceBeforeReset()
+    {
+        var now = DateTimeOffset.Now;
+        var trend = CodexUsageDockPage.FormatTrend(
+            "Weekly usage trend",
+            [new UsageHistoryEntry(now.AddHours(-1), 30), new UsageHistoryEntry(now, 10)],
+            new RateLimitWindow(90, 10080, now.AddDays(3)),
+            now,
+            dataAvailable: true,
+            maximumSampleAge: TimeSpan.FromMinutes(5));
+
+        Assert.Contains("limit around", trend, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void WeeklyTrendUsesOnlySamplesAfterTheLatestWeeklyReset()
+    {
+        var now = DateTimeOffset.Now;
+        var trend = CodexUsageDockPage.FormatTrend(
+            "Weekly usage trend",
+            [
+                new UsageHistoryEntry(now.AddHours(-3), 10),
+                new UsageHistoryEntry(now.AddHours(-2), 5),
+                new UsageHistoryEntry(now.AddHours(-1), 100),
+                new UsageHistoryEntry(now, 80),
+            ],
+            new RateLimitWindow(20, 10080, now.AddDays(6)),
+            now,
+            dataAvailable: true,
+            maximumSampleAge: TimeSpan.FromMinutes(5));
+
+        Assert.Contains("100% → 80%", trend, StringComparison.Ordinal);
+        Assert.DoesNotContain("10%", trend, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void TrendAllowsFreshnessMatchingTheConfiguredRefreshInterval()
+    {
+        var now = DateTimeOffset.Now;
+        var trend = CodexUsageDockPage.FormatTrend(
+            "Weekly usage trend",
+            [new UsageHistoryEntry(now.AddHours(-1), 80), new UsageHistoryEntry(now.AddMinutes(-10), 70)],
+            new RateLimitWindow(30, 10080, now.AddDays(3)),
+            now,
+            dataAvailable: true,
+            maximumSampleAge: TimeSpan.FromMinutes(15));
+
+        Assert.DoesNotContain("too old for a reliable estimate", trend, StringComparison.Ordinal);
+    }
 }

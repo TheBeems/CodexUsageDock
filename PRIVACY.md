@@ -1,6 +1,6 @@
 # Privacy Policy
 
-Last updated: July 12, 2026
+Last updated: July 14, 2026
 
 Codex Usage Dock is a local Windows extension for PowerToys Command Palette. It displays Codex usage limits, earned resets, reset expiry times, and available credits in the Command Palette Dock.
 
@@ -16,7 +16,7 @@ Communication initiated by the extension is limited to the local Codex app-serve
 
 ## Data storage
 
-The extension does not create an external user account or remote database. Settings and temporary runtime state remain on the user's Windows device.
+The extension does not create an external user account or remote database. Settings and temporary runtime state remain on the user's Windows device. To keep the weekly usage trend available after Command Palette restarts, it stores a rolling maximum of seven days of local timestamps and remaining weekly-percentage measurements. This file contains no account, session, prompt, or message content and is never transmitted.
 
 ## Permissions
 

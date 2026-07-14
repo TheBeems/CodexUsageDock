@@ -1,0 +1,11 @@
+{
+  "sdk": {
+    "version": "10.0.301",
+    "rollForward": "disable",
+    "paths": [
+      ".dotnet",
+      "$host$"
+    ],
+    "errorMessage": "Install the pinned SDK with .\\scripts\\install-dotnet-sdk.ps1 before building Codex Usage Dock."
+  }
+}

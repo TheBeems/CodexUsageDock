@@ -3,10 +3,16 @@
 ## Prerequisites
 
 - Windows 10 build 19041 or newer, or Windows 11
-- .NET 10 SDK
+- .NET SDK 10.0.301 (the repository pins this version in `global.json`)
 - PowerToys 0.100.0 or newer
 - Windows SDK with `makeappx.exe` for Store packaging
 - Visual Studio 2022 with Windows application development tools for interactive packaging work
+
+If SDK 10.0.301 is not installed system-wide, run the following once from the repository root. It installs the pinned SDK for the current machine architecture only in the ignored `.dotnet/` folder used by this repository:
+
+```powershell
+.\scripts\install-dotnet-sdk.ps1
+```
 
 ## Build and register the development package
 

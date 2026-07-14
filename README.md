@@ -64,7 +64,7 @@ Microsoft Store product `9NFCPJXQG9FG` is the only production and update channel
 
 ## Privacy
 
-The extension runs locally. It talks to the standalone Codex CLI app-server and may read local Codex session metadata for its fallback path. It does not send usage information to a separate service.
+The extension runs locally. It talks to the standalone Codex CLI app-server and may read local Codex session metadata for its fallback path. It keeps a rolling seven-day weekly usage trend on the device and does not send usage information to a separate service.
 
 See the full [Privacy Policy](PRIVACY.md).
 
