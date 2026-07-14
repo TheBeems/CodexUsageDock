@@ -112,7 +112,7 @@ First set the three-part `<Version>` in `CodexUsageDock/CodexUsageDock.csproj` t
 .\scripts\build-release.ps1
 ```
 
-The command builds from an isolated manifest copy with MSIX version `0.3.0.0`; it never rewrites the tracked `Package.appxmanifest`. It validates:
+The command builds from an isolated manifest copy with the four-part MSIX version derived from the project version (for example, `0.4.0.0`); it never rewrites the tracked `Package.appxmanifest`. It validates:
 
 - package name `TheBeems.CodexUsageDock`;
 - publisher `CN=F748B633-A4F0-42F4-B6F1-B5BDCAED8E0C`;
@@ -125,7 +125,7 @@ The command builds from an isolated manifest copy with MSIX version `0.3.0.0`; i
 Successful output contains only:
 
 ```text
-artifacts/store/CodexUsageDock-0.3.0.msixupload
+artifacts/store/CodexUsageDock-0.4.0.msixupload
 artifacts/store/SHA256SUMS.txt
 ```
 
@@ -139,17 +139,17 @@ The packages inside `.msixupload` are intentionally unsigned. Partner Center sig
 - A manual workflow run uses the project version and retains the `.msixupload` plus checksum for 30 days.
 - The workflow has read-only repository permissions and uses no deployment environment, signing identity, Partner Center credentials, or publication API.
 
-## Publish version 0.3.0
+## Publish a version
 
 1. Merge the tested release-flow change into `main`.
-2. Set the project `<Version>` to `0.3.0`, commit it, and run **Store package** manually.
-3. Download and extract the `CodexUsageDock-0.3.0-store` Actions artifact.
-4. In Partner Center, open existing product `9NFCPJXQG9FG` and upload `CodexUsageDock-0.3.0.msixupload` to a new submission.
+2. Set the project `<Version>` to the intended release version, commit it, and run **Store package** manually.
+3. Download and extract the corresponding `CodexUsageDock-<version>-store` Actions artifact.
+4. In Partner Center, open existing product `9NFCPJXQG9FG` and upload the matching `.msixupload` to a new submission.
 5. Complete the required Store listing and testing notes, then submit for certification.
 6. Stop on rejection and address the reported issue in a new package version. Do not use a self-signed or alternate distribution fallback.
 7. After the Store listing is publicly installable, verify x64 and ARM64 installation, removal, Command Palette discovery, and live Dock usage.
 8. Update `README.md` with `https://apps.microsoft.com/detail/9NFCPJXQG9FG`.
-9. Tag the exact published commit as `v0.3.0` and create a GitHub Release containing release notes and the Store link only. Do not attach package files.
+9. Tag the exact published commit as `v<version>` and create a GitHub Release containing release notes and the Store link only. Do not attach package files.
 
 Older GitHub releases remain unchanged.
 

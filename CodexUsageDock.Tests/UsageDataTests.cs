@@ -162,7 +162,7 @@ public sealed class UsageDataTests
         using var service = new CodexUsageService();
         using var page = new CodexUsageDockPage(service, new CodexUsageDockSettingsPage());
 
-        Assert.Equal("0.3.0", CodexUsageDockMetadata.Version);
+        Assert.Equal("0.4.0", CodexUsageDockMetadata.Version);
         Assert.Equal($"Codex Usage - {CodexUsageDockMetadata.Version}", page.Title);
     }
 

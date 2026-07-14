@@ -22,7 +22,7 @@ The package includes the required .NET runtime. You do not need the .NET SDK to 
 
 ## Install
 
-Microsoft Store publication for version `0.3.0` is currently pending. Once certification is complete, the Store listing will be linked here as the only supported production installer.
+Microsoft Store publication for version `0.4.0` is currently pending. Once certification is complete, the Store listing will be linked here as the only supported production installer.
 
 GitHub Actions artifacts are inputs for Microsoft Store certification, not public installers. Do not distribute or install them directly.
 
@@ -60,7 +60,7 @@ Remove **Codex Usage Dock** from **Windows Settings > Apps > Installed apps**.
 
 ## Distribution status
 
-Microsoft Store product `9NFCPJXQG9FG` is the only production and update channel starting with version `0.3.0`. Publication is currently awaiting Store certification. The GitHub `v0.3.0` release records the source release and does not contain an unsigned installer.
+Microsoft Store product `9NFCPJXQG9FG` is the only production and update channel starting with version `0.3.0`. Publication of version `0.4.0` is currently awaiting Store certification. The GitHub `v0.4.0` release records the source release and does not contain an unsigned installer.
 
 ## Privacy
 
