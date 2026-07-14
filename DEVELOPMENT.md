@@ -14,6 +14,13 @@ If SDK 10.0.301 is not installed system-wide, run the following once from the re
 .\scripts\install-dotnet-sdk.ps1
 ```
 
+The bootstrap script does not need an existing .NET host. Before running the build or test commands below in the same PowerShell session, put its repo-local host first on `PATH`; this also prevents an older system-wide host from ignoring `global.json`'s SDK path:
+
+```powershell
+$env:PATH = "$PWD\.dotnet;$env:PATH"
+dotnet --version # 10.0.301
+```
+
 ## Build and register the development package
 
 ```powershell

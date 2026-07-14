@@ -247,8 +247,13 @@ internal sealed partial class CodexUsageDockPage : ContentPage, IDisposable
             return $"## {title}\n\n{values}  \n*Estimate at the current rate: {remainingAtReset:0}% available at reset.*";
         }
 
-        return $"## {title}\n\n{values}  \n*Estimate at the current rate: limit around {FormatLocalTime(estimated, "HH:mm")}.*";
+        return $"## {title}\n\n{values}  \n*Estimate at the current rate: limit around {FormatLimitEstimate(estimated, now)}.*";
     }
+
+    private static string FormatLimitEstimate(DateTimeOffset estimated, DateTimeOffset now) =>
+        estimated.ToLocalTime().Date == now.ToLocalTime().Date
+            ? FormatLocalTime(estimated, "HH:mm")
+            : FormatLocalTime(estimated, "ddd d MMM HH:mm");
 
     private static TimeSpan TrendFreshness(TimeSpan refreshInterval) =>
         refreshInterval > TimeSpan.FromMinutes(5) ? refreshInterval : TimeSpan.FromMinutes(5);

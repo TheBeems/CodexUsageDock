@@ -937,6 +937,22 @@ public sealed class UsageDataTests
     }
 
     [Fact]
+    public void WeeklyTrendIncludesDateWhenTheEstimatedLimitIsNotToday()
+    {
+        var now = DateTimeOffset.Now;
+        var estimated = now.AddHours(99);
+        var trend = CodexUsageDockPage.FormatTrend(
+            "Weekly usage trend",
+            [new UsageHistoryEntry(now.AddHours(-1), 100), new UsageHistoryEntry(now, 99)],
+            new RateLimitWindow(1, 10080, now.AddDays(6)),
+            now,
+            dataAvailable: true,
+            maximumSampleAge: TimeSpan.FromMinutes(5));
+
+        Assert.Contains($"limit around {estimated.ToLocalTime():ddd d MMM HH:mm}", trend, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void WeeklyTrendUsesOnlySamplesAfterTheLatestWeeklyReset()
     {
         var now = DateTimeOffset.Now;
