@@ -1,6 +1,61 @@
+using System.Text;
 using System.Text.Json;
 
 namespace CodexUsageDock;
+
+internal static class UsageText
+{
+    internal static string? SanitizeExternal(string? value, int maxLength = 80)
+    {
+        if (string.IsNullOrWhiteSpace(value) || maxLength <= 0)
+        {
+            return null;
+        }
+
+        var sanitized = new StringBuilder(Math.Min(value.Length, maxLength));
+        var pendingSpace = false;
+        foreach (var character in value)
+        {
+            if (char.IsControl(character) || char.IsWhiteSpace(character))
+            {
+                pendingSpace = sanitized.Length > 0;
+                continue;
+            }
+
+            if (pendingSpace && sanitized.Length < maxLength)
+            {
+                sanitized.Append(' ');
+            }
+
+            pendingSpace = false;
+            if (sanitized.Length >= maxLength)
+            {
+                break;
+            }
+
+            sanitized.Append(character);
+        }
+
+        var result = sanitized.ToString().Trim();
+        return result.Length == 0 ? null : result;
+    }
+
+    internal static string EscapeMarkdown(string value)
+    {
+        var escaped = new StringBuilder(value.Length);
+        foreach (var character in value)
+        {
+            if (character is '\\' or '`' or '*' or '_' or '{' or '}' or '[' or ']' or '<' or '>' or '#' or '|' or '!')
+            {
+                escaped.Append('\\');
+            }
+
+            escaped.Append(character);
+        }
+
+        return escaped.ToString();
+    }
+}
 
 internal sealed record RateLimitWindow(double UsedPercent, int WindowMinutes, DateTimeOffset ResetsAt)
 {
@@ -22,6 +77,7 @@ internal enum UsageDataSource
     Initializing,
     AppServer,
     LocalSession,
+    Unavailable,
 }
 
 internal sealed record CodexUsageSnapshot(
@@ -38,6 +94,7 @@ internal sealed record CodexUsageSnapshot(
     {
         UsageDataSource.AppServer => "standalone Codex CLI app-server",
         UsageDataSource.LocalSession => "local Codex session metadata (desktop app, CLI, or another client)",
+        UsageDataSource.Unavailable => "not available",
         _ => "initializing",
     };
 

@@ -4,6 +4,8 @@ namespace CodexUsageDock.Tests;
 
 public sealed class UsageDataTests
 {
+    private static readonly TimeSpan AsyncTestTimeout = TimeSpan.FromSeconds(5);
+
     [Fact]
     public void SettingsDefaultToShowingAllDockUsageInformation()
     {
@@ -82,6 +84,13 @@ public sealed class UsageDataTests
     }
 
     [Fact]
+    public async Task AppServerReaderReturnsCancellationForPreCanceledToken()
+    {
+        await Assert.ThrowsAsync<OperationCanceledException>(() =>
+            CodexAppServerReader.ReadAsync(new CancellationToken(canceled: true)));
+    }
+
+    [Fact]
     public void CliSelectionPrefersStandaloneCliAndRecognizesWindowsApps()
     {
         var temporaryDirectory = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
@@ -130,13 +139,20 @@ public sealed class UsageDataTests
     }
 
     [Fact]
-    public void FallbackMessageExplainsThatLiveDataIsUnavailable()
+    public void FallbackMessageExplainsThatLiveDataIsUnavailableWithoutExposingDiagnostics()
     {
-        var message = CodexUsageDockPage.FormatError("No launchable Codex CLI was found.");
+        var snapshot = CodexUsageSnapshot.Loading with
+        {
+            Source = UsageDataSource.LocalSession,
+            Error = @"C:\Users\Alice\private-session.jsonl",
+        };
+
+        var message = CodexUsageDockPage.FormatError(snapshot);
 
         Assert.Contains("Live Codex data is unavailable", message, StringComparison.Ordinal);
         Assert.Contains("local fallback data", message, StringComparison.Ordinal);
-        Assert.Contains("No launchable Codex CLI was found", message, StringComparison.Ordinal);
+        Assert.DoesNotContain("Alice", message, StringComparison.Ordinal);
+        Assert.DoesNotContain("private-session", message, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -145,8 +161,25 @@ public sealed class UsageDataTests
         using var service = new CodexUsageService();
         using var page = new CodexUsageDockPage(service);
 
-        Assert.Equal("0.2.1", CodexUsageDockMetadata.Version);
-        Assert.Equal($"Codex Usuage - {CodexUsageDockMetadata.Version}", page.Title);
+        Assert.Equal("0.3.0", CodexUsageDockMetadata.Version);
+        Assert.Equal($"Codex Usage - {CodexUsageDockMetadata.Version}", page.Title);
+    }
+
+    [Theory]
+    [InlineData(true, "Refreshing Codex usage")]
+    [InlineData(false, "")]
+    public void RefreshStatusIsVisibleOnlyWhileLoading(bool isLoading, string expected)
+    {
+        var status = CodexUsageDockPage.FormatRefreshStatus(isLoading);
+
+        if (isLoading)
+        {
+            Assert.Contains(expected, status, StringComparison.Ordinal);
+        }
+        else
+        {
+            Assert.Empty(status);
+        }
     }
 
     [Fact]
@@ -233,6 +266,87 @@ public sealed class UsageDataTests
     }
 
     [Fact]
+    public void ParseResetCreditsPreservesCreditAndIgnoresOutOfRangeExpiry()
+    {
+        using var json = JsonDocument.Parse("""
+            {
+              "rateLimitResetCredits": {
+                "availableCount": 1,
+                "credits": [
+                  { "title": "Full reset", "status": "available", "expiresAt": 9223372036854775807 }
+                ]
+              }
+            }
+            """);
+
+        var resets = CodexAppServerReader.ParseResetCredits(json.RootElement);
+
+        var credit = Assert.Single(resets!.Credits!);
+        Assert.Equal("Full reset", credit.Title);
+        Assert.Null(credit.ExpiresAt);
+    }
+
+    [Fact]
+    public void ParseResetCreditsRejectsNegativeAvailableCount()
+    {
+        using var json = JsonDocument.Parse("""{ "rateLimitResetCredits": { "availableCount": -1, "credits": null } }""");
+
+        var resets = CodexAppServerReader.ParseResetCredits(json.RootElement);
+
+        Assert.Null(resets);
+    }
+
+    [Fact]
+    public void ParseResetCreditsRejectsNonNumericAvailableCount()
+    {
+        using var json = JsonDocument.Parse("""{ "rateLimitResetCredits": { "availableCount": "2", "credits": null } }""");
+
+        var resets = CodexAppServerReader.ParseResetCredits(json.RootElement);
+
+        Assert.Null(resets);
+    }
+
+    [Fact]
+    public void ParseResetCreditsIgnoresNonNumericExpiry()
+    {
+        using var json = JsonDocument.Parse("""
+            {
+              "rateLimitResetCredits": {
+                "availableCount": 1,
+                "credits": [
+                  { "title": "Full reset", "status": "available", "expiresAt": "tomorrow" }
+                ]
+              }
+            }
+            """);
+
+        var resets = CodexAppServerReader.ParseResetCredits(json.RootElement);
+
+        var credit = Assert.Single(resets!.Credits!);
+        Assert.Null(credit.ExpiresAt);
+    }
+
+    [Fact]
+    public void RequestJsonPreservesMethodIdAndTypedParameters()
+    {
+        var json = CodexAppServerReader.CreateRequestJson(
+            "account/read",
+            3,
+            static writer =>
+            {
+                writer.WritePropertyName("params");
+                writer.WriteStartObject();
+                writer.WriteBoolean("refreshToken", false);
+                writer.WriteEndObject();
+            });
+
+        using var document = JsonDocument.Parse(json);
+        Assert.Equal("account/read", document.RootElement.GetProperty("method").GetString());
+        Assert.Equal(3, document.RootElement.GetProperty("id").GetInt32());
+        Assert.False(document.RootElement.GetProperty("params").GetProperty("refreshToken").GetBoolean());
+    }
+
+    [Fact]
     public void ParseCredits_HandlesBalanceAndUnlimitedAccounts()
     {
         using var result = JsonDocument.Parse("{}");
@@ -244,6 +358,31 @@ public sealed class UsageDataTests
 
         Assert.Equal("10.00", balance!.Balance);
         Assert.True(unlimited!.Unlimited);
+    }
+
+    [Fact]
+    public void ParseCreditsIgnoresStructuredBalanceValues()
+    {
+        using var result = JsonDocument.Parse("{}");
+        using var limits = JsonDocument.Parse("""{ "credits": { "balance": { "unexpected": "value" } } }""");
+
+        var credits = CodexAppServerReader.ParseCredits(result.RootElement, limits.RootElement);
+
+        Assert.NotNull(credits);
+        Assert.False(credits.HasCredits);
+        Assert.Null(credits.Balance);
+    }
+
+    [Fact]
+    public void ExternalUsageTextIsBoundedSingleLineAndMarkdownSafe()
+    {
+        var sanitized = UsageText.SanitizeExternal("  pro\r\n# heading\0  ", 32);
+        var bounded = UsageText.SanitizeExternal(new string('x', 100), 32);
+
+        Assert.Equal("pro # heading", sanitized);
+        Assert.Equal(32, bounded!.Length);
+        Assert.Equal(@"pro \# heading", UsageText.EscapeMarkdown(sanitized!));
+        Assert.Equal(@"Pro \# Heading", CodexUsageDockPage.FormatPlan("pro\r\n# heading"));
     }
 
     [Theory]
@@ -265,6 +404,19 @@ public sealed class UsageDataTests
         Assert.Equal(expected, UsageDockItem.FormatResetsAndCredits(snapshot));
     }
 
+    [Theory]
+    [InlineData(nameof(UsageDockItemKind.FiveHour), "5h --")]
+    [InlineData(nameof(UsageDockItemKind.Weekly), "Week --")]
+    [InlineData(nameof(UsageDockItemKind.ResetsAndCredits), "↻ --")]
+    public void UnavailableDockItemsUseConsistentStatus(string kindName, string expectedTitle)
+    {
+        var kind = Enum.Parse<UsageDockItemKind>(kindName);
+        var result = UsageDockItem.FormatUnavailable(kind);
+
+        Assert.Equal(expectedTitle, result.Title);
+        Assert.Equal("Codex usage unavailable", result.Subtitle);
+    }
+
     [Fact]
     public void DetailFormatter_ReportsMissingExpiryRows()
     {
@@ -276,6 +428,19 @@ public sealed class UsageDataTests
 
         Assert.Contains("Full reset", text, StringComparison.Ordinal);
         Assert.Contains("1 reset(s)", text, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void DetailFormatterEscapesExternalResetTitles()
+    {
+        var resets = new RateLimitResetCredits(
+            1,
+            [new RateLimitResetCredit("**Full reset**\n> spoof", "available", null)]);
+
+        var text = CodexUsageDockPage.FormatResetCredits(resets);
+
+        Assert.Contains(@"\*\*Full reset\*\* \> spoof", text, StringComparison.Ordinal);
+        Assert.DoesNotContain("\n> spoof", text, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -360,6 +525,22 @@ public sealed class UsageDataTests
     }
 
     [Fact]
+    public void TrendIsSuppressedWhileAllUsageDataIsUnavailable()
+    {
+        var now = new DateTimeOffset(2026, 7, 12, 14, 30, 0, TimeSpan.Zero);
+        UsageHistoryEntry[] history =
+        [
+            new(now.AddMinutes(-30), 80),
+            new(now, 60),
+        ];
+
+        var trend = CodexUsageDockPage.FormatTrend(history, now, dataAvailable: false);
+
+        Assert.Contains("Unavailable until a fresh usage sample", trend, StringComparison.Ordinal);
+        Assert.DoesNotContain("limit around", trend, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void DataStatus_IdentifiesStaleFallbackData()
     {
         var now = new DateTimeOffset(2026, 7, 12, 14, 30, 0, TimeSpan.Zero);
@@ -393,6 +574,164 @@ public sealed class UsageDataTests
 
         Assert.Contains("Loading data", status, StringComparison.Ordinal);
         Assert.DoesNotContain("Local fallback data", status, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void DataStatusIdentifiesCompletedUnavailableState()
+    {
+        var now = new DateTimeOffset(2026, 7, 14, 10, 30, 0, TimeSpan.Zero);
+        var unavailable = CodexUsageSnapshot.Loading with
+        {
+            UpdatedAt = now,
+            Source = UsageDataSource.Unavailable,
+            Error = CodexUsageService.AllDataUnavailableMessage,
+        };
+
+        var status = CodexUsageDockPage.FormatDataStatus(unavailable, now);
+
+        Assert.Contains("Data not available", status, StringComparison.Ordinal);
+        Assert.DoesNotContain("Loading data", status, StringComparison.Ordinal);
+        Assert.Equal("not available", unavailable.SourceDisplayName);
+    }
+
+    [Fact]
+    public async Task RefreshFallsBackWithoutExposingAppServerFailureDetails()
+    {
+        var fallback = CodexUsageSnapshot.Loading with
+        {
+            Secondary = new RateLimitWindow(12, 10080, DateTimeOffset.Now.AddDays(2)),
+            UpdatedAt = DateTimeOffset.Now,
+            Source = UsageDataSource.LocalSession,
+            Error = null,
+        };
+        using var service = new CodexUsageService(
+            _ => Task.FromException<CodexUsageSnapshot>(new InvalidOperationException(@"C:\Users\Alice\token.json")),
+            () => fallback);
+
+        await service.RefreshAsync();
+
+        Assert.Equal(UsageDataSource.LocalSession, service.Current.Source);
+        Assert.Equal(CodexUsageService.LiveDataUnavailableMessage, service.Current.Error);
+        Assert.DoesNotContain("Alice", service.Current.Error, StringComparison.Ordinal);
+        Assert.False(service.IsLoading);
+    }
+
+    [Fact]
+    public async Task RefreshPublishesUnavailableStateWhenBothSourcesFail()
+    {
+        using var service = new CodexUsageService(
+            _ => Task.FromException<CodexUsageSnapshot>(new InvalidOperationException("live failure")),
+            () => throw new DirectoryNotFoundException(@"C:\Users\Alice\.codex\sessions"));
+
+        await service.RefreshAsync();
+
+        Assert.Null(service.Current.Primary);
+        Assert.Null(service.Current.Secondary);
+        Assert.Equal(UsageDataSource.Unavailable, service.Current.Source);
+        Assert.Equal(CodexUsageService.AllDataUnavailableMessage, service.Current.Error);
+        Assert.DoesNotContain("Alice", service.Current.Error, StringComparison.Ordinal);
+        Assert.False(service.IsLoading);
+    }
+
+    [Fact]
+    public async Task ConcurrentRefreshesShareTheSameInFlightTask()
+    {
+        var result = new TaskCompletionSource<CodexUsageSnapshot>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var readCount = 0;
+        using var service = new CodexUsageService(
+            _ =>
+            {
+                Interlocked.Increment(ref readCount);
+                return result.Task;
+            },
+            () => throw new InvalidOperationException("Fallback should not run."));
+
+        var first = service.RefreshAsync();
+        var second = service.RefreshAsync();
+
+        Assert.Same(first, second);
+        Assert.True(service.IsLoading);
+        Assert.Equal(1, Volatile.Read(ref readCount));
+
+        result.SetResult(CodexUsageSnapshot.Loading with
+        {
+            Secondary = new RateLimitWindow(10, 10080, DateTimeOffset.Now.AddDays(3)),
+            Source = UsageDataSource.AppServer,
+            Error = null,
+        });
+        await first;
+
+        Assert.False(service.IsLoading);
+        Assert.Equal(1, Volatile.Read(ref readCount));
+    }
+
+    [Fact]
+    public async Task RefreshNotifiesLoadingAndCompletionWithoutTrustingSubscribers()
+    {
+        var loadingStates = new List<bool>();
+        using var service = new CodexUsageService(
+            _ => Task.FromResult(CodexUsageSnapshot.Loading with
+            {
+                Secondary = new RateLimitWindow(10, 10080, DateTimeOffset.Now.AddDays(3)),
+                Source = UsageDataSource.AppServer,
+                Error = null,
+            }),
+            () => throw new InvalidOperationException("Fallback should not run."));
+        service.Updated += (_, _) => throw new InvalidOperationException("Subscriber failure");
+        service.Updated += (_, _) => loadingStates.Add(service.IsLoading);
+
+        await service.RefreshAsync();
+
+        Assert.Equal([true, false], loadingStates);
+    }
+
+    [Fact]
+    public async Task DisposeCancelsAnInFlightRefreshWithoutFaultingItsTask()
+    {
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var service = new CodexUsageService(
+            async cancellationToken =>
+            {
+                started.SetResult();
+                await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+                return CodexUsageSnapshot.Loading;
+            },
+            () => throw new InvalidOperationException("Fallback should not run."));
+
+        var refresh = service.RefreshAsync();
+        await started.Task.WaitAsync(AsyncTestTimeout);
+        service.Dispose();
+
+        await refresh.WaitAsync(AsyncTestTimeout);
+        Assert.False(service.IsLoading);
+    }
+
+    [Fact]
+    public async Task DisposeCancelsAnInFlightFallbackReader()
+    {
+        var fallbackStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var service = new CodexUsageService(
+            _ => Task.FromException<CodexUsageSnapshot>(new InvalidOperationException("Live data unavailable.")),
+            cancellationToken =>
+            {
+                fallbackStarted.SetResult();
+                cancellationToken.WaitHandle.WaitOne();
+                cancellationToken.ThrowIfCancellationRequested();
+                return CodexUsageSnapshot.Loading;
+            });
+
+        var refresh = service.RefreshAsync();
+        await fallbackStarted.Task.WaitAsync(AsyncTestTimeout);
+        service.Dispose();
+
+        await refresh.WaitAsync(AsyncTestTimeout);
+        Assert.False(service.IsLoading);
+    }
+
+    [Fact]
+    public void LocalFallbackHonorsPreCanceledToken()
+    {
+        Assert.Throws<OperationCanceledException>(() => LocalCodexSessionReader.ReadLatest(new CancellationToken(canceled: true)));
     }
 
     [Fact]

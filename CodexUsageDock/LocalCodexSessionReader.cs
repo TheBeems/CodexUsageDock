@@ -4,16 +4,22 @@ namespace CodexUsageDock;
 
 internal static class LocalCodexSessionReader
 {
-    internal static CodexUsageSnapshot ReadLatest()
+    internal static CodexUsageSnapshot ReadLatest(CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         var sessions = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".codex", "sessions");
         var files = Directory.EnumerateFiles(sessions, "rollout-*.jsonl", SearchOption.AllDirectories)
-            .Select(path => new FileInfo(path))
+            .Select(path =>
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                return new FileInfo(path);
+            })
             .OrderByDescending(file => file.LastWriteTimeUtc)
             .Take(12);
 
         foreach (var file in files)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             RateLimitWindow? primary = null;
             RateLimitWindow? secondary = null;
             string? plan = null;
@@ -21,6 +27,7 @@ internal static class LocalCodexSessionReader
             using var reader = new StreamReader(stream);
             while (reader.ReadLine() is { } line)
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 if (!line.Contains("\"rate_limits\"", StringComparison.Ordinal))
                 {
                     continue;
@@ -41,7 +48,7 @@ internal static class LocalCodexSessionReader
                     secondary = RateLimitWindowParser.TryParse(rateLimits, "secondary", "used_percent", "window_minutes", "resets_at") ?? secondary;
                     if (rateLimits.TryGetProperty("plan_type", out var planType) && planType.ValueKind == JsonValueKind.String)
                     {
-                        plan = planType.GetString() ?? plan;
+                        plan = UsageText.SanitizeExternal(planType.GetString(), 32) ?? plan;
                     }
                 }
                 catch (JsonException)

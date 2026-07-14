@@ -11,11 +11,19 @@
 ## Build and register the development package
 
 ```powershell
-dotnet build .\CodexUsageDock\CodexUsageDock.csproj -c Debug -p:Platform=ARM64
-Add-AppxPackage -Register .\CodexUsageDock\bin\ARM64\Debug\net10.0-windows10.0.26100.0\win-arm64\AppxManifest.xml
+dotnet build .\CodexUsageDock\CodexUsageDock.csproj -c Debug -p:Platform=ARM64 -r win-arm64 --self-contained true
+.\scripts\test-integration.ps1 -Architecture ARM64 -Register
 ```
 
-Use `x64` instead of `ARM64` on Intel and AMD machines.
+Use `-p:Platform=x64 -r win-x64` and `-Architecture x64` on Intel and AMD machines. The registration script performs the manifest, package-safety, architecture, COM, and AppExtension preflight before it changes the current-user development registration.
+
+After every build and registration:
+
+1. Open Command Palette.
+2. Run **Reload Command Palette Extension**.
+3. Open **Settings > Extensions** and confirm that **Codex Usage** is enabled.
+
+Do not register a development manifest over a Microsoft Store installation. Use an isolated Windows user or test VM for development package registration.
 
 Development RID builds are self-contained. Do not override `SelfContained=false`: MSIX tooling places app-local .NET host files in the output, and combining those files with a framework-dependent runtime configuration prevents the host from finding either an app-local or machine-wide framework.
 
@@ -25,12 +33,65 @@ Development RID builds are self-contained. Do not override `SelfContained=false`
 dotnet restore .\CodexUsageDock.Tests\CodexUsageDock.Tests.csproj -p:Platform=x64 -r win-x64 -p:SelfContained=true
 dotnet test .\CodexUsageDock.Tests\CodexUsageDock.Tests.csproj -c Debug -p:Platform=x64 -r win-x64 -p:SelfContained=true --no-restore
 dotnet build .\CodexUsageDock\CodexUsageDock.csproj -c Debug -p:Platform=x64 -r win-x64 --self-contained true
+
+dotnet restore .\CodexUsageDock.Tests\CodexUsageDock.Tests.csproj -p:Platform=ARM64 -r win-arm64 -p:SelfContained=true
+dotnet test .\CodexUsageDock.Tests\CodexUsageDock.Tests.csproj -c Debug -p:Platform=ARM64 -r win-arm64 -p:SelfContained=true --no-restore
 dotnet build .\CodexUsageDock\CodexUsageDock.csproj -c Debug -p:Platform=ARM64 -r win-arm64 --self-contained true
 ```
 
+Run a testhost only on a compatible Windows architecture. ARM64 Windows can run the x64 testhost through emulation, but the machine must also have the x64 .NET 10 runtime installed. The self-contained application build does not make the separate `dotnet test` host self-contained. On ARM64, use `& "$env:ProgramFiles\dotnet\x64\dotnet.exe" --list-runtimes` when that x64 host is installed and confirm that `Microsoft.NETCore.App 10` is listed. Native ARM64 tests use the normal ARM64 `dotnet` host.
+
+Always specify both `Platform` and its matching RID. Omitting `-r win-x64` or `-r win-arm64` can make MSBuild combine the host architecture with a conflicting `PlatformTarget`.
+
+## Integration smoke test
+
+After building the matching Debug package, run the non-destructive preflight:
+
+```powershell
+.\scripts\test-integration.ps1 -Architecture x64
+.\scripts\test-integration.ps1 -Architecture ARM64
+```
+
+By default, the script only reads the source and generated manifests, verifies that build outputs are current, and checks current-user package registration, package health, running process state, and the Command Palette AppExtension catalog where Windows supports the synchronous API. It reports a failure when the package is not registered. In an isolated test user or VM, registration can be requested explicitly:
+
+```powershell
+.\scripts\test-integration.ps1 -Architecture x64 -Register
+.\scripts\test-integration.ps1 -Architecture ARM64 -Register
+```
+
+`-Register` never removes or replaces a non-development Store installation. It refreshes or switches an existing development package under this repository's `CodexUsageDock/bin` tree in place with `ForceUpdateFromAnyVersion`, so a failed update leaves the prior registration intact. A development registration from any other location is refused. Windows may close a running Codex Usage Dock process during this refresh. On Windows builds older than 26100, the script cannot use the synchronous `AppExtensionCatalog.FindAll()` API and reports that discovery still needs manual verification. It never automates Command Palette UI input. After it completes, run **Reload Command Palette Extension** manually.
+
+### Pre-Store x64 and ARM64 matrix
+
+Complete every row on a clean x64 environment and a separate clean ARM64 environment. Record the Windows and PowerToys versions, package version, date, result, and supporting screenshot or diagnostic output. Do not test both architectures by repeatedly replacing packages in a production user profile.
+
+| Scenario | x64 | ARM64 | Acceptance criteria |
+| --- | --- | --- | --- |
+| Clean install | Required | Required | The signed Store test package installs without a prior package or manual dependency installation. |
+| Update | Required | Required | The previous supported Store version updates in place; Command Palette discovers the new version and settings remain intact. |
+| Uninstall and reinstall | Required | Required | Uninstall removes the app and extension registration; reinstall restores discovery without stale or duplicate providers. |
+| Automated preflight | Required | Required | `test-integration.ps1` passes manifest, package, CLSID, COM, and AppExtension checks. |
+| Discovery and reload | Required | Required | After **Reload Command Palette Extension**, **Codex Usage** appears once under **Settings > Extensions** and can be enabled. |
+| Details page | Required | Required | Opening **Codex Usage** shows the current source, limits, reset information, and a working manual refresh without freezing Command Palette. |
+| Dock band | Required | Required | The band can be added, each enabled item opens details, and values update while Command Palette remains responsive. |
+| Settings | Required | Required | Visibility, reset-time, and refresh-interval choices apply immediately and persist after restarting Command Palette. |
+| Live app-server | Required | Required | With a signed-in standalone Codex CLI, the details page identifies the CLI app-server as the source and refreshes live data. |
+| Local fallback | Required | Required | In an isolated test account with local session metadata but no launchable standalone CLI, fallback data appears and is identified as local session data. Do not rename or delete a real CLI installation to create this state. |
+| No-data failure | Required | Required | In an isolated account with neither a CLI nor session data, the extension shows a bounded unavailable/error state and does not crash or loop. |
+
+Store install, update, and uninstall behavior must be tested with a Store-signed test acquisition when it is available. Development manifest registration is sufficient only for the earlier COM activation, discovery, page, Dock, and settings checks.
+
 ## Build the Microsoft Store package
 
-`scripts/build-release.ps1` is the only release package builder. It always creates one self-contained x64+ARM64 Store upload in Release configuration:
+The package artwork is generated from one deterministic visual mark. Treat `scripts/generate-assets.ps1` as its canonical source instead of editing individual PNG files:
+
+```powershell
+.\scripts\generate-assets.ps1
+```
+
+The script overwrites all MSIX logo, tile, splash, lock-screen, and Store images at their required dimensions.
+
+`scripts/build-release.ps1` is the only release package builder. It always creates one trimmed, self-contained x64+ARM64 Store upload in Release configuration:
 
 First set the three-part `<Version>` in `CodexUsageDock/CodexUsageDock.csproj` to the release version, then run:
 
@@ -38,19 +99,20 @@ First set the three-part `<Version>` in `CodexUsageDock/CodexUsageDock.csproj` t
 .\scripts\build-release.ps1
 ```
 
-The command temporarily applies MSIX version `0.2.1.0`, then restores `Package.appxmanifest` byte-for-byte. It validates:
+The command builds from an isolated manifest copy with MSIX version `0.3.0.0`; it never rewrites the tracked `Package.appxmanifest`. It validates:
 
 - package name `TheBeems.CodexUsageDock`;
 - publisher `CN=F748B633-A4F0-42F4-B6F1-B5BDCAED8E0C`;
 - x64 and ARM64 architectures;
-- app-local .NET runtime files and `includedFrameworks`;
+- the complete generated asset set and its required pixel dimensions;
+- app-local .NET runtime files and, when emitted separately from the single-file bundle, self-contained `includedFrameworks` metadata;
 - packaged COM and `com.microsoft.commandpalette` registrations;
 - one bundle inside the final `.msixupload`.
 
 Successful output contains only:
 
 ```text
-artifacts/store/CodexUsageDock-0.2.1.msixupload
+artifacts/store/CodexUsageDock-0.3.0.msixupload
 artifacts/store/SHA256SUMS.txt
 ```
 
@@ -64,19 +126,19 @@ The packages inside `.msixupload` are intentionally unsigned. Partner Center sig
 - A manual workflow run uses the project version and retains the `.msixupload` plus checksum for 30 days.
 - The workflow has read-only repository permissions and uses no deployment environment, signing identity, Partner Center credentials, or publication API.
 
-## Publish version 0.2.1
+## Publish version 0.3.0
 
 1. Merge the tested release-flow change into `main`.
-2. Set the project `<Version>` to `0.2.1`, commit it, and run **Store package** manually.
-3. Download and extract the `CodexUsageDock-0.2.1-store` Actions artifact.
-4. In Partner Center, open existing product `9NFCPJXQG9FG` and upload `CodexUsageDock-0.2.1.msixupload` to a new submission.
+2. Set the project `<Version>` to `0.3.0`, commit it, and run **Store package** manually.
+3. Download and extract the `CodexUsageDock-0.3.0-store` Actions artifact.
+4. In Partner Center, open existing product `9NFCPJXQG9FG` and upload `CodexUsageDock-0.3.0.msixupload` to a new submission.
 5. Complete the required Store listing and testing notes, then submit for certification.
 6. Stop on rejection and address the reported issue in a new package version. Do not use a self-signed or alternate distribution fallback.
 7. After the Store listing is publicly installable, verify x64 and ARM64 installation, removal, Command Palette discovery, and live Dock usage.
 8. Update `README.md` with `https://apps.microsoft.com/detail/9NFCPJXQG9FG`.
-9. Tag the exact published commit as `v0.2.1` and create a GitHub Release containing release notes and the Store link only. Do not attach package files.
+9. Tag the exact published commit as `v0.3.0` and create a GitHub Release containing release notes and the Store link only. Do not attach package files.
 
-Release `v0.2.0` remains unchanged.
+Older GitHub releases remain unchanged.
 
 ## Command Palette Gallery
 

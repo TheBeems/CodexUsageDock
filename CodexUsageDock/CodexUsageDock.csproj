@@ -3,7 +3,7 @@
     <OutputType>WinExe</OutputType>
     <RootNamespace>CodexUsageDock</RootNamespace>
     <ApplicationManifest>app.manifest</ApplicationManifest>
-    <Version>0.2.1</Version>
+    <Version>0.3.0</Version>
 
     <WindowsSdkPackageVersion>10.0.26100.68-preview</WindowsSdkPackageVersion>
     <TargetFramework>net10.0-windows10.0.26100.0</TargetFramework>
@@ -20,6 +20,8 @@
     <SelfContained>true</SelfContained>
 
     <EnableMsixTooling>true</EnableMsixTooling>
+    <!-- COM and AppExtension registrations are authored explicitly in Package.appxmanifest; referenced SDK WinMDs must not be harvested. -->
+    <AppxHarvestWinmdRegistration>false</AppxHarvestWinmdRegistration>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <DefaultItemExcludes>$(DefaultItemExcludes);$(MSBuildProjectDirectory)\bin\**;$(MSBuildProjectDirectory)\obj\**;$(MSBuildProjectDirectory)\artifacts\**</DefaultItemExcludes>
@@ -39,17 +41,38 @@
   </Target>
 
   <ItemGroup>
-    <Content Include="Assets\SplashScreen.scale-200.png" />
-    <Content Include="Assets\LockScreenLogo.scale-200.png" />
-    <Content Include="Assets\Square150x150Logo.scale-200.png" />
-    <Content Include="Assets\Square44x44Logo.scale-200.png" />
-    <Content Include="Assets\Square44x44Logo.targetsize-24_altform-unplated.png" />
-    <Content Include="Assets\StoreLogo.png" />
-    <Content Include="Assets\Wide310x150Logo.scale-200.png" />
+    <!-- Keep loose development-registration layouts complete as well as packaged builds. -->
+    <Content Include="Assets\*.png"
+             CopyToOutputDirectory="PreserveNewest"
+             CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup>
+    <RequiredStoreAsset Include="Assets\Square44x44Logo.targetsize-24_altform-unplated.png" />
+    <RequiredStoreAsset Include="Assets\LockScreenLogo.scale-200.png" />
+    <RequiredStoreAsset Include="Assets\Square44x44Logo.scale-200.png" />
+    <RequiredStoreAsset Include="Assets\SmallTile.scale-200.png" />
+    <RequiredStoreAsset Include="Assets\Square150x150Logo.scale-200.png" />
+    <RequiredStoreAsset Include="Assets\LargeTile.scale-200.png" />
+    <RequiredStoreAsset Include="Assets\Wide310x150Logo.scale-200.png" />
+    <RequiredStoreAsset Include="Assets\SplashScreen.scale-200.png" />
+    <RequiredStoreAsset Include="Assets\StoreLogo.png" />
+  </ItemGroup>
+
+  <Target Name="ValidateRequiredStoreAssets" BeforeTargets="PrepareForBuild">
+    <Error Condition="!Exists('%(RequiredStoreAsset.FullPath)')"
+           Text="Missing required Microsoft Store asset: %(RequiredStoreAsset.Identity)" />
+  </Target>
+
+  <ItemGroup>
     <Manifest Include="$(ApplicationManifest)" />
+  </ItemGroup>
+
+  <!-- Release automation supplies an isolated, versioned MSIX manifest so the tracked source is never rewritten. -->
+  <ItemGroup Condition="'$(PackageAppxManifestPath)'!=''">
+    <AppxManifest Include="$(PackageAppxManifestPath)">
+      <SubType>Designer</SubType>
+    </AppxManifest>
   </ItemGroup>
 
   <!--
@@ -89,7 +112,9 @@
 
     <CsWinRTAotOptimizerEnabled>true</CsWinRTAotOptimizerEnabled>
     <CsWinRTAotWarningLevel>2</CsWinRTAotWarningLevel>
-    <!-- Suppress DynamicallyAccessedMemberTypes.PublicParameterlessConstructor in fallback code path of Windows SDK projection -->
+    <!-- Expose dependency-level trim diagnostics so the generic IL2104 assembly summary cannot hide new warning codes. -->
+    <TrimmerSingleWarn>false</TrimmerSingleWarn>
+    <!-- CsWinRT 2.2.0 emits IL2081 for its generated generic ABI projections; all other release warnings remain errors. -->
     <WarningsNotAsErrors>IL2081;$(WarningsNotAsErrors)</WarningsNotAsErrors>
 
     <!-- When publishing trimmed, make sure to treat trimming warnings as build errors -->
@@ -113,8 +138,8 @@
          feel free to disable this if needed -->
     <PublishTrimmed>true</PublishTrimmed>
 
-    <!-- In release, also ignore the aforementioned ILLink warning -->
-    <ILLinkTreatWarningsAsErrors>false</ILLinkTreatWarningsAsErrors>
+    <!-- Keep release builds strict, apart from the documented Windows SDK projection exceptions above. -->
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
   </PropertyGroup>
 
 

@@ -42,7 +42,7 @@ jobs:
       - name: Build and validate Store package
         shell: pwsh
         run: ./scripts/build-release.ps1
-      - name: Confirm source manifest was restored
+      - name: Confirm source manifest is unchanged
         shell: pwsh
         run: |
           git diff --exit-code -- CodexUsageDock/Package.appxmanifest

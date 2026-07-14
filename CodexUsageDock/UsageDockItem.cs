@@ -32,10 +32,17 @@ internal sealed partial class UsageDockItem : ListItem, IDisposable
     {
         var snapshot = _usage.Current;
         var window = _kind == UsageDockItemKind.FiveHour ? snapshot.Primary : snapshot.Secondary;
+        if (snapshot.Source == UsageDataSource.Unavailable)
+        {
+            (Title, Subtitle) = FormatUnavailable(_kind);
+            Icon = new IconInfo("\uE783");
+            return;
+        }
+
         if (_kind == UsageDockItemKind.ResetsAndCredits)
         {
             Title = FormatResetsAndCredits(snapshot);
-            Subtitle = $"{snapshot.PlanType ?? "account"} · {snapshot.UpdatedAt.ToLocalTime():HH:mm}";
+            Subtitle = $"{UsageText.SanitizeExternal(snapshot.PlanType, 32) ?? "account"} · {snapshot.UpdatedAt.ToLocalTime().ToString("HH:mm", CultureInfo.CurrentCulture)}";
             Icon = new IconInfo("\uE777");
             return;
         }
@@ -47,7 +54,9 @@ internal sealed partial class UsageDockItem : ListItem, IDisposable
             Title = _kind == UsageDockItemKind.FiveHour && dataWasLoaded ? "5h inactive" : $"{label} --";
             Subtitle = _kind == UsageDockItemKind.FiveHour && dataWasLoaded
                 ? "No five-hour limit currently active"
-                : snapshot.Error ?? "Waiting for Codex";
+                : snapshot.Source == UsageDataSource.Unavailable
+                    ? "Codex usage unavailable"
+                    : "Waiting for Codex";
             Icon = new IconInfo("\uE783");
             return;
         }
@@ -70,16 +79,28 @@ internal sealed partial class UsageDockItem : ListItem, IDisposable
 
         if (snapshot.Credits is { HasCredits: true, Balance: { Length: > 0 } balance })
         {
-            return $"{title} · {balance}";
+            return UsageText.SanitizeExternal(balance, 64) is { } safeBalance
+                ? $"{title} · {safeBalance}"
+                : title;
         }
 
         return title;
     }
 
+    internal static (string Title, string Subtitle) FormatUnavailable(UsageDockItemKind kind) =>
+        (kind switch
+        {
+            UsageDockItemKind.FiveHour => "5h --",
+            UsageDockItemKind.Weekly => "Week --",
+            _ => "↻ --",
+        }, "Codex usage unavailable");
+
     private static string FormatReset(DateTimeOffset reset)
     {
         var local = reset.ToLocalTime();
-        return local.Date == DateTime.Today ? local.ToString("HH:mm") : local.ToString("ddd HH:mm");
+        return local.Date == DateTime.Today
+            ? local.ToString("HH:mm", CultureInfo.CurrentCulture)
+            : local.ToString("ddd HH:mm", CultureInfo.CurrentCulture);
     }
 
     public void Dispose()
