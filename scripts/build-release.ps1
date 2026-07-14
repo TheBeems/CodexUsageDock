@@ -62,6 +62,40 @@ function Assert-StoreAssets {
     }
 }
 
+function Get-DecodedPixelHash {
+    param(
+        [Parameter(Mandatory)]
+        [System.Drawing.Bitmap]$Image
+    )
+
+    $rectangle = [System.Drawing.Rectangle]::new(0, 0, $Image.Width, $Image.Height)
+    $normalizedImage = $Image.Clone($rectangle, [System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
+    $bitmapData = $null
+
+    try {
+        $bitmapData = $normalizedImage.LockBits(
+            $rectangle,
+            [System.Drawing.Imaging.ImageLockMode]::ReadOnly,
+            [System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
+        $pixelBytes = [byte[]]::new([Math]::Abs($bitmapData.Stride) * $bitmapData.Height)
+        [System.Runtime.InteropServices.Marshal]::Copy($bitmapData.Scan0, $pixelBytes, 0, $pixelBytes.Length)
+
+        $sha256 = [System.Security.Cryptography.SHA256]::Create()
+        try {
+            return [Convert]::ToHexString($sha256.ComputeHash($pixelBytes))
+        }
+        finally {
+            $sha256.Dispose()
+        }
+    }
+    finally {
+        if ($null -ne $bitmapData) {
+            $normalizedImage.UnlockBits($bitmapData)
+        }
+        $normalizedImage.Dispose()
+    }
+}
+
 function Assert-GeneratedAssetsMatch {
     param(
         [Parameter(Mandatory)]
@@ -77,10 +111,23 @@ function Assert-GeneratedAssetsMatch {
     & $GeneratorPath -OutputDirectory $VerificationPath
 
     foreach ($assetName in $requiredStoreAssets.Keys) {
-        $sourceHash = (Get-FileHash -LiteralPath (Join-Path $AssetsPath $assetName) -Algorithm SHA256).Hash
-        $generatedHash = (Get-FileHash -LiteralPath (Join-Path $VerificationPath $assetName) -Algorithm SHA256).Hash
-        if ($sourceHash -cne $generatedHash) {
-            throw "Store asset '$assetName' does not match scripts/generate-assets.ps1. Regenerate the canonical asset set before packaging."
+        $sourcePath = Join-Path $AssetsPath $assetName
+        $generatedPath = Join-Path $VerificationPath $assetName
+        $sourceImage = [System.Drawing.Bitmap]::new($sourcePath)
+        $generatedImage = [System.Drawing.Bitmap]::new($generatedPath)
+
+        try {
+            if ($sourceImage.Width -ne $generatedImage.Width -or $sourceImage.Height -ne $generatedImage.Height) {
+                throw "Store asset '$assetName' does not match scripts/generate-assets.ps1. Regenerate the canonical asset set before packaging."
+            }
+
+            if ((Get-DecodedPixelHash -Image $sourceImage) -cne (Get-DecodedPixelHash -Image $generatedImage)) {
+                throw "Store asset '$assetName' does not match scripts/generate-assets.ps1. Regenerate the canonical asset set before packaging."
+            }
+        }
+        finally {
+            $sourceImage.Dispose()
+            $generatedImage.Dispose()
         }
     }
 }
