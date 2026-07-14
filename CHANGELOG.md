@@ -8,6 +8,18 @@ Each entry links to the commit or pull request that introduced the change.
 
 ## [Unreleased]
 
+### Added
+
+- Separate five-hour and weekly usage trends, including a local rolling seven-day weekly history that survives Command Palette restarts. ([PR #7](https://github.com/TheBeems/CodexUsageDock/pull/7))
+
+### Fixed
+
+- Five-hour trend history is no longer shown while the five-hour limit is inactive. ([PR #7](https://github.com/TheBeems/CodexUsageDock/pull/7))
+- Weekly forecasts now exclude history from before the current weekly quota window, even when the app was closed across a reset. ([PR #7](https://github.com/TheBeems/CodexUsageDock/pull/7))
+- Weekly limit forecasts now show a date when the projected limit is not today. ([PR #7](https://github.com/TheBeems/CodexUsageDock/pull/7))
+- Development and CI now use the published .NET SDK 10.0.301, avoiding restores for unavailable 10.0.10 runtime packs. ([PR #7](https://github.com/TheBeems/CodexUsageDock/pull/7))
+- Development documentation now makes the repo-local SDK bootstrap work even without a system .NET 10 host. ([PR #7](https://github.com/TheBeems/CodexUsageDock/pull/7))
+
 ## [0.3.0] - 2026-07-14
 
 ### Added
