@@ -9,7 +9,7 @@ internal sealed partial class CodexUsageDockPage : ContentPage, IDisposable
     private static readonly string Version = CodexUsageDockMetadata.Version;
     private readonly CodexUsageService _usage;
 
-    public CodexUsageDockPage(CodexUsageService usage)
+    public CodexUsageDockPage(CodexUsageService usage, CodexUsageDockSettingsPage settings)
     {
         _usage = usage;
         _usage.Updated += OnUpdated;
@@ -21,6 +21,11 @@ internal sealed partial class CodexUsageDockPage : ContentPage, IDisposable
             new CommandContextItem(new RefreshUsageCommand(_usage))
             {
                 Title = "Refresh now",
+            },
+            new CommandContextItem(settings)
+            {
+                Title = settings.Title,
+                Icon = settings.Icon,
             },
         ];
     }

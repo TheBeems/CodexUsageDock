@@ -19,7 +19,7 @@ public partial class CodexUsageDockCommandsProvider : CommandProvider
         Id = "nl.mathijs.codexusage";
         Icon = new IconInfo("\uE943");
 
-        var details = new CodexUsageDockPage(_usage);
+        var details = new CodexUsageDockPage(_usage, _settings);
         _fiveHour = new UsageDockItem(_usage, UsageDockItemKind.FiveHour, details, _settings);
         _weekly = new UsageDockItem(_usage, UsageDockItemKind.Weekly, details, _settings);
         _resetsAndCredits = new UsageDockItem(_usage, UsageDockItemKind.ResetsAndCredits, details);

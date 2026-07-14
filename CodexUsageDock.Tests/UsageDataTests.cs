@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Microsoft.CommandPalette.Extensions.Toolkit;
 using Xunit;
 namespace CodexUsageDock.Tests;
 
@@ -159,10 +160,22 @@ public sealed class UsageDataTests
     public void DetailsPageUsesTheProjectReleaseVersion()
     {
         using var service = new CodexUsageService();
-        using var page = new CodexUsageDockPage(service);
+        using var page = new CodexUsageDockPage(service, new CodexUsageDockSettingsPage());
 
         Assert.Equal("0.3.0", CodexUsageDockMetadata.Version);
         Assert.Equal($"Codex Usage - {CodexUsageDockMetadata.Version}", page.Title);
+    }
+
+    [Fact]
+    public void DetailsPageContextMenuIncludesRefreshThenSettings()
+    {
+        using var service = new CodexUsageService();
+        using var page = new CodexUsageDockPage(service, new CodexUsageDockSettingsPage());
+
+        Assert.Collection(
+            page.Commands,
+            refresh => Assert.Equal("Refresh now", Assert.IsType<CommandContextItem>(refresh).Title),
+            settings => Assert.Equal("Codex Usage settings", Assert.IsType<CommandContextItem>(settings).Title));
     }
 
     [Theory]
