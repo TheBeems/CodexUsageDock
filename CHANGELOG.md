@@ -10,7 +10,7 @@ Each entry links to the commit or pull request that introduced the change.
 
 ### Added
 
-- The usage-details Ctrl+K menu now opens Codex Usage settings next to the manual refresh action.
+- The usage-details Ctrl+K menu now opens Codex Usage settings next to the manual refresh action. ([PR #8](https://github.com/TheBeems/CodexUsageDock/pull/8))
 - Separate five-hour and weekly usage trends, including a local rolling seven-day weekly history that survives Command Palette restarts. ([PR #7](https://github.com/TheBeems/CodexUsageDock/pull/7))
 
 ### Fixed
