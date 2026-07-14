@@ -171,7 +171,7 @@ internal sealed partial class CodexUsageDockPage : ContentPage, IDisposable
     }
 
     internal static string FormatTrend(IReadOnlyList<UsageHistoryEntry> history, DateTimeOffset now, bool dataAvailable = true) =>
-        FormatTrendForReset("Usage trend", history, null, now, dataAvailable, TimeSpan.FromMinutes(5));
+        FormatTrendForReset("Usage trend", history, null, null, now, dataAvailable, TimeSpan.FromMinutes(5));
 
     internal static string FormatTrend(
         string title,
@@ -186,12 +186,14 @@ internal sealed partial class CodexUsageDockPage : ContentPage, IDisposable
             return string.Empty;
         }
 
-        return FormatTrendForReset(title, history, window.ResetsAt, now, dataAvailable, maximumSampleAge);
+        var windowStartsAt = window.ResetsAt - TimeSpan.FromMinutes(window.WindowMinutes);
+        return FormatTrendForReset(title, history, windowStartsAt, window.ResetsAt, now, dataAvailable, maximumSampleAge);
     }
 
     private static string FormatTrendForReset(
         string title,
         IReadOnlyList<UsageHistoryEntry> history,
+        DateTimeOffset? windowStartsAt,
         DateTimeOffset? resetsAt,
         DateTimeOffset now,
         bool dataAvailable,
@@ -202,16 +204,20 @@ internal sealed partial class CodexUsageDockPage : ContentPage, IDisposable
             return $"## {title}\n\nUnavailable until a fresh usage sample is loaded.";
         }
 
+        var historyInCurrentWindow = windowStartsAt is { } start
+            ? history.Where(sample => sample.RecordedAt >= start).ToArray()
+            : history;
+
         var segmentStart = 0;
-        for (var index = 1; index < history.Count; index++)
+        for (var index = 1; index < historyInCurrentWindow.Count; index++)
         {
-            if (history[index].RemainingPercent > history[index - 1].RemainingPercent)
+            if (historyInCurrentWindow[index].RemainingPercent > historyInCurrentWindow[index - 1].RemainingPercent)
             {
                 segmentStart = index;
             }
         }
 
-        var currentWindow = history.Skip(segmentStart).ToArray();
+        var currentWindow = historyInCurrentWindow.Skip(segmentStart).ToArray();
         if (currentWindow.Length < 2)
         {
             return $"## {title}\n\nNot enough history for an estimate yet.";

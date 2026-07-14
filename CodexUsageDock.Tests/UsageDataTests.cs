@@ -958,6 +958,28 @@ public sealed class UsageDataTests
     }
 
     [Fact]
+    public void WeeklyTrendFiltersSamplesBeforeCurrentWindowStartWhenNoUsageIncreaseOccurs()
+    {
+        var now = DateTimeOffset.Now;
+        var reset = now.AddDays(6);
+        var trend = CodexUsageDockPage.FormatTrend(
+            "Weekly usage trend",
+            [
+                new UsageHistoryEntry(now.AddDays(-2), 90),
+                new UsageHistoryEntry(now.AddDays(-1).AddMinutes(-1), 50),
+                new UsageHistoryEntry(now.AddHours(-1), 40),
+                new UsageHistoryEntry(now, 30),
+            ],
+            new RateLimitWindow(70, 10080, reset),
+            now,
+            dataAvailable: true,
+            maximumSampleAge: TimeSpan.FromMinutes(5));
+
+        Assert.Contains("40% → 30%", trend, StringComparison.Ordinal);
+        Assert.DoesNotContain("50%", trend, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void TrendAllowsFreshnessMatchingTheConfiguredRefreshInterval()
     {
         var now = DateTimeOffset.Now;

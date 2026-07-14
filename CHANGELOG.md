@@ -15,6 +15,7 @@ Each entry links to the commit or pull request that introduced the change.
 ### Fixed
 
 - Five-hour trend history is no longer shown while the five-hour limit is inactive. ([PR #7](https://github.com/TheBeems/CodexUsageDock/pull/7))
+- Weekly forecasts now exclude history from before the current weekly quota window, even when the app was closed across a reset. ([PR #7](https://github.com/TheBeems/CodexUsageDock/pull/7))
 - Development and CI now use the published .NET SDK 10.0.301, avoiding restores for unavailable 10.0.10 runtime packs. ([PR #7](https://github.com/TheBeems/CodexUsageDock/pull/7))
 
 ## [0.3.0] - 2026-07-14
