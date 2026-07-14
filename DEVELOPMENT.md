@@ -83,7 +83,7 @@ Store install, update, and uninstall behavior must be tested with a Store-signed
 
 ## Build the Microsoft Store package
 
-The package artwork is generated from one canonical visual mark. Treat `scripts/generate-assets.ps1` as its source instead of editing individual PNG files. The release builder compares decoded pixels, because PNG encoding can differ between supported build hosts without changing the artwork:
+The package artwork is generated from one canonical visual mark. Treat `scripts/generate-assets.ps1` as its source instead of editing individual PNG files. The release builder compares decoded artwork with a small rendering tolerance, because PNG encoding and anti-aliasing can differ between supported build hosts without changing the design:
 
 ```powershell
 .\scripts\generate-assets.ps1

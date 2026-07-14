@@ -62,37 +62,50 @@ function Assert-StoreAssets {
     }
 }
 
-function Get-DecodedPixelHash {
+function Test-ImagesVisuallyEquivalent {
     param(
         [Parameter(Mandatory)]
-        [System.Drawing.Bitmap]$Image
+        [System.Drawing.Bitmap]$ExpectedImage,
+
+        [Parameter(Mandatory)]
+        [System.Drawing.Bitmap]$ActualImage
     )
 
-    $rectangle = [System.Drawing.Rectangle]::new(0, 0, $Image.Width, $Image.Height)
-    $normalizedImage = $Image.Clone($rectangle, [System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
-    $bitmapData = $null
+    $comparisonWidth = [Math]::Min(64, $ExpectedImage.Width)
+    $comparisonHeight = [Math]::Min(64, $ExpectedImage.Height)
+    $expectedPreview = [System.Drawing.Bitmap]::new($comparisonWidth, $comparisonHeight)
+    $actualPreview = [System.Drawing.Bitmap]::new($comparisonWidth, $comparisonHeight)
 
     try {
-        $bitmapData = $normalizedImage.LockBits(
-            $rectangle,
-            [System.Drawing.Imaging.ImageLockMode]::ReadOnly,
-            [System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
-        $pixelBytes = [byte[]]::new([Math]::Abs($bitmapData.Stride) * $bitmapData.Height)
-        [System.Runtime.InteropServices.Marshal]::Copy($bitmapData.Scan0, $pixelBytes, 0, $pixelBytes.Length)
-
-        $sha256 = [System.Security.Cryptography.SHA256]::Create()
+        $expectedGraphics = [System.Drawing.Graphics]::FromImage($expectedPreview)
+        $actualGraphics = [System.Drawing.Graphics]::FromImage($actualPreview)
         try {
-            return [Convert]::ToHexString($sha256.ComputeHash($pixelBytes))
+            $expectedGraphics.DrawImage($ExpectedImage, 0, 0, $comparisonWidth, $comparisonHeight)
+            $actualGraphics.DrawImage($ActualImage, 0, 0, $comparisonWidth, $comparisonHeight)
         }
         finally {
-            $sha256.Dispose()
+            $expectedGraphics.Dispose()
+            $actualGraphics.Dispose()
         }
+
+        [long]$totalChannelDifference = 0
+        for ($y = 0; $y -lt $comparisonHeight; $y++) {
+            for ($x = 0; $x -lt $comparisonWidth; $x++) {
+                $expectedPixel = $expectedPreview.GetPixel($x, $y)
+                $actualPixel = $actualPreview.GetPixel($x, $y)
+                $totalChannelDifference += [Math]::Abs([int]$expectedPixel.A - [int]$actualPixel.A)
+                $totalChannelDifference += [Math]::Abs([int]$expectedPixel.R - [int]$actualPixel.R)
+                $totalChannelDifference += [Math]::Abs([int]$expectedPixel.G - [int]$actualPixel.G)
+                $totalChannelDifference += [Math]::Abs([int]$expectedPixel.B - [int]$actualPixel.B)
+            }
+        }
+
+        $meanChannelDifference = $totalChannelDifference / ($comparisonWidth * $comparisonHeight * 4)
+        return $meanChannelDifference -le 1.0
     }
     finally {
-        if ($null -ne $bitmapData) {
-            $normalizedImage.UnlockBits($bitmapData)
-        }
-        $normalizedImage.Dispose()
+        $expectedPreview.Dispose()
+        $actualPreview.Dispose()
     }
 }
 
@@ -121,7 +134,7 @@ function Assert-GeneratedAssetsMatch {
                 throw "Store asset '$assetName' does not match scripts/generate-assets.ps1. Regenerate the canonical asset set before packaging."
             }
 
-            if ((Get-DecodedPixelHash -Image $sourceImage) -cne (Get-DecodedPixelHash -Image $generatedImage)) {
+            if (-not (Test-ImagesVisuallyEquivalent -ExpectedImage $sourceImage -ActualImage $generatedImage)) {
                 throw "Store asset '$assetName' does not match scripts/generate-assets.ps1. Regenerate the canonical asset set before packaging."
             }
         }

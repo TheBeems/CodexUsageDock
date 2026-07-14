@@ -19,7 +19,7 @@ Each entry links to the commit or pull request that introduced the change.
 ### Changed
 
 - Usage refreshes now coalesce overlapping requests, show progress, cancel safely during shutdown, and report privacy-safe errors when live and fallback sources are unavailable. [PR #6](https://github.com/TheBeems/CodexUsageDock/pull/6)
-- Store packaging now uses a consistent Codex Usage visual identity, validates decoded artwork independently of host-specific PNG encoding, checks the complete required asset set, targets current Windows behavior, requests only the required full-trust capability, and uses isolated NuGet and build state. [PR #6](https://github.com/TheBeems/CodexUsageDock/pull/6)
+- Store packaging now uses a consistent Codex Usage visual identity, validates artwork independently of host-specific PNG encoding and anti-aliasing, checks the complete required asset set, targets current Windows behavior, requests only the required full-trust capability, and uses isolated NuGet and build state. [PR #6](https://github.com/TheBeems/CodexUsageDock/pull/6)
 - The details page now distinguishes the standalone Codex CLI app-server from local session metadata, which may have been written by another local Codex client. [commit 192f313](https://github.com/TheBeems/CodexUsageDock/commit/192f313)
 - Future production releases use the Microsoft Store as the sole distribution and update channel. [commit 0440e98](https://github.com/TheBeems/CodexUsageDock/commit/0440e98cb1aaa01d75595e52fdb0fcd333378006)
 - The Store release workflow now takes its version from the project file, avoiding a separately maintained release version. [commit 4a10eb2](https://github.com/TheBeems/CodexUsageDock/commit/4a10eb2a94f16d55b59fdefe790c79b3d4f98e17)
