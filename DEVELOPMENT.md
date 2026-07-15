@@ -85,7 +85,7 @@ Complete every row on a clean x64 environment and a separate clean ARM64 environ
 | Uninstall and reinstall | Required | Required | Uninstall removes the app and extension registration; reinstall restores discovery without stale or duplicate providers. |
 | Automated preflight | Required | Required | `test-integration.ps1` passes manifest, package, CLSID, COM, and AppExtension checks. |
 | Discovery and reload | Required | Required | After **Reload Command Palette Extension**, **Codex Usage** appears once under **Settings > Extensions** and can be enabled. |
-| Details page | Required | Required | Opening **Codex Usage** shows the current source, limits, reset information, and a working manual refresh without freezing Command Palette. |
+| Details page | Required | Required | Opening **Codex Usage** shows five-hour and weekly quota summaries that compare allowance used with elapsed window time and include a projection for each active window. Resets, credits, account status, and source appear in the native Details pane. Verify pace labels, inactive/projection fallback states, and semantic status colors at narrow and wide window sizes, light/dark themes, and high contrast; manual refresh must update both areas without clipping or freezing Command Palette. |
 | Dock band | Required | Required | The band can be added, each enabled item opens details, and values update while Command Palette remains responsive. |
 | Settings | Required | Required | Visibility, reset-time, and refresh-interval choices apply immediately and persist after restarting Command Palette. |
 | Live app-server | Required | Required | With a signed-in standalone Codex CLI, the details page identifies the CLI app-server as the source and refreshes live data. |
