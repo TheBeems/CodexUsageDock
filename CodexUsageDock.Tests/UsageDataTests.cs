@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Microsoft.CommandPalette.Extensions;
 using Microsoft.CommandPalette.Extensions.Toolkit;
 using Xunit;
 namespace CodexUsageDock.Tests;
@@ -176,6 +177,174 @@ public sealed class UsageDataTests
             page.Commands,
             refresh => Assert.Equal("Refresh now", Assert.IsType<CommandContextItem>(refresh).Title),
             settings => Assert.Equal("Codex Usage settings", Assert.IsType<CommandContextItem>(settings).Title));
+    }
+
+    [Fact]
+    public void DetailsPageUsesNativeMediumDetailsPane()
+    {
+        using var service = new CodexUsageService();
+        using var page = new CodexUsageDockPage(service, new CodexUsageDockSettingsPage());
+
+        var details = Assert.IsType<Details>(page.Details);
+        var main = Assert.IsType<FormContent>(Assert.Single(page.GetContent()));
+        using var template = JsonDocument.Parse(main.TemplateJson);
+
+        Assert.Equal("Usage details", details.Title);
+        Assert.Equal(ContentSize.Medium, details.Size);
+        Assert.Equal("AdaptiveCard", template.RootElement.GetProperty("type").GetString());
+        Assert.Contains("\"type\": \"Image\"", main.TemplateJson, StringComparison.Ordinal);
+        Assert.Contains("Allowance used", main.TemplateJson, StringComparison.Ordinal);
+        Assert.Contains("Window elapsed", main.TemplateJson, StringComparison.Ordinal);
+        Assert.Same(Assert.Single(page.GetContent()), Assert.Single(page.GetContent()));
+    }
+
+    [Fact]
+    public void DetailsPageSeparatesQuotaContentFromSecondaryDetails()
+    {
+        var now = new DateTimeOffset(2026, 7, 14, 12, 0, 0, TimeSpan.Zero);
+        var snapshot = new CodexUsageSnapshot(
+            new RateLimitWindow(20, 300, now.AddHours(4)),
+            new RateLimitWindow(2, 10080, now.AddDays(6)),
+            "pro_lite",
+            new CreditBalance(true, false, "10.00"),
+            new RateLimitResetCredits(
+                3,
+                [new RateLimitResetCredit("Full reset", "available", now.AddDays(13))]),
+            now,
+            UsageDataSource.AppServer,
+            null);
+        var main = CodexUsageDockPage.FormatMainDataJson(
+            snapshot,
+            now,
+            isLoading: false,
+            [new UsageHistoryEntry(now.AddMinutes(-30), 90), new UsageHistoryEntry(now, 80)],
+            [new UsageHistoryEntry(now.AddHours(-12), 99), new UsageHistoryEntry(now, 98)],
+            TimeSpan.FromMinutes(1));
+        var details = CodexUsageDockPage.FormatDetailsBody(snapshot, now);
+        using var mainData = JsonDocument.Parse(main);
+        var root = mainData.RootElement;
+
+        Assert.Equal("Status: Plenty of allowance available", root.GetProperty("statusTitle").GetString());
+        Assert.Equal("80%", root.GetProperty("fiveHourRemaining").GetString());
+        Assert.Equal("98%", root.GetProperty("weeklyRemaining").GetString());
+        Assert.Equal("20%", root.GetProperty("fiveHourUsedPercent").GetString());
+        Assert.Equal("20%", root.GetProperty("fiveHourElapsedPercent").GetString());
+        Assert.Equal("2%", root.GetProperty("weeklyUsedPercent").GetString());
+        Assert.Equal("14%", root.GetProperty("weeklyElapsedPercent").GetString());
+        Assert.StartsWith("data:image/svg+xml;utf8,", root.GetProperty("fiveHourUsedBarUrl").GetString(), StringComparison.Ordinal);
+        Assert.StartsWith("data:image/svg+xml;utf8,", root.GetProperty("fiveHourElapsedBarUrl").GetString(), StringComparison.Ordinal);
+        Assert.StartsWith("data:image/svg+xml;utf8,", root.GetProperty("weeklyUsedBarUrl").GetString(), StringComparison.Ordinal);
+        Assert.StartsWith("data:image/svg+xml;utf8,", root.GetProperty("weeklyElapsedBarUrl").GetString(), StringComparison.Ordinal);
+        Assert.Equal("On track", root.GetProperty("fiveHourPaceStatus").GetString());
+        Assert.Equal("Comfortably on track", root.GetProperty("weeklyPaceStatus").GetString());
+        Assert.Contains("Projected at reset", root.GetProperty("fiveHourProjection").GetString(), StringComparison.Ordinal);
+        Assert.Contains("Projected at reset", root.GetProperty("weeklyProjection").GetString(), StringComparison.Ordinal);
+        Assert.DoesNotContain("Resets and credits", main, StringComparison.Ordinal);
+        Assert.DoesNotContain("Account and data", main, StringComparison.Ordinal);
+        Assert.DoesNotContain("standalone Codex CLI app-server", main, StringComparison.Ordinal);
+        Assert.DoesNotContain("Codex Usage -", main, StringComparison.Ordinal);
+
+        Assert.Contains("Resets and credits", details, StringComparison.Ordinal);
+        Assert.Contains("3 available", details, StringComparison.Ordinal);
+        Assert.Contains("Full reset", details, StringComparison.Ordinal);
+        Assert.Contains("10.00", details, StringComparison.Ordinal);
+        Assert.Contains("Pro Lite", details, StringComparison.Ordinal);
+        Assert.Contains("standalone Codex CLI app-server", details, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task DetailsPageRefreshUpdatesMainContentAndDetailsPane()
+    {
+        var now = DateTimeOffset.Now;
+        var result = new TaskCompletionSource<CodexUsageSnapshot>(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var service = new CodexUsageService(
+            _ => result.Task,
+            () => throw new InvalidOperationException("Fallback should not run."));
+        using var page = new CodexUsageDockPage(service, new CodexUsageDockSettingsPage());
+        var main = Assert.IsType<FormContent>(Assert.Single(page.GetContent()));
+        var details = Assert.IsType<Details>(page.Details);
+
+        var refresh = service.RefreshAsync();
+
+        Assert.True(page.IsLoading);
+        using (var loadingData = JsonDocument.Parse(main.DataJson))
+        {
+            Assert.True(loadingData.RootElement.GetProperty("isLoading").GetBoolean());
+        }
+
+        result.SetResult(CodexUsageSnapshot.Loading with
+        {
+            Primary = new RateLimitWindow(25, 300, now.AddHours(4)),
+            PlanType = "pro",
+            ResetCredits = new RateLimitResetCredits(2, null),
+            UpdatedAt = now,
+            Source = UsageDataSource.AppServer,
+            Error = null,
+        });
+        await refresh.WaitAsync(AsyncTestTimeout);
+
+        Assert.False(page.IsLoading);
+        using (var refreshedData = JsonDocument.Parse(main.DataJson))
+        {
+            Assert.False(refreshedData.RootElement.GetProperty("isLoading").GetBoolean());
+            Assert.Equal("75%", refreshedData.RootElement.GetProperty("fiveHourRemaining").GetString());
+            Assert.StartsWith(
+                "data:image/svg+xml;utf8,",
+                refreshedData.RootElement.GetProperty("fiveHourUsedBarUrl").GetString(),
+                StringComparison.Ordinal);
+            Assert.Equal(
+                "Projection will appear after another measurement.",
+                refreshedData.RootElement.GetProperty("fiveHourProjection").GetString());
+        }
+
+        Assert.Contains("2 available", details.Body, StringComparison.Ordinal);
+        Assert.Contains("Pro", details.Body, StringComparison.Ordinal);
+        Assert.Contains("standalone Codex CLI app-server", details.Body, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void UsageProgressBarCreatesSvgDataUri()
+    {
+        var bar = UsageDashboardCard.CreateProgressBarImageUrl(75, UsageBarPalette.FiveHour);
+
+        Assert.StartsWith("data:image/svg+xml;utf8,", bar, StringComparison.Ordinal);
+        Assert.Contains("%3Csvg", bar, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("%2339B8E3", bar, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void UsageProgressBarHandlesNonFinitePercentage()
+    {
+        var bar = UsageDashboardCard.CreateProgressBarImageUrl(double.NaN, UsageBarPalette.Weekly);
+
+        Assert.StartsWith("data:image/svg+xml;utf8,", bar, StringComparison.Ordinal);
+        Assert.DoesNotContain("NaN", bar, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void UsagePaceWarnsWhenAllowanceRunsFarAheadOfElapsedTime()
+    {
+        var now = new DateTimeOffset(2026, 7, 14, 12, 0, 0, TimeSpan.Zero);
+        var snapshot = CodexUsageSnapshot.Loading with
+        {
+            Primary = new RateLimitWindow(70, 300, now.AddHours(4)),
+            UpdatedAt = now,
+            Source = UsageDataSource.AppServer,
+        };
+
+        var data = CodexUsageDockPage.FormatMainDataJson(
+            snapshot,
+            now,
+            isLoading: false,
+            primaryHistory: [],
+            weeklyHistory: [],
+            refreshInterval: TimeSpan.FromMinutes(1));
+        using var document = JsonDocument.Parse(data);
+
+        Assert.Equal("70%", document.RootElement.GetProperty("fiveHourUsedPercent").GetString());
+        Assert.Equal("20%", document.RootElement.GetProperty("fiveHourElapsedPercent").GetString());
+        Assert.Equal("Limit may be reached before reset", document.RootElement.GetProperty("fiveHourPaceStatus").GetString());
+        Assert.Equal("Attention", document.RootElement.GetProperty("fiveHourPaceColor").GetString());
     }
 
     [Theory]
@@ -477,15 +646,6 @@ public sealed class UsageDataTests
         Assert.Contains("in 36 minutes", summary, StringComparison.Ordinal);
     }
 
-    [Theory]
-    [InlineData(100, "██████████")]
-    [InlineData(47, "█████░░░░░")]
-    [InlineData(0, "░░░░░░░░░░")]
-    public void ProgressBar_RendersTenSegments(double remaining, string expected)
-    {
-        Assert.Equal(expected, CodexUsageDockPage.ProgressBar(remaining));
-    }
-
     [Fact]
     public void Trend_EstimatesLimitTimeFromObservedConsumption()
     {
@@ -499,7 +659,7 @@ public sealed class UsageDataTests
         var trend = CodexUsageDockPage.FormatTrend(history, now);
 
         Assert.Contains("80% → 60%", trend, StringComparison.Ordinal);
-        Assert.Contains($"limit around {now.AddMinutes(90).ToLocalTime():HH:mm}", trend, StringComparison.Ordinal);
+        Assert.Contains($"limit may be reached around {now.AddMinutes(90).ToLocalTime():HH:mm}", trend, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -518,7 +678,7 @@ public sealed class UsageDataTests
 
         Assert.Contains("100% → 80%", trend, StringComparison.Ordinal);
         Assert.DoesNotContain("10%", trend, StringComparison.Ordinal);
-        Assert.Contains($"limit around {now.AddHours(2).ToLocalTime():HH:mm}", trend, StringComparison.Ordinal);
+        Assert.Contains($"limit may be reached around {now.AddHours(2).ToLocalTime():HH:mm}", trend, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -533,8 +693,8 @@ public sealed class UsageDataTests
 
         var trend = CodexUsageDockPage.FormatTrend(history, now);
 
-        Assert.Contains("too old for a reliable estimate", trend, StringComparison.Ordinal);
-        Assert.DoesNotContain("limit around", trend, StringComparison.Ordinal);
+        Assert.Contains("latest measurement is too old", trend, StringComparison.Ordinal);
+        Assert.DoesNotContain("limit may be reached", trend, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -549,8 +709,8 @@ public sealed class UsageDataTests
 
         var trend = CodexUsageDockPage.FormatTrend(history, now, dataAvailable: false);
 
-        Assert.Contains("Unavailable until a fresh usage sample", trend, StringComparison.Ordinal);
-        Assert.DoesNotContain("limit around", trend, StringComparison.Ordinal);
+        Assert.Contains("Projection unavailable until fresh usage data", trend, StringComparison.Ordinal);
+        Assert.DoesNotContain("limit may be reached", trend, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -930,8 +1090,8 @@ public sealed class UsageDataTests
             maximumSampleAge: TimeSpan.FromMinutes(5));
 
         Assert.Contains("Weekly usage trend", trend, StringComparison.Ordinal);
-        Assert.Contains("40% available at reset", trend, StringComparison.Ordinal);
-        Assert.DoesNotContain("limit around", trend, StringComparison.Ordinal);
+        Assert.Contains("Projected at reset: 40% available", trend, StringComparison.Ordinal);
+        Assert.DoesNotContain("limit may be reached", trend, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -946,7 +1106,7 @@ public sealed class UsageDataTests
             dataAvailable: true,
             maximumSampleAge: TimeSpan.FromMinutes(5));
 
-        Assert.Contains("limit around", trend, StringComparison.Ordinal);
+        Assert.Contains("limit may be reached", trend, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -962,7 +1122,7 @@ public sealed class UsageDataTests
             dataAvailable: true,
             maximumSampleAge: TimeSpan.FromMinutes(5));
 
-        Assert.Contains($"limit around {estimated.ToLocalTime():ddd d MMM HH:mm}", trend, StringComparison.Ordinal);
+        Assert.Contains($"limit may be reached around {estimated.ToLocalTime():ddd d MMM HH:mm}", trend, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -1020,6 +1180,6 @@ public sealed class UsageDataTests
             dataAvailable: true,
             maximumSampleAge: TimeSpan.FromMinutes(15));
 
-        Assert.DoesNotContain("too old for a reliable estimate", trend, StringComparison.Ordinal);
+        Assert.DoesNotContain("latest measurement is too old", trend, StringComparison.Ordinal);
     }
 }

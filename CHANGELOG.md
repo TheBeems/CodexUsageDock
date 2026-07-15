@@ -8,6 +8,12 @@ Each entry links to the commit or pull request that introduced the change.
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-07-15
+
+### Changed
+
+- The usage page now compares allowance used with elapsed window time, adds a reset projection for each active quota window, and keeps reset credits, account status, and data-source details in the native Command Palette Details pane. ([PR #9](https://github.com/TheBeems/CodexUsageDock/pull/9))
+
 ## [0.4.0] - 2026-07-14
 
 ### Added
@@ -74,7 +80,8 @@ Each entry links to the commit or pull request that introduced the change.
 - Initial release of the Windows Command Palette extension for viewing local Codex usage. [commit ac72fe5](https://github.com/TheBeems/CodexUsageDock/commit/ac72fe50fcd1af36f41cda896f1d792899573351)
 - Automated release installer creation and smoke-test handling. [commit 64a3305](https://github.com/TheBeems/CodexUsageDock/commit/64a33058b7486dea12f026561c545b362eb2d622), [commit 21790a1](https://github.com/TheBeems/CodexUsageDock/commit/21790a1ea60a9bfec14ec578d77356c5576472fb)
 
-[Unreleased]: https://github.com/TheBeems/CodexUsageDock/compare/v0.4.0...main
+[Unreleased]: https://github.com/TheBeems/CodexUsageDock/compare/v0.5.0...main
+[0.5.0]: https://github.com/TheBeems/CodexUsageDock/releases/tag/v0.5.0
 [0.4.0]: https://github.com/TheBeems/CodexUsageDock/releases/tag/v0.4.0
 [0.3.0]: https://github.com/TheBeems/CodexUsageDock/releases/tag/v0.3.0
 [0.2.0]: https://github.com/TheBeems/CodexUsageDock/releases/tag/v0.2.0
