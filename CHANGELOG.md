@@ -10,11 +10,11 @@ Each entry links to the commit or pull request that introduced the change.
 
 ### Added
 
-- The weekly usage dashboard now combines observed remaining allowance, a dashed reset projection, and locally observed daily quota consumption in one seven-day trend chart.
+- The weekly usage dashboard now combines observed remaining allowance, a dashed reset projection, and locally observed daily quota consumption in one seven-day trend chart. ([PR #13](https://github.com/TheBeems/CodexUsageDock/pull/13))
 
 ### Changed
 
-- The weekly trend chart now labels its 0–100% vertical scale and localized quota-window weekdays without relying on unsupported SVG text.
+- The weekly trend chart now labels its 0–100% vertical scale and localized quota-window weekdays without relying on unsupported SVG text. ([PR #13](https://github.com/TheBeems/CodexUsageDock/pull/13))
 
 ## [0.5.2] - 2026-07-16
 
