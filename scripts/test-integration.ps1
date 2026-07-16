@@ -352,7 +352,10 @@ else {
 }
 
 $requiredRuntimeFiles = @(
+    'CodexUsageDock.dll'
+    'CodexUsageDock.deps.json'
     'CodexUsageDock.runtimeconfig.json'
+    'System.Private.CoreLib.dll'
     'coreclr.dll'
     'hostfxr.dll'
     'hostpolicy.dll'

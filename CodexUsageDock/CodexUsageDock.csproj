@@ -30,7 +30,6 @@
   <PropertyGroup Condition="'$(DistributionMode)'=='Installer'">
     <WindowsPackageType>None</WindowsPackageType>
     <EnableMsixTooling>false</EnableMsixTooling>
-    <PublishSingleFile>false</PublishSingleFile>
     <PublishReadyToRun>true</PublishReadyToRun>
   </PropertyGroup>
 
@@ -107,7 +106,8 @@
   </PropertyGroup>
 
   <PropertyGroup>
-    <PublishSingleFile>true</PublishSingleFile>
+    <!-- MSIX already provides one installation unit; keep the app-local .NET layout explicit and verifiable. -->
+    <PublishSingleFile>false</PublishSingleFile>
     <IsAotCompatible>true</IsAotCompatible>
 
     <CsWinRTAotOptimizerEnabled>true</CsWinRTAotOptimizerEnabled>

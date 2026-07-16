@@ -118,7 +118,7 @@ The command builds from an isolated manifest copy with the four-part MSIX versio
 - publisher `CN=F748B633-A4F0-42F4-B6F1-B5BDCAED8E0C`;
 - x64 and ARM64 architectures;
 - the complete generated asset set and its required pixel dimensions;
-- app-local .NET runtime files and, when emitted separately from the single-file bundle, self-contained `includedFrameworks` metadata;
+- the complete app-local managed application and .NET runtime layout, including self-contained `includedFrameworks` metadata;
 - packaged COM and `com.microsoft.commandpalette` registrations;
 - one bundle inside the final `.msixupload`.
 

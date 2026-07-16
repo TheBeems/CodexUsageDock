@@ -8,6 +8,10 @@ Each entry links to the commit or pull request that introduced the change.
 
 ## [Unreleased]
 
+### Fixed
+
+- Microsoft Store packages now include the complete self-contained .NET application layout, preventing startup failures caused by a missing managed entry assembly. ([PR #11](https://github.com/TheBeems/CodexUsageDock/pull/11))
+
 ## [0.5.1] - 2026-07-16
 
 ### Changed

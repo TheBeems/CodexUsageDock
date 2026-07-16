@@ -358,6 +358,10 @@ function Assert-SelfContainedMsix {
     try {
         $requiredRuntimeEntries = @(
             'CodexUsageDock.exe',
+            'CodexUsageDock.dll',
+            'CodexUsageDock.deps.json',
+            'CodexUsageDock.runtimeconfig.json',
+            'System.Private.CoreLib.dll',
             'coreclr.dll',
             'hostfxr.dll',
             'hostpolicy.dll'
@@ -375,24 +379,20 @@ function Assert-SelfContainedMsix {
             throw "MSIX is missing required Microsoft Store assets: $($missingAssetEntries -join ', ')."
         }
 
-        # A self-contained single-file publish embeds runtimeconfig.json in the app bundle.
-        # If the SDK emits it as a loose file, validate that it still declares the included runtime.
         $runtimeConfigEntry = $archive.GetEntry('CodexUsageDock.runtimeconfig.json')
-        if ($runtimeConfigEntry) {
-            $reader = [IO.StreamReader]::new($runtimeConfigEntry.Open())
-            try {
-                $runtimeConfig = $reader.ReadToEnd() | ConvertFrom-Json
-            }
-            finally {
-                $reader.Dispose()
-            }
+        $reader = [IO.StreamReader]::new($runtimeConfigEntry.Open())
+        try {
+            $runtimeConfig = $reader.ReadToEnd() | ConvertFrom-Json
+        }
+        finally {
+            $reader.Dispose()
+        }
 
-            $includedFramework = @($runtimeConfig.runtimeOptions.includedFrameworks) |
-                Where-Object { $_.name -eq 'Microsoft.NETCore.App' } |
-                Select-Object -First 1
-            if (-not $includedFramework) {
-                throw 'MSIX runtimeconfig is framework-dependent; expected an included Microsoft.NETCore.App framework.'
-            }
+        $includedFramework = @($runtimeConfig.runtimeOptions.includedFrameworks) |
+            Where-Object { $_.name -eq 'Microsoft.NETCore.App' } |
+            Select-Object -First 1
+        if (-not $includedFramework) {
+            throw 'MSIX runtimeconfig is framework-dependent; expected an included Microsoft.NETCore.App framework.'
         }
     }
     finally {
