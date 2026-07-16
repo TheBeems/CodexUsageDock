@@ -12,7 +12,7 @@ Each entry links to the commit or pull request that introduced the change.
 
 ### Changed
 
-- Reset credits in the Dock now use a plain `resets` label and show the whole hours or days until the next credit expires.
+- Reset credits in the Dock now use a plain `resets` label and show the whole hours or days until the next credit expires. ([PR #10](https://github.com/TheBeems/CodexUsageDock/pull/10))
 
 ## [0.5.0] - 2026-07-15
 
