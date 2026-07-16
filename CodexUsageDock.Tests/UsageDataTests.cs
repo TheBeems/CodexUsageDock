@@ -163,7 +163,7 @@ public sealed class UsageDataTests
         using var service = new CodexUsageService();
         using var page = new CodexUsageDockPage(service, new CodexUsageDockSettingsPage());
 
-        Assert.Equal("0.5.0", CodexUsageDockMetadata.Version);
+        Assert.Equal("0.5.1", CodexUsageDockMetadata.Version);
         Assert.Equal($"Codex Usage - {CodexUsageDockMetadata.Version}", page.Title);
     }
 
@@ -568,9 +568,9 @@ public sealed class UsageDataTests
     }
 
     [Theory]
-    [InlineData(null, null, "↻ --")]
-    [InlineData(0, null, "↻ 0")]
-    [InlineData(2, "10.00", "↻ 2 · 10.00")]
+    [InlineData(null, null, "-- resets")]
+    [InlineData(0, null, "0 resets")]
+    [InlineData(2, "10.00", "2 resets · 10.00")]
     public void DockSummary_FormatsAvailableData(int? resetCount, string? balance, string expected)
     {
         var snapshot = new CodexUsageSnapshot(
@@ -589,7 +589,7 @@ public sealed class UsageDataTests
     [Theory]
     [InlineData(nameof(UsageDockItemKind.FiveHour), "5h --")]
     [InlineData(nameof(UsageDockItemKind.Weekly), "Week --")]
-    [InlineData(nameof(UsageDockItemKind.ResetsAndCredits), "↻ --")]
+    [InlineData(nameof(UsageDockItemKind.ResetsAndCredits), "-- resets")]
     public void UnavailableDockItemsUseConsistentStatus(string kindName, string expectedTitle)
     {
         var kind = Enum.Parse<UsageDockItemKind>(kindName);
@@ -597,6 +597,38 @@ public sealed class UsageDataTests
 
         Assert.Equal(expectedTitle, result.Title);
         Assert.Equal("Codex usage unavailable", result.Subtitle);
+    }
+
+    [Fact]
+    public void ResetExpiryUsesTheNextFutureExpiryRoundedUpToWholeDays()
+    {
+        var now = new DateTimeOffset(2026, 7, 16, 12, 0, 0, TimeSpan.Zero);
+        var resets = new RateLimitResetCredits(
+            2,
+            [
+                new RateLimitResetCredit("Later reset", "available", now.AddDays(15)),
+                new RateLimitResetCredit("Next reset", "available", now.AddDays(12).AddHours(1)),
+                new RateLimitResetCredit("Expired reset", "available", now.AddDays(-1)),
+            ]);
+
+        Assert.Equal("expires in 13 days", UsageDockItem.FormatResetExpiry(resets, now));
+    }
+
+    [Fact]
+    public void ResetExpiryReportsUnavailableWhenNoFutureExpiryIsKnown()
+    {
+        Assert.Equal("expiration unavailable", UsageDockItem.FormatResetExpiry(null, DateTimeOffset.Now));
+    }
+
+    [Fact]
+    public void ResetExpiryUsesWholeHoursWhenLessThanOneDayRemains()
+    {
+        var now = new DateTimeOffset(2026, 7, 16, 12, 0, 0, TimeSpan.Zero);
+        var resets = new RateLimitResetCredits(
+            1,
+            [new RateLimitResetCredit("Next reset", "available", now.AddHours(12).AddMinutes(1))]);
+
+        Assert.Equal("expires in 13 hours", UsageDockItem.FormatResetExpiry(resets, now));
     }
 
     [Fact]

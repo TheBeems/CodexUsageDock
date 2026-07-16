@@ -8,6 +8,12 @@ Each entry links to the commit or pull request that introduced the change.
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-07-16
+
+### Changed
+
+- Reset credits in the Dock now use a plain `resets` label and show the whole hours or days until the next credit expires.
+
 ## [0.5.0] - 2026-07-15
 
 ### Changed

@@ -42,7 +42,7 @@ internal sealed partial class UsageDockItem : ListItem, IDisposable
         if (_kind == UsageDockItemKind.ResetsAndCredits)
         {
             Title = FormatResetsAndCredits(snapshot);
-            Subtitle = $"{UsageText.SanitizeExternal(snapshot.PlanType, 32) ?? "account"} · {snapshot.UpdatedAt.ToLocalTime().ToString("HH:mm", CultureInfo.CurrentCulture)}";
+            Subtitle = FormatResetExpiry(snapshot.ResetCredits, DateTimeOffset.Now);
             Icon = new IconInfo("\uE777");
             return;
         }
@@ -71,7 +71,7 @@ internal sealed partial class UsageDockItem : ListItem, IDisposable
     internal static string FormatResetsAndCredits(CodexUsageSnapshot snapshot)
     {
         var resets = snapshot.ResetCredits is null ? "--" : snapshot.ResetCredits.AvailableCount.ToString(CultureInfo.CurrentCulture);
-        var title = $"↻ {resets}";
+        var title = $"{resets} resets";
         if (snapshot.Credits is { Unlimited: true })
         {
             return $"{title} · Unlimited";
@@ -87,12 +87,30 @@ internal sealed partial class UsageDockItem : ListItem, IDisposable
         return title;
     }
 
+    internal static string FormatResetExpiry(RateLimitResetCredits? resets, DateTimeOffset now)
+    {
+        var nextExpiry = resets?.Credits?
+            .Where(credit => credit.ExpiresAt > now)
+            .MinBy(credit => credit.ExpiresAt)?
+            .ExpiresAt;
+
+        if (nextExpiry is not { } expiry)
+        {
+            return "expiration unavailable";
+        }
+
+        var remaining = expiry - now;
+        return remaining < TimeSpan.FromHours(24)
+            ? $"expires in {(int)Math.Ceiling(remaining.TotalHours)} hours"
+            : $"expires in {(int)Math.Ceiling(remaining.TotalDays)} days";
+    }
+
     internal static (string Title, string Subtitle) FormatUnavailable(UsageDockItemKind kind) =>
         (kind switch
         {
             UsageDockItemKind.FiveHour => "5h --",
             UsageDockItemKind.Weekly => "Week --",
-            _ => "↻ --",
+            _ => "-- resets",
         }, "Codex usage unavailable");
 
     private static string FormatReset(DateTimeOffset reset)
