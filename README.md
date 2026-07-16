@@ -37,7 +37,7 @@ GitHub Actions artifacts are inputs for Microsoft Store certification, not publi
 5. Choose **Add command** (`+`) in the section where you want the widget.
 6. Search for **Codex Usage** and select its Dock band.
 
-The Dock will show entries similar to `5h 47%`, `Week 86%`, and `↻ 2 · 10.00`. The percentages represent the amount remaining. The final entry shows available earned resets and, when available, the credits balance. Select an entry to see reset expiry details or refresh the data manually.
+The Dock will show entries similar to `5h 47%`, `Week 86%`, and `2 resets · 10.00`. The percentages represent the amount remaining. The final entry shows available earned resets, the time until the next reset credit expires in whole hours or days, and, when available, the credits balance. Select an entry to see reset expiry details or refresh the data manually.
 
 ## Customize the Dock
 
