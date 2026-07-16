@@ -173,7 +173,7 @@ public sealed class UsageDataTests
         using var service = new CodexUsageService();
         using var page = new CodexUsageDockPage(service, new CodexUsageDockSettingsPage());
 
-        Assert.Equal("0.5.2", CodexUsageDockMetadata.Version);
+        Assert.Equal("0.5.3", CodexUsageDockMetadata.Version);
         Assert.Equal($"Codex Usage - {CodexUsageDockMetadata.Version}", page.Title);
     }
 
@@ -403,7 +403,7 @@ public sealed class UsageDataTests
             .Sum(bar => double.Parse(bar.Attribute("height")!.Value, System.Globalization.CultureInfo.InvariantCulture));
 
         Assert.Equal(2, observedLines.Length);
-        Assert.InRange(observedBarHeight, 5.3, 5.5);
+        Assert.InRange(observedBarHeight, 21.1, 21.3);
     }
 
     [Fact]
@@ -444,7 +444,51 @@ public sealed class UsageDataTests
         Assert.Empty(root.Descendants(Svg + "text"));
         Assert.All(root.Descendants(Svg + "g").Where(group => group.Attribute("data-axis") is not null), group =>
             Assert.NotEmpty(group.Descendants(Svg + "rect")));
-        Assert.Contains("vertical scale is remaining allowance", result.AltText, StringComparison.Ordinal);
+        Assert.Contains("vertical scale is percentages", result.AltText, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void WeeklyTrendChartUsesTheZeroGridlineAsTheSharedBarBaseline()
+    {
+        var windowStart = new DateTimeOffset(2026, 7, 13, 9, 0, 0, TimeSpan.Zero);
+        var reset = windowStart.AddDays(7);
+        var now = windowStart.AddHours(2);
+        var chart = WeeklyUsageTrendChartRenderer.Create(
+            [
+                new UsageHistoryEntry(windowStart.AddMinutes(1), 100),
+                new UsageHistoryEntry(windowStart.AddHours(1), 80),
+                new UsageHistoryEntry(now, 70),
+            ],
+            new RateLimitWindow(10, 10080, reset),
+            now,
+            TimeSpan.FromDays(2),
+            forecast: null);
+
+        var result = Assert.IsType<WeeklyUsageTrendChart>(chart);
+        var root = Assert.IsType<XElement>(ParseSvg(result.ImageUrl).Root);
+        var zeroGridline = Assert.Single(
+            root.Descendants(Svg + "line"),
+            line => line.Attribute("data-grid")?.Value == "remaining-percent"
+                && line.Attribute("data-value")?.Value == "0");
+        var zeroY = double.Parse(zeroGridline.Attribute("y1")!.Value, CultureInfo.InvariantCulture);
+        var bottomGridY = root.Descendants(Svg + "line")
+            .Where(line => line.Attribute("data-grid")?.Value == "remaining-percent")
+            .Max(line => double.Parse(line.Attribute("y1")!.Value, CultureInfo.InvariantCulture));
+        var dailyUseBar = Assert.Single(
+            root.Descendants(Svg + "rect"),
+            rect => rect.Attribute("data-series")?.Value == "daily-use");
+        var barBottom = double.Parse(dailyUseBar.Attribute("y")!.Value, CultureInfo.InvariantCulture)
+            + double.Parse(dailyUseBar.Attribute("height")!.Value, CultureInfo.InvariantCulture);
+        var zeroLabel = Assert.Single(
+            root.Descendants(Svg + "g"),
+            group => group.Attribute("data-axis")?.Value == "vertical"
+                && group.Attribute("data-axis-label")?.Value == "0%");
+        var labelTop = zeroLabel.Descendants(Svg + "rect")
+            .Min(rect => double.Parse(rect.Attribute("y")!.Value, CultureInfo.InvariantCulture));
+
+        Assert.Equal(bottomGridY, zeroY, precision: 3);
+        Assert.Equal(zeroY, barBottom, precision: 3);
+        Assert.Equal(zeroY - 5, labelTop, precision: 3);
     }
 
     [Fact]

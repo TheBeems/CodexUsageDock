@@ -8,6 +8,8 @@ Each entry links to the commit or pull request that introduced the change.
 
 ## [Unreleased]
 
+## [0.5.3] - 2026-07-16
+
 ### Added
 
 - The weekly usage dashboard now combines observed remaining allowance, a dashed reset projection, and locally observed daily quota consumption in one seven-day trend chart. ([PR #13](https://github.com/TheBeems/CodexUsageDock/pull/13))
@@ -15,6 +17,10 @@ Each entry links to the commit or pull request that introduced the change.
 ### Changed
 
 - The weekly trend chart now labels its 0–100% vertical scale and localized quota-window weekdays without relying on unsupported SVG text. ([PR #13](https://github.com/TheBeems/CodexUsageDock/pull/13))
+
+### Fixed
+
+- Weekly trend charts now use one shared 0–100% baseline, placing the 0% label on the chart's bottom line.
 
 ## [0.5.2] - 2026-07-16
 
@@ -100,7 +106,7 @@ Each entry links to the commit or pull request that introduced the change.
 - Initial release of the Windows Command Palette extension for viewing local Codex usage. [commit ac72fe5](https://github.com/TheBeems/CodexUsageDock/commit/ac72fe50fcd1af36f41cda896f1d792899573351)
 - Automated release installer creation and smoke-test handling. [commit 64a3305](https://github.com/TheBeems/CodexUsageDock/commit/64a33058b7486dea12f026561c545b362eb2d622), [commit 21790a1](https://github.com/TheBeems/CodexUsageDock/commit/21790a1ea60a9bfec14ec578d77356c5576472fb)
 
-[Unreleased]: https://github.com/TheBeems/CodexUsageDock/compare/v0.5.2...main
+[Unreleased]: https://github.com/TheBeems/CodexUsageDock/compare/v0.5.3...main
 [0.5.2]: https://github.com/TheBeems/CodexUsageDock/releases/tag/v0.5.2
 [0.5.0]: https://github.com/TheBeems/CodexUsageDock/releases/tag/v0.5.0
 [0.4.0]: https://github.com/TheBeems/CodexUsageDock/releases/tag/v0.4.0

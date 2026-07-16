@@ -14,9 +14,8 @@ internal static class WeeklyUsageTrendChartRenderer
     private const double Left = 38;
     private const double Right = 6;
     private const double TrendTop = 8;
-    private const double TrendHeight = 60;
-    private const double DailyUseTop = 87;
-    private const double DailyUseHeight = 27;
+    private const double TrendBottom = 114;
+    private const double TrendHeight = TrendBottom - TrendTop;
     private const double DayLabelTop = 122;
     private const int BitmapGlyphColumns = 3;
     private const int BitmapGlyphRows = 5;
@@ -102,10 +101,10 @@ internal static class WeeklyUsageTrendChartRenderer
 
         var document = CreateDocument();
         AddTrendGrid(document);
+        AddDailyUseBars(document, dailyUse, displayCulture);
         AddNowMarker(document, windowStart, window.ResetsAt, effectiveNow);
         AddObservedLines(document, observedSegments, windowStart, window.ResetsAt);
         AddForecastLine(document, latestSegment, usableForecast, windowStart, window.ResetsAt);
-        AddDailyUseBars(document, dailyUse, displayCulture);
 
         var first = samples[0];
         var last = samples[^1];
@@ -295,12 +294,14 @@ internal static class WeeklyUsageTrendChartRenderer
                     new XAttribute("y2", Format(y)),
                     new XAttribute("stroke", "#7A7A7A"),
                     new XAttribute("stroke-opacity", "0.42"),
-                    new XAttribute("stroke-width", "1")));
+                    new XAttribute("stroke-width", "1"),
+                    new XAttribute("data-grid", "remaining-percent"),
+                    new XAttribute("data-value", percent)));
             AddBitmapLabel(
                 document,
                 $"{percent}%",
                 Left - 5,
-                Math.Clamp(y - BitmapLabelHeight / 2, 0, DailyUseTop - 2 - BitmapLabelHeight),
+                Math.Clamp(y - BitmapLabelHeight / 2, 0, Height - BitmapLabelHeight),
                 BitmapLabelAlignment.End,
                 "vertical");
         }
@@ -406,7 +407,7 @@ internal static class WeeklyUsageTrendChartRenderer
                 new XAttribute("x1", Format(x)),
                 new XAttribute("x2", Format(x)),
                 new XAttribute("y1", TrendTop),
-                new XAttribute("y2", DailyUseTop + DailyUseHeight),
+                new XAttribute("y2", TrendBottom),
                 new XAttribute("stroke", "#C8C8C8"),
                 new XAttribute("stroke-opacity", "0.45"),
                 new XAttribute("stroke-width", "1")));
@@ -509,17 +510,7 @@ internal static class WeeklyUsageTrendChartRenderer
     {
         var chartWidth = UsageDashboardCard.BarWidth - Left - Right;
         var dayWidth = chartWidth / dailyUse.Count;
-        var baseline = DailyUseTop + DailyUseHeight;
-        document.Add(
-            new XElement(
-                Svg + "line",
-                new XAttribute("x1", Left),
-                new XAttribute("x2", UsageDashboardCard.BarWidth - Right),
-                new XAttribute("y1", Format(baseline)),
-                    new XAttribute("y2", Format(baseline)),
-                    new XAttribute("stroke", "#7A7A7A"),
-                    new XAttribute("stroke-opacity", "0.65"),
-                    new XAttribute("stroke-width", "1")));
+        var baseline = TrendBottom;
 
         for (var index = 0; index < dailyUse.Count; index++)
         {
@@ -528,7 +519,7 @@ internal static class WeeklyUsageTrendChartRenderer
             var width = Math.Max(2, dayWidth - 6);
             if (day.HasObservation && day.ConsumedPercent > 0)
             {
-                var height = Math.Max(1, Math.Clamp(day.ConsumedPercent, 0, 100) / 100 * DailyUseHeight);
+                var height = Math.Max(1, Math.Clamp(day.ConsumedPercent, 0, 100) / 100 * TrendHeight);
                 document.Add(
                     new XElement(
                         Svg + "rect",
@@ -538,7 +529,7 @@ internal static class WeeklyUsageTrendChartRenderer
                         new XAttribute("height", Format(height)),
                         new XAttribute("rx", "1.5"),
                         new XAttribute("fill", "#7A7A7A"),
-                        new XAttribute("fill-opacity", "0.85"),
+                        new XAttribute("fill-opacity", "0.45"),
                         new XAttribute("data-series", "daily-use")));
             }
 
@@ -572,7 +563,7 @@ internal static class WeeklyUsageTrendChartRenderer
             { } => $" Forecast leaves {forecast.RemainingPercent:0}% at reset.",
             null => " Forecast is unavailable.",
         };
-        return $"Weekly quota trend from {period}. Remaining allowance changed from {first.RemainingPercent:0}% to {last.RemainingPercent:0}% across {sampleCount} observations. The vertical scale is remaining allowance from 0% to 100%; horizontal labels are quota-window weekdays. Solid line and points are observed; dashed line is forecast.{forecastText} {daily}";
+        return $"Weekly quota trend from {period}. Remaining allowance changed from {first.RemainingPercent:0}% to {last.RemainingPercent:0}% across {sampleCount} observations. The vertical scale is percentages from 0% to 100% for both remaining allowance and daily-use bars; horizontal labels are quota-window weekdays. Solid line and points are observed; dashed line is forecast.{forecastText} {daily}";
     }
 
     private static string FormatPoints(
