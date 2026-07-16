@@ -350,6 +350,33 @@ internal static class UsageDashboardCard
                   "spacing": "small",
                   "wrap": true,
                   "$when": "${weeklyAvailable}"
+                },
+                {
+                  "type": "Container",
+                  "separator": true,
+                  "spacing": "medium",
+                  "$when": "${weeklyTrendAvailable}",
+                  "items": [
+                    {
+                      "type": "TextBlock",
+                      "text": "Weekly trend",
+                      "weight": "bolder"
+                    },
+                    {
+                      "type": "TextBlock",
+                      "text": "Solid: remaining allowance (%) · dashed: forecast · bars: observed daily use (%)",
+                      "isSubtle": true,
+                      "spacing": "none",
+                      "wrap": true
+                    },
+                    {
+                      "type": "Image",
+                      "url": "${weeklyTrendChartUrl}",
+                      "altText": "${weeklyTrendChartAlt}",
+                      "size": "stretch",
+                      "spacing": "small"
+                    }
+                  ]
                 }
               ]
             }
@@ -401,6 +428,11 @@ internal static class UsageDashboardCard
                     new XAttribute("fill", fillColor)));
         }
 
+        return CreateSvgImageUrl(document);
+    }
+
+    internal static string CreateSvgImageUrl(XElement document)
+    {
         var encodedSvg = Uri.EscapeDataString(document.ToString(SaveOptions.DisableFormatting));
         return $"data:image/svg+xml;utf8,{encodedSvg}";
     }

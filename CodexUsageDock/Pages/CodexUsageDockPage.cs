@@ -66,7 +66,7 @@ internal sealed partial class CodexUsageDockPage : ContentPage, IDisposable
             ["statusDescription"] = statusDescription,
         };
 
-        AddWindowData(
+        _ = AddWindowData(
             data,
             "fiveHour",
             "5-hour window",
@@ -77,7 +77,7 @@ internal sealed partial class CodexUsageDockPage : ContentPage, IDisposable
             maximumSampleAge,
             UsageBarPalette.FiveHour,
             snapshot.Secondary is not null ? "Currently inactive" : "Not available");
-        AddWindowData(
+        var weeklyTrend = AddWindowData(
             data,
             "weekly",
             "Weekly window",
@@ -88,6 +88,7 @@ internal sealed partial class CodexUsageDockPage : ContentPage, IDisposable
             maximumSampleAge,
             UsageBarPalette.Weekly,
             "Not available");
+        AddWeeklyTrendData(data, snapshot.Secondary, weeklyTrend, now, TrendMaximumGap(refreshInterval));
 
         return data.ToJsonString();
     }
@@ -188,7 +189,7 @@ internal sealed partial class CodexUsageDockPage : ContentPage, IDisposable
         return $"## {name}\n\n**{window.RemainingPercent:0}% available**  \nResets {FormatRelativeTime(window.ResetsAt, now)} · {FormatLocalTime(window.ResetsAt, "ddd d MMM HH:mm")}";
     }
 
-    private static void AddWindowData(
+    private static TrendAnalysis? AddWindowData(
         JsonObject data,
         string prefix,
         string windowName,
@@ -204,7 +205,7 @@ internal sealed partial class CodexUsageDockPage : ContentPage, IDisposable
         if (window is null)
         {
             data[$"{prefix}State"] = inactiveMessage;
-            return;
+            return null;
         }
 
         data[$"{prefix}Remaining"] = $"{window.RemainingPercent:0}%";
@@ -226,13 +227,44 @@ internal sealed partial class CodexUsageDockPage : ContentPage, IDisposable
         data[$"{prefix}PaceColor"] = paceColor;
 
         var currentHistory = GetCurrentTrendHistory(history, windowStartsAt);
-        data[$"{prefix}Projection"] = AnalyzeTrend(
+        var trend = AnalyzeTrend(
             currentHistory,
             null,
             window.ResetsAt,
             now,
             dataAvailable,
-            maximumSampleAge).Message;
+            maximumSampleAge);
+        data[$"{prefix}Projection"] = trend.Message;
+        return trend;
+    }
+
+    private static void AddWeeklyTrendData(
+        JsonObject data,
+        RateLimitWindow? window,
+        TrendAnalysis? trend,
+        DateTimeOffset now,
+        TimeSpan maximumGap)
+    {
+        data["weeklyTrendAvailable"] = false;
+        if (window is null || trend is null || trend.HistoryValues is null || trend.History.Length < 2)
+        {
+            return;
+        }
+
+        var chart = WeeklyUsageTrendChartRenderer.Create(
+            trend.History,
+            window,
+            now,
+            maximumGap,
+            trend.Forecast);
+        if (chart is null)
+        {
+            return;
+        }
+
+        data["weeklyTrendAvailable"] = true;
+        data["weeklyTrendChartUrl"] = chart.ImageUrl;
+        data["weeklyTrendChartAlt"] = chart.AltText;
     }
 
     private static (string Status, string Color) FormatPaceStatus(double usedPercent, double elapsedPercent)
@@ -346,13 +378,13 @@ internal sealed partial class CodexUsageDockPage : ContentPage, IDisposable
     {
         if (!dataAvailable)
         {
-            return new(null, "Projection unavailable until fresh usage data is loaded.", false);
+            return new([], null, "Projection unavailable until fresh usage data is loaded.", false, null);
         }
 
         var currentWindow = GetCurrentTrendHistory(history, windowStartsAt);
         if (currentWindow.Length < 2)
         {
-            return new(null, "Projection will appear after another measurement.", false);
+            return new(currentWindow, null, "Projection will appear after another measurement.", false, null);
         }
 
         var samples = currentWindow.Length <= 5 ? currentWindow : currentWindow.Where((_, index) => index % Math.Max(1, currentWindow.Length / 4) == 0).Take(4).Append(currentWindow[^1]).ToArray();
@@ -363,12 +395,12 @@ internal sealed partial class CodexUsageDockPage : ContentPage, IDisposable
         var consumed = first.RemainingPercent - last.RemainingPercent;
         if (elapsedMinutes < 2 || consumed <= 0.5)
         {
-            return new(values, "No meaningful change yet; projection pending.", false);
+            return new(currentWindow, values, "No meaningful change yet; projection pending.", false, null);
         }
 
         if (now - last.RecordedAt > maximumSampleAge)
         {
-            return new(values, "Projection paused because the latest measurement is too old.", false);
+            return new(currentWindow, values, "Projection paused because the latest measurement is too old.", false, null);
         }
 
         var minutesToEmpty = last.RemainingPercent / (consumed / elapsedMinutes);
@@ -376,13 +408,28 @@ internal sealed partial class CodexUsageDockPage : ContentPage, IDisposable
         if (resetsAt is { } reset && estimated >= reset)
         {
             var remainingAtReset = Math.Max(0, last.RemainingPercent - (consumed / elapsedMinutes) * (reset - last.RecordedAt).TotalMinutes);
-            return new(values, $"Projected at reset: {remainingAtReset:0}% available.", true);
+            return new(
+                currentWindow,
+                values,
+                $"Projected at reset: {remainingAtReset:0}% available.",
+                true,
+                new UsageTrendForecast(reset, remainingAtReset, false));
         }
 
-        return new(values, $"At the current rate, the limit may be reached around {FormatLimitEstimate(estimated, now)}.", true);
+        return new(
+            currentWindow,
+            values,
+            $"At the current rate, the limit may be reached around {FormatLimitEstimate(estimated, now)}.",
+            true,
+            new UsageTrendForecast(estimated, 0, true));
     }
 
-    private sealed record TrendAnalysis(string? HistoryValues, string Message, bool IsEstimate);
+    private sealed record TrendAnalysis(
+        UsageHistoryEntry[] History,
+        string? HistoryValues,
+        string Message,
+        bool IsEstimate,
+        UsageTrendForecast? Forecast);
 
     private static UsageHistoryEntry[] GetCurrentTrendHistory(
         IReadOnlyList<UsageHistoryEntry> history,
@@ -410,6 +457,9 @@ internal sealed partial class CodexUsageDockPage : ContentPage, IDisposable
 
     private static TimeSpan TrendFreshness(TimeSpan refreshInterval) =>
         refreshInterval > TimeSpan.FromMinutes(5) ? refreshInterval : TimeSpan.FromMinutes(5);
+
+    private static TimeSpan TrendMaximumGap(TimeSpan refreshInterval) =>
+        TimeSpan.FromTicks(TrendFreshness(refreshInterval).Ticks * 3);
 
     internal static string FormatResetSummary(RateLimitResetCredits? resets, DateTimeOffset now)
     {

@@ -8,6 +8,7 @@ It displays:
 - the percentage remaining in the weekly usage window;
 - compact pace indicators that compare allowance used with elapsed window time;
 - a projected allowance at reset, or an estimated limit time when current consumption would exhaust it sooner;
+- a seven-day weekly trend chart with observed remaining allowance, a dashed projection, observed daily quota consumption, a 0–100% vertical scale, and localized weekday labels;
 - the number of available earned resets and their expiry times;
 - the remaining credits balance when Codex provides it.
 
