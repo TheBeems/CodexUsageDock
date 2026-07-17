@@ -407,6 +407,30 @@ public sealed class UsageDataTests
     }
 
     [Fact]
+    public void WeeklyTrendChartOmitsForecastWhenLatestObservationIsGapIsolated()
+    {
+        var windowStart = new DateTimeOffset(2026, 7, 10, 9, 0, 0, TimeSpan.Zero);
+        var reset = windowStart.AddDays(7);
+        var now = windowStart.AddDays(1);
+        var chart = WeeklyUsageTrendChartRenderer.Create(
+            [
+                new UsageHistoryEntry(windowStart.AddMinutes(1), 100),
+                new UsageHistoryEntry(windowStart.AddMinutes(5), 95),
+                new UsageHistoryEntry(now, 80),
+            ],
+            new RateLimitWindow(20, 10080, reset),
+            now,
+            TimeSpan.FromMinutes(15),
+            new UsageTrendForecast(reset, 0, false));
+
+        var result = Assert.IsType<WeeklyUsageTrendChart>(chart);
+        var svg = ParseSvg(result.ImageUrl);
+
+        Assert.DoesNotContain(svg.Descendants(Svg + "polyline"), line => line.Attribute("stroke-dasharray") is not null);
+        Assert.Contains("Forecast is unavailable", result.AltText, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void WeeklyTrendChartRendersHostSafeLocalizedAxisLabels()
     {
         var culture = CultureInfo.GetCultureInfo("nl-NL");
@@ -445,6 +469,36 @@ public sealed class UsageDataTests
         Assert.All(root.Descendants(Svg + "g").Where(group => group.Attribute("data-axis") is not null), group =>
             Assert.NotEmpty(group.Descendants(Svg + "rect")));
         Assert.Contains("vertical scale is percentages", result.AltText, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void WeeklyTrendChartFallsBackToInvariantWeekdaysForUnsupportedGlyphs()
+    {
+        var culture = CultureInfo.GetCultureInfo("ja-JP");
+        var windowStart = new DateTimeOffset(2026, 7, 13, 9, 0, 0, TimeSpan.Zero);
+        var reset = windowStart.AddDays(7);
+        var now = windowStart.AddDays(1);
+        var chart = WeeklyUsageTrendChartRenderer.Create(
+            [
+                new UsageHistoryEntry(windowStart.AddMinutes(1), 100),
+                new UsageHistoryEntry(now, 90),
+            ],
+            new RateLimitWindow(10, 10080, reset),
+            now,
+            TimeSpan.FromDays(2),
+            forecast: null,
+            culture: culture);
+
+        var result = Assert.IsType<WeeklyUsageTrendChart>(chart);
+        var root = Assert.IsType<XElement>(ParseSvg(result.ImageUrl).Root);
+        var horizontalLabels = root.Descendants(Svg + "g")
+            .Where(group => group.Attribute("data-axis")?.Value == "horizontal")
+            .ToArray();
+
+        Assert.Equal(["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
+            horizontalLabels.Select(group => group.Attribute("data-axis-label")!.Value));
+        Assert.All(horizontalLabels, group =>
+            Assert.DoesNotContain('?', group.Attribute("data-rendered-label")!.Value));
     }
 
     [Fact]

@@ -94,8 +94,9 @@ internal static class WeeklyUsageTrendChartRenderer
 
         var observedSegments = DownsampleSegments(SplitAtGaps(samples, maximumGap), windowStart, window.ResetsAt);
         var dailyUse = CalculateDailyUse(samples, windowStart, window.ResetsAt, effectiveNow, maximumGap);
-        var latestSegment = observedSegments.LastOrDefault(segment => segment.Length >= 2);
-        var usableForecast = latestSegment is not null && forecast is { } candidate && candidate.EndsAt > latestSegment[^1].RecordedAt
+        var latestSegment = observedSegments.LastOrDefault();
+        var forecastSegment = latestSegment is { Length: >= 2 } ? latestSegment : null;
+        var usableForecast = forecastSegment is not null && forecast is { } candidate && candidate.EndsAt > forecastSegment[^1].RecordedAt
             ? candidate
             : null;
 
@@ -104,7 +105,7 @@ internal static class WeeklyUsageTrendChartRenderer
         AddDailyUseBars(document, dailyUse, displayCulture);
         AddNowMarker(document, windowStart, window.ResetsAt, effectiveNow);
         AddObservedLines(document, observedSegments, windowStart, window.ResetsAt);
-        AddForecastLine(document, latestSegment, usableForecast, windowStart, window.ResetsAt);
+        AddForecastLine(document, forecastSegment, usableForecast, windowStart, window.ResetsAt);
 
         var first = samples[0];
         var last = samples[^1];
@@ -374,14 +375,34 @@ internal static class WeeklyUsageTrendChartRenderer
         return normalized.Length > 0 ? normalized.ToString() : "?";
     }
 
+    private static bool CanRenderBitmapLabel(string label)
+    {
+        var hasGlyph = false;
+        foreach (var character in label.Normalize(NormalizationForm.FormD))
+        {
+            if (char.GetUnicodeCategory(character) == UnicodeCategory.NonSpacingMark)
+            {
+                continue;
+            }
+
+            hasGlyph = true;
+            if (!BitmapGlyphs.ContainsKey(char.ToUpperInvariant(character)))
+            {
+                return false;
+            }
+        }
+
+        return hasGlyph;
+    }
+
     private static string FormatWeekdayLabel(DateTimeOffset day, CultureInfo culture)
     {
         var label = culture.DateTimeFormat.GetAbbreviatedDayName(day.ToLocalTime().DayOfWeek)
             .Trim()
             .TrimEnd('.');
-        return string.IsNullOrEmpty(label)
-            ? CultureInfo.InvariantCulture.DateTimeFormat.GetAbbreviatedDayName(day.ToLocalTime().DayOfWeek)
-            : label;
+        return CanRenderBitmapLabel(label)
+            ? label
+            : CultureInfo.InvariantCulture.DateTimeFormat.GetAbbreviatedDayName(day.ToLocalTime().DayOfWeek);
     }
 
     private static double MeasureBitmapLabel(string label) =>
