@@ -10,9 +10,9 @@ Each entry links to the commit or pull request that introduced the change.
 
 ### Fixed
 
-- Weekly trend forecasts are now suppressed when the newest observation is isolated by a data gap, avoiding a projection anchored to stale data. ([PR #13 review follow-up](https://github.com/TheBeems/CodexUsageDock/pull/13#discussion_r3597786877))
-- Weekly trend charts now fall back to invariant English weekday labels when localized abbreviations use glyphs that the host-safe bitmap renderer cannot display. ([PR #13 review follow-up](https://github.com/TheBeems/CodexUsageDock/pull/13#discussion_r3597786886))
-- Installation documentation now distinguishes the pending `0.5.0` Store submission and latest GitHub release from later versioned repository changes. ([PR #10 review follow-up](https://github.com/TheBeems/CodexUsageDock/pull/10#discussion_r3594868894))
+- Weekly trend forecasts are now suppressed when the newest observation is isolated by a data gap, avoiding a projection anchored to stale data. ([commit ead2fac](https://github.com/TheBeems/CodexUsageDock/commit/ead2fac09c2c889cd20236c9e98fbf001bcda4e9))
+- Weekly trend charts now fall back to invariant English weekday labels when localized abbreviations use glyphs that the host-safe bitmap renderer cannot display. ([commit ead2fac](https://github.com/TheBeems/CodexUsageDock/commit/ead2fac09c2c889cd20236c9e98fbf001bcda4e9))
+- Installation documentation now distinguishes the pending `0.5.0` Store submission and latest GitHub release from later versioned repository changes. ([commit ead2fac](https://github.com/TheBeems/CodexUsageDock/commit/ead2fac09c2c889cd20236c9e98fbf001bcda4e9))
 
 ## [0.5.3] - 2026-07-16
 
