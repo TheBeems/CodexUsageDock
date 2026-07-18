@@ -40,6 +40,8 @@ public partial class CodexUsageDockCommandsProvider : CommandProvider
         ];
 
         _settings.Changed += OnSettingsChanged;
+        _settings.ClearAdaptiveHistoryRequested += OnClearAdaptiveHistoryRequested;
+        _usage.SetAdaptiveWeeklyForecastEnabled(_settings.UseAdaptiveWeeklyForecast);
         RebuildDockBands();
 
         _usage.Start();
@@ -52,10 +54,17 @@ public partial class CodexUsageDockCommandsProvider : CommandProvider
     private void OnSettingsChanged(object? sender, EventArgs e)
     {
         _usage.SetRefreshInterval(_settings.RefreshInterval);
+        _usage.SetAdaptiveWeeklyForecastEnabled(_settings.UseAdaptiveWeeklyForecast);
         _fiveHour.Refresh();
         _weekly.Refresh();
         RebuildDockBands();
         RaiseItemsChanged();
+    }
+
+    private void OnClearAdaptiveHistoryRequested(object? sender, EventArgs e)
+    {
+        _usage.ClearAdaptiveWeeklyHistory();
+        _ = _usage.RefreshAsync();
     }
 
     private void RebuildDockBands()
@@ -84,6 +93,7 @@ public partial class CodexUsageDockCommandsProvider : CommandProvider
     public override void Dispose()
     {
         _settings.Changed -= OnSettingsChanged;
+        _settings.ClearAdaptiveHistoryRequested -= OnClearAdaptiveHistoryRequested;
         _fiveHour.Dispose();
         _weekly.Dispose();
         _resetsAndCredits.Dispose();

@@ -1,5 +1,6 @@
 using Microsoft.CommandPalette.Extensions;
 using Microsoft.CommandPalette.Extensions.Toolkit;
+using Microsoft.CmdPal.Common.Commands;
 
 namespace CodexUsageDock;
 
@@ -10,6 +11,7 @@ internal sealed partial class CodexUsageDockSettingsPage : ContentPage
     private const string ShowResetsAndCreditsKey = "showResetsAndCredits";
     private const string ShowResetTimeKey = "showResetTime";
     private const string RefreshIntervalKey = "refreshInterval";
+    private const string UseAdaptiveWeeklyForecastKey = "useAdaptiveWeeklyForecast";
     private readonly Settings _settings = new();
 
     public CodexUsageDockSettingsPage()
@@ -38,6 +40,11 @@ internal sealed partial class CodexUsageDockSettingsPage : ContentPage
             Label = "Show reset time",
             Description = "Show the next reset time below each usage limit.",
         });
+        _settings.Add(new ToggleSetting(UseAdaptiveWeeklyForecastKey, true)
+        {
+            Label = "Use adaptive weekly forecast",
+            Description = "Blend the current pace with up to eight local weekly cycles. Turning this off pauses learning and keeps saved history.",
+        });
         _settings.Add(new ChoiceSetSetting(
             RefreshIntervalKey,
             [
@@ -49,10 +56,30 @@ internal sealed partial class CodexUsageDockSettingsPage : ContentPage
             Label = "Refresh interval",
             Description = "How often the extension refreshes local Codex usage data.",
         });
+        var clearHistory = new ConfirmableCommand(
+            new AnonymousCommand(() => ClearAdaptiveHistoryRequested?.Invoke(this, EventArgs.Empty))
+            {
+                Result = CommandResult.KeepOpen(),
+            },
+            "Delete learned forecast history?",
+            "This permanently removes local adaptive weekly forecast history from this device.",
+            () => true)
+        {
+            Name = "Delete learned forecast history",
+        };
+        Commands =
+        [
+            new CommandContextItem(clearHistory)
+            {
+                Title = "Delete learned forecast history",
+            },
+        ];
         _settings.SettingsChanged += OnSettingsChanged;
     }
 
     public event EventHandler? Changed;
+
+    public event EventHandler? ClearAdaptiveHistoryRequested;
 
     public bool ShowFiveHourLimit => _settings.GetSetting<bool>(ShowFiveHourLimitKey);
 
@@ -61,6 +88,8 @@ internal sealed partial class CodexUsageDockSettingsPage : ContentPage
     public bool ShowResetsAndCredits => _settings.GetSetting<bool>(ShowResetsAndCreditsKey);
 
     public bool ShowResetTime => _settings.GetSetting<bool>(ShowResetTimeKey);
+
+    public bool UseAdaptiveWeeklyForecast => _settings.GetSetting<bool>(UseAdaptiveWeeklyForecastKey);
 
     public TimeSpan RefreshInterval => ParseRefreshInterval(_settings.GetSetting<string>(RefreshIntervalKey));
 

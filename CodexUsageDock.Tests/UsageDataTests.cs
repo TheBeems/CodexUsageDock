@@ -27,6 +27,7 @@ public sealed class UsageDataTests
         Assert.True(settings.ShowWeeklyLimit);
         Assert.True(settings.ShowResetsAndCredits);
         Assert.True(settings.ShowResetTime);
+        Assert.True(settings.UseAdaptiveWeeklyForecast);
         Assert.Equal(TimeSpan.FromMinutes(1), settings.RefreshInterval);
     }
 
@@ -206,7 +207,7 @@ public sealed class UsageDataTests
         Assert.Contains("Allowance used", main.TemplateJson, StringComparison.Ordinal);
         Assert.Contains("Window elapsed", main.TemplateJson, StringComparison.Ordinal);
         Assert.Contains("weeklyTrendAvailable", main.TemplateJson, StringComparison.Ordinal);
-        Assert.Contains("Solid: remaining allowance", main.TemplateJson, StringComparison.Ordinal);
+        Assert.Contains("Solid: sampled allowance", main.TemplateJson, StringComparison.Ordinal);
         Assert.Same(Assert.Single(page.GetContent()), Assert.Single(page.GetContent()));
     }
 
@@ -253,7 +254,8 @@ public sealed class UsageDataTests
         Assert.StartsWith("data:image/svg+xml;utf8,", root.GetProperty("weeklyElapsedBarUrl").GetString(), StringComparison.Ordinal);
         Assert.True(root.GetProperty("weeklyTrendAvailable").GetBoolean());
         Assert.StartsWith("data:image/svg+xml;utf8,", root.GetProperty("weeklyTrendChartUrl").GetString(), StringComparison.Ordinal);
-        Assert.Contains("Solid line and points are observed", root.GetProperty("weeklyTrendChartAlt").GetString(), StringComparison.Ordinal);
+        Assert.Contains("Solid line connects sampled values", root.GetProperty("weeklyTrendChartAlt").GetString(), StringComparison.Ordinal);
+        Assert.Equal("Forecast: current pace only.", root.GetProperty("weeklyForecastStatus").GetString());
         Assert.Equal("On track", root.GetProperty("fiveHourPaceStatus").GetString());
         Assert.Equal("Comfortably on track", root.GetProperty("weeklyPaceStatus").GetString());
         Assert.Contains("Projected at reset", root.GetProperty("fiveHourProjection").GetString(), StringComparison.Ordinal);
@@ -269,6 +271,57 @@ public sealed class UsageDataTests
         Assert.Contains("10.00", details, StringComparison.Ordinal);
         Assert.Contains("Pro Lite", details, StringComparison.Ordinal);
         Assert.Contains("standalone Codex CLI app-server", details, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void WeeklyTrendUsesFullWindowHistoryBeforeTheLatestQuotaIncrease()
+    {
+        var windowStart = new DateTimeOffset(2026, 7, 16, 11, 59, 0, TimeSpan.Zero);
+        var reset = windowStart.AddDays(7);
+        var now = new DateTimeOffset(2026, 7, 17, 10, 36, 0, TimeSpan.Zero);
+        var snapshot = new CodexUsageSnapshot(
+            null,
+            new RateLimitWindow(20, 10080, reset),
+            null,
+            null,
+            null,
+            now,
+            UsageDataSource.AppServer,
+            null);
+        var data = CodexUsageDockPage.FormatMainDataJson(
+            snapshot,
+            now,
+            isLoading: false,
+            primaryHistory: [],
+            weeklyHistory:
+            [
+                new UsageHistoryEntry(windowStart.AddMinutes(1), 100),
+                new UsageHistoryEntry(windowStart.AddMinutes(5), 85),
+                new UsageHistoryEntry(windowStart.AddMinutes(6), 96),
+                new UsageHistoryEntry(windowStart.AddMinutes(10), 90),
+                new UsageHistoryEntry(new DateTimeOffset(2026, 7, 17, 10, 31, 0, TimeSpan.Zero), 88),
+                new UsageHistoryEntry(now, 80),
+            ],
+            refreshInterval: TimeSpan.FromMinutes(1));
+
+        using var document = JsonDocument.Parse(data);
+        var root = document.RootElement;
+        var chart = ParseSvg(root.GetProperty("weeklyTrendChartUrl").GetString()!);
+        var chartRoot = Assert.IsType<XElement>(chart.Root);
+        var thursdayUseBar = Assert.Single(
+            chartRoot.Descendants(Svg + "rect"),
+            rect => rect.Attribute("data-series")?.Value == "daily-use"
+                && rect.Attribute("data-date")?.Value == "2026-07-16");
+        var observedLines = chartRoot.Descendants(Svg + "polyline")
+            .Where(line => line.Attribute("stroke-dasharray") is null)
+            .ToArray();
+
+        Assert.True(root.GetProperty("weeklyTrendAvailable").GetBoolean());
+        Assert.InRange(
+            double.Parse(thursdayUseBar.Attribute("height")!.Value, CultureInfo.InvariantCulture),
+            22.2,
+            22.3);
+        Assert.Equal(2, observedLines.Length);
     }
 
     [Fact]
@@ -368,13 +421,13 @@ public sealed class UsageDataTests
         Assert.Contains(lines, line => line.Attribute("stroke-dasharray") is null);
         Assert.Contains(lines, line => line.Attribute("stroke-dasharray")?.Value == "5 4");
         Assert.True(root.Descendants(Svg + "rect").Count(rect => rect.Attribute("data-series")?.Value == "daily-use") >= 2);
-        Assert.Contains("Solid line and points are observed", result.AltText, StringComparison.Ordinal);
+        Assert.Contains("Solid line connects sampled values", result.AltText, StringComparison.Ordinal);
         Assert.DoesNotContain("NaN", result.ImageUrl, StringComparison.Ordinal);
         Assert.DoesNotContain("Infinity", result.ImageUrl, StringComparison.Ordinal);
     }
 
     [Fact]
-    public void WeeklyTrendChartBreaksGapsAndExcludesUnobservedDailyUse()
+    public void WeeklyTrendChartConnectsGapsWithoutAddingUnobservedDailyUse()
     {
         var windowStart = new DateTimeOffset(2026, 7, 10, 9, 0, 0, TimeSpan.Zero);
         var reset = windowStart.AddDays(7);
@@ -402,8 +455,48 @@ public sealed class UsageDataTests
             .Where(bar => bar.Attribute("data-series")?.Value == "daily-use")
             .Sum(bar => double.Parse(bar.Attribute("height")!.Value, System.Globalization.CultureInfo.InvariantCulture));
 
-        Assert.Equal(2, observedLines.Length);
+        var observedPoints = Assert.Single(observedLines)
+            .Attribute("points")!.Value.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+
+        Assert.Equal(4, observedPoints.Length);
         Assert.InRange(observedBarHeight, 21.1, 21.3);
+    }
+
+    [Fact]
+    public void WeeklyTrendChartBreaksAtQuotaIncreaseAndRetainsCalendarDayUse()
+    {
+        var windowStart = new DateTimeOffset(2026, 7, 16, 11, 59, 0, TimeSpan.Zero);
+        var reset = windowStart.AddDays(7);
+        var now = windowStart.AddMinutes(10);
+        var chart = WeeklyUsageTrendChartRenderer.Create(
+            [
+                new UsageHistoryEntry(windowStart.AddMinutes(1), 100),
+                new UsageHistoryEntry(windowStart.AddMinutes(5), 85),
+                new UsageHistoryEntry(windowStart.AddMinutes(6), 96),
+                new UsageHistoryEntry(now, 86),
+            ],
+            new RateLimitWindow(14, 10080, reset),
+            now,
+            TimeSpan.FromMinutes(15),
+            forecast: null,
+            timeZone: TimeZoneInfo.Utc);
+
+        var result = Assert.IsType<WeeklyUsageTrendChart>(chart);
+        var root = Assert.IsType<XElement>(ParseSvg(result.ImageUrl).Root);
+        var observedLines = root.Descendants(Svg + "polyline")
+            .Where(line => line.Attribute("stroke-dasharray") is null)
+            .ToArray();
+        var dailyUseBar = Assert.Single(
+            root.Descendants(Svg + "rect"),
+            rect => rect.Attribute("data-series")?.Value == "daily-use"
+                && rect.Attribute("data-date")?.Value == "2026-07-16");
+
+        Assert.Equal(2, observedLines.Length);
+        Assert.InRange(
+            double.Parse(dailyUseBar.Attribute("height")!.Value, CultureInfo.InvariantCulture),
+            26.4,
+            26.6);
+        Assert.Contains("line breaks mark allowance increases or resets", result.AltText, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -426,6 +519,7 @@ public sealed class UsageDataTests
         var result = Assert.IsType<WeeklyUsageTrendChart>(chart);
         var svg = ParseSvg(result.ImageUrl);
 
+        Assert.Single(svg.Descendants(Svg + "polyline"), line => line.Attribute("stroke-dasharray") is null);
         Assert.DoesNotContain(svg.Descendants(Svg + "polyline"), line => line.Attribute("stroke-dasharray") is not null);
         Assert.Contains("Forecast is unavailable", result.AltText, StringComparison.Ordinal);
     }
@@ -446,7 +540,8 @@ public sealed class UsageDataTests
             now,
             TimeSpan.FromDays(2),
             forecast: null,
-            culture: culture);
+            culture: culture,
+            timeZone: TimeZoneInfo.Utc);
 
         var result = Assert.IsType<WeeklyUsageTrendChart>(chart);
         var svg = ParseSvg(result.ImageUrl);
@@ -461,8 +556,8 @@ public sealed class UsageDataTests
             .ToArray();
 
         Assert.Equal(["100%", "50%", "0%"], verticalLabels);
-        Assert.Equal(["ma", "di", "wo", "do", "vr", "za", "zo"], horizontalLabels);
-        Assert.Equal(["MA", "DI", "WO", "DO", "VR", "ZA", "ZO"], root.Descendants(Svg + "g")
+        Assert.Equal(["ma 13", "di 14", "wo 15", "do 16", "vr 17", "za 18", "zo 19", "ma 20"], horizontalLabels);
+        Assert.Equal(["MA 13", "DI 14", "WO 15", "DO 16", "VR 17", "ZA 18", "ZO 19", "MA 20"], root.Descendants(Svg + "g")
             .Where(group => group.Attribute("data-axis")?.Value == "horizontal")
             .Select(group => group.Attribute("data-rendered-label")!.Value));
         Assert.Empty(root.Descendants(Svg + "text"));
@@ -487,7 +582,8 @@ public sealed class UsageDataTests
             now,
             TimeSpan.FromDays(2),
             forecast: null,
-            culture: culture);
+            culture: culture,
+            timeZone: TimeZoneInfo.Utc);
 
         var result = Assert.IsType<WeeklyUsageTrendChart>(chart);
         var root = Assert.IsType<XElement>(ParseSvg(result.ImageUrl).Root);
@@ -495,10 +591,92 @@ public sealed class UsageDataTests
             .Where(group => group.Attribute("data-axis")?.Value == "horizontal")
             .ToArray();
 
-        Assert.Equal(["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
+        Assert.Equal(["Mon 13", "Tue 14", "Wed 15", "Thu 16", "Fri 17", "Sat 18", "Sun 19", "Mon 20"],
             horizontalLabels.Select(group => group.Attribute("data-axis-label")!.Value));
         Assert.All(horizontalLabels, group =>
             Assert.DoesNotContain('?', group.Attribute("data-rendered-label")!.Value));
+    }
+
+    [Fact]
+    public void WeeklyTrendChartAttributesUseToLocalCalendarDays()
+    {
+        var culture = CultureInfo.GetCultureInfo("nl-NL");
+        var windowStart = new DateTimeOffset(2026, 7, 16, 11, 59, 37, TimeSpan.Zero);
+        var reset = windowStart.AddDays(7);
+        var now = new DateTimeOffset(2026, 7, 17, 16, 25, 13, TimeSpan.Zero);
+        var chart = WeeklyUsageTrendChartRenderer.Create(
+            [
+                new UsageHistoryEntry(new DateTimeOffset(2026, 7, 17, 10, 31, 38, TimeSpan.Zero), 88),
+                new UsageHistoryEntry(new DateTimeOffset(2026, 7, 17, 11, 59, 32, TimeSpan.Zero), 73),
+                new UsageHistoryEntry(new DateTimeOffset(2026, 7, 17, 16, 24, 17, TimeSpan.Zero), 64),
+            ],
+            new RateLimitWindow(36, 10080, reset),
+            now,
+            TimeSpan.FromDays(1),
+            forecast: null,
+            culture: culture,
+            timeZone: TimeZoneInfo.Utc);
+
+        var result = Assert.IsType<WeeklyUsageTrendChart>(chart);
+        var root = Assert.IsType<XElement>(ParseSvg(result.ImageUrl).Root);
+        var dailyUseBar = Assert.Single(
+            root.Descendants(Svg + "rect"),
+            rect => rect.Attribute("data-series")?.Value == "daily-use");
+        var horizontalLabels = root.Descendants(Svg + "g")
+            .Where(group => group.Attribute("data-axis")?.Value == "horizontal")
+            .Select(group => group.Attribute("data-axis-label")!.Value)
+            .ToArray();
+
+        Assert.Equal("2026-07-17", dailyUseBar.Attribute("data-date")?.Value);
+        Assert.Equal("false", dailyUseBar.Attribute("data-partial")?.Value);
+        Assert.Equal("true", dailyUseBar.Attribute("data-current")?.Value);
+        Assert.Equal(["do 16", "vr 17", "za 18", "zo 19", "ma 20", "di 21", "wo 22", "do 23"], horizontalLabels);
+        Assert.Equal(7, root.Descendants(Svg + "line").Count(line => line.Attribute("data-grid")?.Value == "calendar-day"));
+        Assert.Equal(2, root.Descendants(Svg + "line").Count(line => line.Attribute("data-marker")?.Value?.StartsWith("reset-", StringComparison.Ordinal) == true));
+        Assert.Single(root.Descendants(Svg + "line"), line => line.Attribute("data-marker")?.Value == "now");
+        Assert.Contains("horizontal labels are local calendar dates", result.AltText, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void WeeklyTrendChartUsesEqualWidthCalendarDayColumns()
+    {
+        var windowStart = new DateTimeOffset(2026, 7, 16, 11, 59, 0, TimeSpan.Zero);
+        var reset = windowStart.AddDays(7);
+        var now = new DateTimeOffset(2026, 7, 17, 0, 5, 0, TimeSpan.Zero);
+        var chart = WeeklyUsageTrendChartRenderer.Create(
+            [
+                new UsageHistoryEntry(windowStart.AddMinutes(1), 100),
+                new UsageHistoryEntry(windowStart.AddMinutes(5), 90),
+                new UsageHistoryEntry(new DateTimeOffset(2026, 7, 17, 0, 1, 0, TimeSpan.Zero), 85),
+                new UsageHistoryEntry(now, 75),
+            ],
+            new RateLimitWindow(25, 10080, reset),
+            now,
+            TimeSpan.FromMinutes(15),
+            forecast: null,
+            culture: CultureInfo.GetCultureInfo("nl-NL"),
+            timeZone: TimeZoneInfo.Utc);
+
+        var result = Assert.IsType<WeeklyUsageTrendChart>(chart);
+        var root = Assert.IsType<XElement>(ParseSvg(result.ImageUrl).Root);
+        var dailyUseBars = root.Descendants(Svg + "rect")
+            .Where(rect => rect.Attribute("data-series")?.Value == "daily-use")
+            .OrderBy(rect => double.Parse(rect.Attribute("x")!.Value, CultureInfo.InvariantCulture))
+            .ToArray();
+        var firstX = double.Parse(dailyUseBars[0].Attribute("x")!.Value, CultureInfo.InvariantCulture);
+        var secondX = double.Parse(dailyUseBars[1].Attribute("x")!.Value, CultureInfo.InvariantCulture);
+        var firstWidth = double.Parse(dailyUseBars[0].Attribute("width")!.Value, CultureInfo.InvariantCulture);
+        var secondWidth = double.Parse(dailyUseBars[1].Attribute("width")!.Value, CultureInfo.InvariantCulture);
+        var labels = root.Descendants(Svg + "g")
+            .Where(group => group.Attribute("data-axis")?.Value == "horizontal")
+            .Select(group => group.Attribute("data-axis-label")!.Value)
+            .ToArray();
+
+        Assert.Equal("true", dailyUseBars[0].Attribute("data-partial")?.Value);
+        Assert.Equal("false", dailyUseBars[1].Attribute("data-partial")?.Value);
+        Assert.Equal(firstWidth, secondWidth, precision: 3);
+        Assert.Equal(firstWidth + 6, secondX - firstX, precision: 3);
+        Assert.Equal(["do 16", "vr 17", "za 18", "zo 19", "ma 20", "di 21", "wo 22", "do 23"], labels);
     }
 
     [Fact]
@@ -546,7 +724,7 @@ public sealed class UsageDataTests
     }
 
     [Fact]
-    public void WeeklyTrendChartKeepsIsolatedObservationsAsPoints()
+    public void WeeklyTrendChartConnectsGapIsolatedObservationsAsASampledLine()
     {
         var windowStart = new DateTimeOffset(2026, 7, 10, 9, 0, 0, TimeSpan.Zero);
         var reset = windowStart.AddDays(7);
@@ -564,8 +742,11 @@ public sealed class UsageDataTests
         var result = Assert.IsType<WeeklyUsageTrendChart>(chart);
         var svg = ParseSvg(result.ImageUrl);
 
-        Assert.Empty(svg.Descendants(Svg + "polyline"));
-        Assert.Equal(2, svg.Descendants(Svg + "circle").Count());
+        var observed = Assert.Single(svg.Descendants(Svg + "polyline"));
+        var points = observed.Attribute("points")!.Value.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+
+        Assert.Equal(2, points.Length);
+        Assert.Single(svg.Descendants(Svg + "circle"));
     }
 
     [Fact]
@@ -607,7 +788,9 @@ public sealed class UsageDataTests
             new RateLimitWindow(50, 10080, reset),
             now,
             TimeSpan.FromMinutes(15),
-            forecast: null);
+            forecast: null,
+            culture: CultureInfo.GetCultureInfo("en-US"),
+            timeZone: TimeZoneInfo.Utc);
 
         var result = Assert.IsType<WeeklyUsageTrendChart>(chart);
         var svg = ParseSvg(result.ImageUrl);
@@ -615,7 +798,7 @@ public sealed class UsageDataTests
         var points = observed.Attribute("points")!.Value.Split(' ', StringSplitOptions.RemoveEmptyEntries);
 
         Assert.InRange(points.Length, 2, WeeklyUsageTrendChartRenderer.MaximumRenderedPoints);
-        Assert.True(result.ImageUrl.Length < 50000);
+        Assert.True(result.ImageUrl.Length < 80000, result.ImageUrl.Length.ToString(CultureInfo.InvariantCulture));
     }
 
     [Fact]
@@ -1510,5 +1693,172 @@ public sealed class UsageDataTests
             maximumSampleAge: TimeSpan.FromMinutes(15));
 
         Assert.DoesNotContain("latest measurement is too old", trend, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void AdaptiveWeeklyUsageStoreLearnsOnlyContinuousAllowanceDecreasesAndSealsAtReset()
+    {
+        var temporaryDirectory = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
+        var path = Path.Combine(temporaryDirectory, "adaptive-weekly.json");
+        var reset = new DateTimeOffset(2026, 7, 24, 0, 0, 0, TimeSpan.Zero);
+        var start = reset.AddDays(-7);
+        var window = new RateLimitWindow(0, 10080, reset);
+        try
+        {
+            var store = new AdaptiveWeeklyUsageStore(path);
+            store.Record(
+                window,
+                [
+                    new UsageHistoryEntry(start.AddMinutes(1), 100),
+                    new UsageHistoryEntry(start.AddMinutes(2), 90),
+                    new UsageHistoryEntry(start.AddMinutes(3), 95),
+                    new UsageHistoryEntry(start.AddMinutes(4), 85),
+                    new UsageHistoryEntry(start.AddHours(8), 80),
+                ],
+                TimeSpan.FromMinutes(5));
+
+            var active = Assert.IsType<AdaptiveWeeklyUsageCycle>(store.Snapshot.ActiveCycle);
+            Assert.Equal(2, active.ObservedMinutes, precision: 6);
+            Assert.Equal(20, active.ConsumedPercent, precision: 6);
+            var bucket = Assert.Single(active.Buckets);
+            Assert.Equal(0, bucket.Index);
+            Assert.Equal(20, bucket.ConsumedPercent, precision: 6);
+
+            var restored = new AdaptiveWeeklyUsageStore(path);
+            Assert.Equal(20, Assert.IsType<AdaptiveWeeklyUsageCycle>(restored.Snapshot.ActiveCycle).ConsumedPercent, precision: 6);
+
+            var nextReset = reset.AddDays(7);
+            store.Record(
+                new RateLimitWindow(0, 10080, nextReset),
+                [new UsageHistoryEntry(nextReset.AddDays(-7).AddMinutes(1), 100)],
+                TimeSpan.FromMinutes(5));
+
+            Assert.Single(store.Snapshot.CompletedCycles);
+        }
+        finally
+        {
+            Directory.Delete(temporaryDirectory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void ClearingAdaptiveWeeklyHistoryDoesNotRelearnOlderRawSamples()
+    {
+        var temporaryDirectory = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
+        var path = Path.Combine(temporaryDirectory, "adaptive-weekly.json");
+        var reset = new DateTimeOffset(2026, 7, 24, 0, 0, 0, TimeSpan.Zero);
+        var start = reset.AddDays(-7);
+        var samples = new[]
+        {
+            new UsageHistoryEntry(start.AddMinutes(1), 100),
+            new UsageHistoryEntry(start.AddMinutes(2), 90),
+            new UsageHistoryEntry(start.AddMinutes(3), 80),
+        };
+        try
+        {
+            var store = new AdaptiveWeeklyUsageStore(path);
+            var window = new RateLimitWindow(0, 10080, reset);
+            store.Record(window, samples, TimeSpan.FromMinutes(5));
+            Assert.True(Assert.IsType<AdaptiveWeeklyUsageCycle>(store.Snapshot.ActiveCycle).ConsumedPercent > 0);
+
+            store.Clear();
+            store.Record(window, samples, TimeSpan.FromMinutes(5));
+
+            var active = Assert.IsType<AdaptiveWeeklyUsageCycle>(store.Snapshot.ActiveCycle);
+            Assert.Equal(0, active.ObservedMinutes, precision: 6);
+            Assert.Equal(0, active.ConsumedPercent, precision: 6);
+        }
+        finally
+        {
+            Directory.Delete(temporaryDirectory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void AdaptiveWeeklyUsageStoreRetainsOnlyEightCompletedCycles()
+    {
+        var temporaryDirectory = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
+        var path = Path.Combine(temporaryDirectory, "adaptive-weekly.json");
+        var firstReset = new DateTimeOffset(2026, 1, 9, 0, 0, 0, TimeSpan.Zero);
+        try
+        {
+            var store = new AdaptiveWeeklyUsageStore(path);
+            for (var index = 0; index < 10; index++)
+            {
+                var reset = firstReset.AddDays(7 * index);
+                var start = reset.AddDays(-7);
+                store.Record(
+                    new RateLimitWindow(0, 10080, reset),
+                    [
+                        new UsageHistoryEntry(start.AddMinutes(1), 100),
+                        new UsageHistoryEntry(start.AddMinutes(2), 99),
+                    ],
+                    TimeSpan.FromMinutes(5));
+            }
+
+            var completed = store.Snapshot.CompletedCycles;
+            Assert.Equal(8, completed.Length);
+            Assert.Equal(firstReset.AddDays(7), completed[0].ResetsAt);
+        }
+        finally
+        {
+            Directory.Delete(temporaryDirectory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void AdaptiveForecastUsesSixHourPatternAfterThreeCompletedCycles()
+    {
+        var reset = new DateTimeOffset(2026, 7, 24, 0, 0, 0, TimeSpan.Zero);
+        var start = reset.AddDays(-7);
+        var cycles = Enumerable.Range(1, 3)
+            .Select(offset => new AdaptiveWeeklyUsageCycle(
+                reset.AddDays(-7 * offset),
+                10080,
+                60,
+                6,
+                [new AdaptiveWeeklyUsageBucket(1, 60, 12)]))
+            .ToArray();
+        var history = new AdaptiveWeeklyUsageHistory(cycles, null);
+        var latest = new UsageHistoryEntry(start.AddHours(6), 50);
+
+        var adaptive = AdaptiveWeeklyForecast.Project(latest, start, reset, 0.1, true, history);
+        var currentOnly = AdaptiveWeeklyForecast.Project(latest, start, reset, 0.1, false, history);
+
+        Assert.Equal("Forecast: current pace + local history (3/8 cycles).", adaptive.Status);
+        Assert.True(adaptive.Forecast.EndsAt < currentOnly.Forecast.EndsAt);
+        Assert.Equal("Forecast: current pace only.", currentOnly.Status);
+    }
+
+    [Fact]
+    public void WeeklyChartRendersEveryAdaptiveForecastPoint()
+    {
+        var reset = new DateTimeOffset(2026, 7, 24, 0, 0, 0, TimeSpan.Zero);
+        var start = reset.AddDays(-7);
+        var now = start.AddDays(2);
+        var chart = WeeklyUsageTrendChartRenderer.Create(
+            [
+                new UsageHistoryEntry(start.AddMinutes(1), 100),
+                new UsageHistoryEntry(now.AddMinutes(-1), 81),
+                new UsageHistoryEntry(now, 80),
+            ],
+            new RateLimitWindow(20, 10080, reset),
+            now,
+            TimeSpan.FromMinutes(5),
+            new UsageTrendForecast(
+                reset,
+                20,
+                false,
+                [
+                    new UsageTrendForecastPoint(now.AddHours(6), 75),
+                    new UsageTrendForecastPoint(now.AddHours(12), 68),
+                    new UsageTrendForecastPoint(reset, 20),
+                ]));
+
+        var document = ParseSvg(Assert.IsType<WeeklyUsageTrendChart>(chart).ImageUrl);
+        var dashed = Assert.Single(
+            document.Descendants(Svg + "polyline"),
+            element => (string?)element.Attribute("stroke-dasharray") == "5 4");
+        Assert.True(((string?)dashed.Attribute("points"))!.Split(' ', StringSplitOptions.RemoveEmptyEntries).Length >= 4);
     }
 }

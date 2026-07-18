@@ -61,6 +61,7 @@ internal static class WeeklyUsageTrendChartRenderer
         ['X'] = "101101010101101",
         ['Y'] = "101101010010010",
         ['Z'] = "111001010100111",
+        [' '] = "000000000000000",
         ['%'] = "101001010100101",
         ['?'] = "111001010000010",
     };
@@ -71,7 +72,8 @@ internal static class WeeklyUsageTrendChartRenderer
         DateTimeOffset now,
         TimeSpan maximumGap,
         UsageTrendForecast? forecast,
-        CultureInfo? culture = null)
+        CultureInfo? culture = null,
+        TimeZoneInfo? timeZone = null)
     {
         if (window.WindowMinutes <= 0)
         {
@@ -86,15 +88,19 @@ internal static class WeeklyUsageTrendChartRenderer
         }
 
         var displayCulture = culture ?? CultureInfo.CurrentCulture;
+        var displayTimeZone = timeZone ?? TimeZoneInfo.Local;
         var samples = Normalize(history, windowStart, effectiveNow);
         if (samples.Length < 2)
         {
             return null;
         }
 
-        var observedSegments = DownsampleSegments(SplitAtGaps(samples, maximumGap), windowStart, window.ResetsAt);
-        var dailyUse = CalculateDailyUse(samples, windowStart, window.ResetsAt, effectiveNow, maximumGap);
-        var latestSegment = observedSegments.LastOrDefault();
+        var dailyUse = CreateCalendarDays(windowStart, window.ResetsAt, effectiveNow, displayTimeZone);
+        var calendarScale = new CalendarDayScale(dailyUse);
+        var forecastSegments = SplitAtGapsOrQuotaIncreases(samples, maximumGap);
+        var renderedSegments = DownsampleSegments(SplitAtQuotaIncreases(samples), windowStart, window.ResetsAt);
+        CalculateDailyUse(samples, dailyUse, effectiveNow, maximumGap);
+        var latestSegment = forecastSegments.LastOrDefault();
         var forecastSegment = latestSegment is { Length: >= 2 } ? latestSegment : null;
         var usableForecast = forecastSegment is not null && forecast is { } candidate && candidate.EndsAt > forecastSegment[^1].RecordedAt
             ? candidate
@@ -102,14 +108,16 @@ internal static class WeeklyUsageTrendChartRenderer
 
         var document = CreateDocument();
         AddTrendGrid(document);
-        AddDailyUseBars(document, dailyUse, displayCulture);
-        AddNowMarker(document, windowStart, window.ResetsAt, effectiveNow);
-        AddObservedLines(document, observedSegments, windowStart, window.ResetsAt);
-        AddForecastLine(document, forecastSegment, usableForecast, windowStart, window.ResetsAt);
+        AddCalendarDayGrid(document, dailyUse, calendarScale);
+        AddDailyUseBars(document, dailyUse, calendarScale, displayCulture);
+        AddResetMarkers(document, windowStart, window.ResetsAt, calendarScale);
+        AddNowMarker(document, windowStart, window.ResetsAt, effectiveNow, calendarScale);
+        AddObservedLines(document, renderedSegments, calendarScale);
+        AddForecastLine(document, forecastSegment, usableForecast, window.ResetsAt, calendarScale);
 
         var first = samples[0];
         var last = samples[^1];
-        var altText = FormatAltText(first, last, samples.Length, usableForecast, windowStart, window.ResetsAt, dailyUse, displayCulture);
+        var altText = FormatAltText(first, last, samples.Length, usableForecast, windowStart, window.ResetsAt, dailyUse, displayCulture, displayTimeZone);
         return new WeeklyUsageTrendChart(UsageDashboardCard.CreateSvgImageUrl(document), altText);
     }
 
@@ -210,16 +218,31 @@ internal static class WeeklyUsageTrendChartRenderer
             .ToArray();
     }
 
-    private static List<UsageHistoryEntry[]> SplitAtGaps(
+    private static List<UsageHistoryEntry[]> SplitAtGapsOrQuotaIncreases(
         UsageHistoryEntry[] samples,
         TimeSpan maximumGap)
     {
         var gap = maximumGap > TimeSpan.Zero ? maximumGap : TimeSpan.FromMinutes(5);
+        return SplitAtDiscontinuities(
+            samples,
+            (previous, current) => current.RecordedAt - previous.RecordedAt > gap ||
+                current.RemainingPercent > previous.RemainingPercent);
+    }
+
+    private static List<UsageHistoryEntry[]> SplitAtQuotaIncreases(UsageHistoryEntry[] samples) =>
+        SplitAtDiscontinuities(
+            samples,
+            (previous, current) => current.RemainingPercent > previous.RemainingPercent);
+
+    private static List<UsageHistoryEntry[]> SplitAtDiscontinuities(
+        UsageHistoryEntry[] samples,
+        Func<UsageHistoryEntry, UsageHistoryEntry, bool> startsNewSegment)
+    {
         var segments = new List<UsageHistoryEntry[]>();
         var current = new List<UsageHistoryEntry>();
         foreach (var sample in samples)
         {
-            if (current.Count > 0 && sample.RecordedAt - current[^1].RecordedAt > gap)
+            if (current.Count > 0 && startsNewSegment(current[^1], sample))
             {
                 segments.Add([.. current]);
                 current.Clear();
@@ -236,24 +259,61 @@ internal static class WeeklyUsageTrendChartRenderer
         return segments;
     }
 
-    private static DailyUsage[] CalculateDailyUse(
-        UsageHistoryEntry[] samples,
+    private static DailyUsage[] CreateCalendarDays(
         DateTimeOffset windowStart,
         DateTimeOffset windowEnd,
         DateTimeOffset now,
+        TimeZoneInfo timeZone)
+    {
+        var firstDate = DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(windowStart, timeZone).Date);
+        var lastDate = DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(windowEnd, timeZone).Date);
+        var days = new List<DailyUsage>();
+        for (var date = firstDate; date <= lastDate; date = date.AddDays(1))
+        {
+            var localStart = AtLocalMidnight(date, timeZone);
+            var localEnd = AtLocalMidnight(date.AddDays(1), timeZone);
+            var start = localStart > windowStart ? localStart : windowStart;
+            var end = localEnd < windowEnd ? localEnd : windowEnd;
+            if (end > start)
+            {
+                days.Add(new DailyUsage(
+                    date,
+                    localStart,
+                    localEnd,
+                    start,
+                    end,
+                    start != localStart || end != localEnd,
+                    now >= start && now < end));
+            }
+        }
+
+        return [.. days];
+    }
+
+    private static DateTimeOffset AtLocalMidnight(DateOnly date, TimeZoneInfo timeZone)
+    {
+        var local = date.ToDateTime(TimeOnly.MinValue, DateTimeKind.Unspecified);
+        while (timeZone.IsInvalidTime(local))
+        {
+            local = local.AddMinutes(30);
+        }
+
+        return new DateTimeOffset(TimeZoneInfo.ConvertTimeToUtc(local, timeZone), TimeSpan.Zero);
+    }
+
+    private static void CalculateDailyUse(
+        UsageHistoryEntry[] samples,
+        IReadOnlyList<DailyUsage> dailyUse,
+        DateTimeOffset now,
         TimeSpan maximumGap)
     {
-        var dayCount = Math.Max(1, (int)Math.Ceiling((windowEnd - windowStart).TotalDays));
-        var dailyUse = Enumerable.Range(0, dayCount)
-            .Select(index => new DailyUsage(windowStart.AddDays(index)))
-            .ToArray();
         var gap = maximumGap > TimeSpan.Zero ? maximumGap : TimeSpan.FromMinutes(5);
 
         for (var index = 1; index < samples.Length; index++)
         {
             var previous = samples[index - 1];
             var current = samples[index];
-            var rangeStart = previous.RecordedAt < windowStart ? windowStart : previous.RecordedAt;
+            var rangeStart = previous.RecordedAt;
             var rangeEnd = current.RecordedAt > now ? now : current.RecordedAt;
             if (rangeEnd <= rangeStart || rangeEnd - rangeStart > gap)
             {
@@ -262,10 +322,10 @@ internal static class WeeklyUsageTrendChartRenderer
 
             var observedUse = Math.Max(0, previous.RemainingPercent - current.RemainingPercent);
             var rangeDuration = rangeEnd - rangeStart;
-            for (var dayIndex = 0; dayIndex < dailyUse.Length; dayIndex++)
+            for (var dayIndex = 0; dayIndex < dailyUse.Count; dayIndex++)
             {
                 var dayStart = dailyUse[dayIndex].Start;
-                var dayEnd = dayStart.AddDays(1);
+                var dayEnd = dailyUse[dayIndex].End;
                 var overlapStart = rangeStart > dayStart ? rangeStart : dayStart;
                 var overlapEnd = rangeEnd < dayEnd ? rangeEnd : dayEnd;
                 if (overlapEnd <= overlapStart)
@@ -277,8 +337,30 @@ internal static class WeeklyUsageTrendChartRenderer
                 dailyUse[dayIndex].ConsumedPercent += observedUse * (overlapEnd - overlapStart).TotalMilliseconds / rangeDuration.TotalMilliseconds;
             }
         }
+    }
 
-        return dailyUse;
+    private static void AddCalendarDayGrid(
+        XElement document,
+        IReadOnlyList<DailyUsage> dailyUse,
+        CalendarDayScale calendarScale)
+    {
+        for (var index = 1; index < dailyUse.Count; index++)
+        {
+            var day = dailyUse[index];
+            var x = calendarScale.GetDayStartX(index);
+            document.Add(
+                new XElement(
+                    Svg + "line",
+                    new XAttribute("x1", Format(x)),
+                    new XAttribute("x2", Format(x)),
+                    new XAttribute("y1", TrendTop),
+                    new XAttribute("y2", TrendBottom),
+                    new XAttribute("stroke", "#7A7A7A"),
+                    new XAttribute("stroke-opacity", "0.25"),
+                    new XAttribute("stroke-width", "1"),
+                    new XAttribute("data-grid", "calendar-day"),
+                    new XAttribute("data-date", day.Date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture))));
+        }
     }
 
     private static void AddTrendGrid(XElement document)
@@ -395,14 +477,15 @@ internal static class WeeklyUsageTrendChartRenderer
         return hasGlyph;
     }
 
-    private static string FormatWeekdayLabel(DateTimeOffset day, CultureInfo culture)
+    private static string FormatCalendarDayLabel(DateOnly date, CultureInfo culture)
     {
-        var label = culture.DateTimeFormat.GetAbbreviatedDayName(day.ToLocalTime().DayOfWeek)
+        var label = culture.DateTimeFormat.GetAbbreviatedDayName(date.DayOfWeek)
             .Trim()
             .TrimEnd('.');
-        return CanRenderBitmapLabel(label)
+        var weekday = CanRenderBitmapLabel(label)
             ? label
-            : CultureInfo.InvariantCulture.DateTimeFormat.GetAbbreviatedDayName(day.ToLocalTime().DayOfWeek);
+            : CultureInfo.InvariantCulture.DateTimeFormat.GetAbbreviatedDayName(date.DayOfWeek);
+        return $"{weekday} {date.Day}";
     }
 
     private static double MeasureBitmapLabel(string label) =>
@@ -410,18 +493,47 @@ internal static class WeeklyUsageTrendChartRenderer
 
     private static double BitmapLabelHeight => BitmapGlyphRows * BitmapCellSize;
 
+    private static void AddResetMarkers(
+        XElement document,
+        DateTimeOffset windowStart,
+        DateTimeOffset windowEnd,
+        CalendarDayScale calendarScale)
+    {
+        foreach (var (x, edge) in new[]
+        {
+            (calendarScale.GetX(windowStart), "start"),
+            (calendarScale.GetX(windowEnd), "end"),
+        })
+        {
+            document.Add(
+                new XElement(
+                    Svg + "line",
+                    new XAttribute("x1", Format(x)),
+                    new XAttribute("x2", Format(x)),
+                    new XAttribute("y1", TrendTop),
+                    new XAttribute("y2", TrendBottom),
+                    new XAttribute("stroke", "#C8C8C8"),
+                    new XAttribute("stroke-opacity", "0.6"),
+                    new XAttribute("stroke-width", "1"),
+                    new XAttribute("stroke-dasharray", "2 2"),
+                    new XAttribute("data-marker", $"reset-{edge}")));
+            AddBitmapLabel(document, "RESET", x, 0, BitmapLabelAlignment.Center, "marker");
+        }
+    }
+
     private static void AddNowMarker(
         XElement document,
         DateTimeOffset windowStart,
         DateTimeOffset windowEnd,
-        DateTimeOffset now)
+        DateTimeOffset now,
+        CalendarDayScale calendarScale)
     {
         if (now <= windowStart || now >= windowEnd)
         {
             return;
         }
 
-        var x = GetX(now, windowStart, windowEnd);
+        var x = calendarScale.GetX(now);
         document.Add(
             new XElement(
                 Svg + "line",
@@ -431,14 +543,17 @@ internal static class WeeklyUsageTrendChartRenderer
                 new XAttribute("y2", TrendBottom),
                 new XAttribute("stroke", "#C8C8C8"),
                 new XAttribute("stroke-opacity", "0.45"),
-                new XAttribute("stroke-width", "1")));
+                new XAttribute("stroke-width", "1"),
+                new XAttribute("data-marker", "now")));
+        var labelWidth = MeasureBitmapLabel("NOW");
+        var labelX = Math.Clamp(x, Left + labelWidth / 2, UsageDashboardCard.BarWidth - Right - labelWidth / 2);
+        AddBitmapLabel(document, "NOW", labelX, 0, BitmapLabelAlignment.Center, "marker");
     }
 
     private static void AddObservedLines(
         XElement document,
         IReadOnlyList<UsageHistoryEntry[]> segments,
-        DateTimeOffset windowStart,
-        DateTimeOffset windowEnd)
+        CalendarDayScale calendarScale)
     {
         var latest = segments.LastOrDefault(segment => segment.Length > 0)?[^1];
         foreach (var segment in segments.Where(segment => segment.Length >= 2))
@@ -446,7 +561,7 @@ internal static class WeeklyUsageTrendChartRenderer
             document.Add(
                 new XElement(
                     Svg + "polyline",
-                    new XAttribute("points", FormatPoints(segment, windowStart, windowEnd)),
+                    new XAttribute("points", FormatPoints(segment, calendarScale)),
                     new XAttribute("fill", "none"),
                     new XAttribute("stroke", "#5C9EFA"),
                     new XAttribute("stroke-width", "2"),
@@ -462,7 +577,7 @@ internal static class WeeklyUsageTrendChartRenderer
             document.Add(
                 new XElement(
                     Svg + "circle",
-                    new XAttribute("cx", Format(GetX(sample.RecordedAt, windowStart, windowEnd))),
+                    new XAttribute("cx", Format(calendarScale.GetX(sample.RecordedAt))),
                     new XAttribute("cy", Format(GetTrendY(sample.RemainingPercent))),
                     new XAttribute("r", "1.5"),
                     new XAttribute("fill", "#5C9EFA")));
@@ -473,7 +588,7 @@ internal static class WeeklyUsageTrendChartRenderer
             document.Add(
                 new XElement(
                     Svg + "circle",
-                    new XAttribute("cx", Format(GetX(latest.RecordedAt, windowStart, windowEnd))),
+                    new XAttribute("cx", Format(calendarScale.GetX(latest.RecordedAt))),
                     new XAttribute("cy", Format(GetTrendY(latest.RemainingPercent))),
                     new XAttribute("r", "3"),
                     new XAttribute("fill", "#5C9EFA"),
@@ -486,8 +601,8 @@ internal static class WeeklyUsageTrendChartRenderer
         XElement document,
         UsageHistoryEntry[]? latestSegment,
         UsageTrendForecast? forecast,
-        DateTimeOffset windowStart,
-        DateTimeOffset windowEnd)
+        DateTimeOffset windowEnd,
+        CalendarDayScale calendarScale)
     {
         if (latestSegment is null || forecast is null)
         {
@@ -501,11 +616,20 @@ internal static class WeeklyUsageTrendChartRenderer
             return;
         }
 
-        var points = new List<UsageHistoryEntry>
+        var points = new List<UsageHistoryEntry> { last };
+        if (forecast.Points is { Count: > 0 })
         {
-            last,
-            new(end, forecast.RemainingPercent),
-        };
+            points.AddRange(
+                forecast.Points
+                    .Where(point => point.RecordedAt > last.RecordedAt && point.RecordedAt <= end)
+                    .Select(point => new UsageHistoryEntry(point.RecordedAt, point.RemainingPercent)));
+        }
+
+        if (points.Count == 1 || points[^1].RecordedAt < end)
+        {
+            points.Add(new UsageHistoryEntry(end, forecast.RemainingPercent));
+        }
+
         if (forecast.ReachesLimitBeforeReset && end < windowEnd)
         {
             points.Add(new UsageHistoryEntry(windowEnd, 0));
@@ -514,7 +638,7 @@ internal static class WeeklyUsageTrendChartRenderer
         document.Add(
             new XElement(
                 Svg + "polyline",
-                new XAttribute("points", FormatPoints(points, windowStart, windowEnd)),
+                new XAttribute("points", FormatPoints(points, calendarScale)),
                 new XAttribute("fill", "none"),
                 new XAttribute("stroke", "#5C9EFA"),
                 new XAttribute("stroke-width", "2"),
@@ -527,17 +651,18 @@ internal static class WeeklyUsageTrendChartRenderer
     private static void AddDailyUseBars(
         XElement document,
         IReadOnlyList<DailyUsage> dailyUse,
+        CalendarDayScale calendarScale,
         CultureInfo culture)
     {
-        var chartWidth = UsageDashboardCard.BarWidth - Left - Right;
-        var dayWidth = chartWidth / dailyUse.Count;
         var baseline = TrendBottom;
 
         for (var index = 0; index < dailyUse.Count; index++)
         {
             var day = dailyUse[index];
-            var x = Left + index * dayWidth + 3;
-            var width = Math.Max(2, dayWidth - 6);
+            var dayLeft = calendarScale.GetDayStartX(index);
+            var dayRight = calendarScale.GetDayEndX(index);
+            var x = dayLeft + 3;
+            var width = Math.Max(2, dayRight - dayLeft - 6);
             if (day.HasObservation && day.ConsumedPercent > 0)
             {
                 var height = Math.Max(1, Math.Clamp(day.ConsumedPercent, 0, 100) / 100 * TrendHeight);
@@ -551,13 +676,19 @@ internal static class WeeklyUsageTrendChartRenderer
                         new XAttribute("rx", "1.5"),
                         new XAttribute("fill", "#7A7A7A"),
                         new XAttribute("fill-opacity", "0.45"),
-                        new XAttribute("data-series", "daily-use")));
+                        new XAttribute("data-series", "daily-use"),
+                        new XAttribute("data-date", day.Date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)),
+                        new XAttribute("data-partial", day.IsPartial),
+                        new XAttribute("data-current", day.IsCurrent),
+                        new XAttribute("stroke", day.IsCurrent ? "#C8C8C8" : "none"),
+                        new XAttribute("stroke-opacity", day.IsCurrent ? "0.45" : "0"),
+                        new XAttribute("stroke-width", day.IsCurrent ? "1" : "0")));
             }
 
             AddBitmapLabel(
                 document,
-                FormatWeekdayLabel(day.Start, culture),
-                x + width / 2,
+                FormatCalendarDayLabel(day.Date, culture),
+                (dayLeft + dayRight) / 2,
                 DayLabelTop,
                 BitmapLabelAlignment.Center,
                 "horizontal");
@@ -572,40 +703,28 @@ internal static class WeeklyUsageTrendChartRenderer
         DateTimeOffset windowStart,
         DateTimeOffset windowEnd,
         IReadOnlyList<DailyUsage> dailyUse,
-        CultureInfo culture)
+        CultureInfo culture,
+        TimeZoneInfo timeZone)
     {
-        var period = $"{windowStart.ToLocalTime().ToString("ddd d MMM HH:mm", culture)} to {windowEnd.ToLocalTime().ToString("ddd d MMM HH:mm", culture)}";
+        var period = $"{TimeZoneInfo.ConvertTime(windowStart, timeZone).ToString("ddd d MMM HH:mm", culture)} to {TimeZoneInfo.ConvertTime(windowEnd, timeZone).ToString("ddd d MMM HH:mm", culture)}";
         var daily = dailyUse.Any(day => day.HasObservation)
-            ? "Daily bars show observed quota consumption."
-            : "No continuous measurements are available for daily consumption bars.";
+            ? "Calendar-day bars show observed quota consumption; the first and last days can be partial, and the current day is measured through now."
+            : "No continuous measurements are available for calendar-day consumption bars.";
         var forecastText = forecast switch
         {
-            { ReachesLimitBeforeReset: true } => $" Forecast reaches the limit around {forecast.EndsAt.ToLocalTime().ToString("ddd d MMM HH:mm", culture)}.",
+            { ReachesLimitBeforeReset: true } => $" Forecast reaches the limit around {TimeZoneInfo.ConvertTime(forecast.EndsAt, timeZone).ToString("ddd d MMM HH:mm", culture)}.",
             { } => $" Forecast leaves {forecast.RemainingPercent:0}% at reset.",
             null => " Forecast is unavailable.",
         };
-        return $"Weekly quota trend from {period}. Remaining allowance changed from {first.RemainingPercent:0}% to {last.RemainingPercent:0}% across {sampleCount} observations. The vertical scale is percentages from 0% to 100% for both remaining allowance and daily-use bars; horizontal labels are quota-window weekdays. Solid line and points are observed; dashed line is forecast.{forecastText} {daily}";
+        return $"Weekly quota trend from {period}. Remaining allowance changed from {first.RemainingPercent:0}% to {last.RemainingPercent:0}% across {sampleCount} observations. The vertical scale is percentages from 0% to 100% for both remaining allowance and daily-use bars; horizontal labels are local calendar dates, and reset markers bound the quota window. Solid line connects sampled values across measurement gaps; line breaks mark allowance increases or resets; dashed line is forecast.{forecastText} {daily}";
     }
 
     private static string FormatPoints(
         IEnumerable<UsageHistoryEntry> points,
-        DateTimeOffset windowStart,
-        DateTimeOffset windowEnd) =>
+        CalendarDayScale calendarScale) =>
         string.Join(
             " ",
-            points.Select(point => $"{Format(GetX(point.RecordedAt, windowStart, windowEnd))},{Format(GetTrendY(point.RemainingPercent))}"));
-
-    private static double GetX(DateTimeOffset recordedAt, DateTimeOffset windowStart, DateTimeOffset windowEnd)
-    {
-        var duration = windowEnd - windowStart;
-        if (duration <= TimeSpan.Zero)
-        {
-            return Left;
-        }
-
-        var position = Math.Clamp((recordedAt - windowStart).TotalMilliseconds / duration.TotalMilliseconds, 0, 1);
-        return Left + position * (UsageDashboardCard.BarWidth - Left - Right);
-    }
+            points.Select(point => $"{Format(calendarScale.GetX(point.RecordedAt))},{Format(GetTrendY(point.RemainingPercent))}"));
 
     private static double GetTrendY(double remainingPercent) =>
         TrendTop + (100 - Math.Clamp(remainingPercent, 0, 100)) / 100 * TrendHeight;
@@ -619,12 +738,68 @@ internal static class WeeklyUsageTrendChartRenderer
         End,
     }
 
-    private sealed class DailyUsage(DateTimeOffset start)
+    private sealed class DailyUsage(
+        DateOnly date,
+        DateTimeOffset calendarStart,
+        DateTimeOffset calendarEnd,
+        DateTimeOffset start,
+        DateTimeOffset end,
+        bool isPartial,
+        bool isCurrent)
     {
+        public DateOnly Date { get; } = date;
+
+        public DateTimeOffset CalendarStart { get; } = calendarStart;
+
+        public DateTimeOffset CalendarEnd { get; } = calendarEnd;
+
         public DateTimeOffset Start { get; } = start;
+
+        public DateTimeOffset End { get; } = end;
+
+        public bool IsPartial { get; } = isPartial;
+
+        public bool IsCurrent { get; } = isCurrent;
 
         public double ConsumedPercent { get; set; }
 
         public bool HasObservation { get; set; }
+    }
+
+    private sealed class CalendarDayScale(IReadOnlyList<DailyUsage> days)
+    {
+        private readonly IReadOnlyList<DailyUsage> _days = days;
+
+        public double GetX(DateTimeOffset instant)
+        {
+            if (_days.Count == 0 || instant <= _days[0].CalendarStart)
+            {
+                return Left;
+            }
+
+            for (var index = 0; index < _days.Count; index++)
+            {
+                var day = _days[index];
+                if (instant < day.CalendarEnd || index == _days.Count - 1)
+                {
+                    var duration = day.CalendarEnd - day.CalendarStart;
+                    var elapsed = instant - day.CalendarStart;
+                    var positionWithinDay = duration > TimeSpan.Zero
+                        ? Math.Clamp(elapsed.TotalMilliseconds / duration.TotalMilliseconds, 0, 1)
+                        : 0;
+                    return GetDayStartX(index) + positionWithinDay * DayWidth;
+                }
+            }
+
+            return UsageDashboardCard.BarWidth - Right;
+        }
+
+        public double GetDayStartX(int index) => Left + index * DayWidth;
+
+        public double GetDayEndX(int index) => Left + (index + 1) * DayWidth;
+
+        private double DayWidth => _days.Count > 0
+            ? (UsageDashboardCard.BarWidth - Left - Right) / _days.Count
+            : 0;
     }
 }

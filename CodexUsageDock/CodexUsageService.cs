@@ -13,6 +13,7 @@ internal sealed partial class CodexUsageService : IDisposable
     private readonly List<UsageHistoryEntry> _primaryHistory = [];
     private readonly List<UsageHistoryEntry> _weeklyHistory = [];
     private readonly WeeklyUsageHistoryStore _weeklyHistoryStore;
+    private readonly AdaptiveWeeklyUsageStore _adaptiveWeeklyUsageStore;
     private readonly CancellationTokenSource _lifetimeCancellation = new();
     private readonly Func<CancellationToken, Task<CodexUsageSnapshot>> _appServerReader;
     private readonly Func<CancellationToken, CodexUsageSnapshot> _localSessionReader;
@@ -20,6 +21,7 @@ internal sealed partial class CodexUsageService : IDisposable
     private bool _disposed;
     private bool _isLoading;
     private bool _started;
+    private bool _adaptiveWeeklyForecastEnabled = true;
 
     public CodexUsageService()
         : this(CodexAppServerReader.ReadAsync, LocalCodexSessionReader.ReadLatest)
@@ -29,19 +31,22 @@ internal sealed partial class CodexUsageService : IDisposable
     internal CodexUsageService(
         Func<CancellationToken, Task<CodexUsageSnapshot>> appServerReader,
         Func<CancellationToken, CodexUsageSnapshot> localSessionReader,
-        WeeklyUsageHistoryStore? weeklyHistoryStore = null)
+        WeeklyUsageHistoryStore? weeklyHistoryStore = null,
+        AdaptiveWeeklyUsageStore? adaptiveWeeklyUsageStore = null)
     {
         _appServerReader = appServerReader;
         _localSessionReader = localSessionReader;
         _weeklyHistoryStore = weeklyHistoryStore ?? WeeklyUsageHistoryStore.CreateDefault();
+        _adaptiveWeeklyUsageStore = adaptiveWeeklyUsageStore ?? AdaptiveWeeklyUsageStore.CreateDefault();
         _weeklyHistory.AddRange(_weeklyHistoryStore.Load(DateTimeOffset.Now));
     }
 
     internal CodexUsageService(
         Func<CancellationToken, Task<CodexUsageSnapshot>> appServerReader,
         Func<CodexUsageSnapshot> localSessionReader,
-        WeeklyUsageHistoryStore? weeklyHistoryStore = null)
-        : this(appServerReader, _ => localSessionReader(), weeklyHistoryStore)
+        WeeklyUsageHistoryStore? weeklyHistoryStore = null,
+        AdaptiveWeeklyUsageStore? adaptiveWeeklyUsageStore = null)
+        : this(appServerReader, _ => localSessionReader(), weeklyHistoryStore, adaptiveWeeklyUsageStore)
     {
     }
 
@@ -82,6 +87,17 @@ internal sealed partial class CodexUsageService : IDisposable
 
     public TimeSpan RefreshInterval => TimeSpan.FromMilliseconds(_timer.Interval);
 
+    public AdaptiveWeeklyUsageHistory AdaptiveWeeklyHistory
+    {
+        get
+        {
+            lock (_historyLock)
+            {
+                return _adaptiveWeeklyUsageStore.Snapshot;
+            }
+        }
+    }
+
     public event EventHandler? Updated;
 
     public void Start()
@@ -109,6 +125,29 @@ internal sealed partial class CodexUsageService : IDisposable
         }
 
         _timer.Interval = interval.TotalMilliseconds;
+    }
+
+    internal void SetAdaptiveWeeklyForecastEnabled(bool enabled)
+    {
+        lock (_historyLock)
+        {
+            _adaptiveWeeklyForecastEnabled = enabled;
+            if (enabled)
+            {
+                _adaptiveWeeklyUsageStore.Record(
+                    Current.Secondary,
+                    _weeklyHistory,
+                    GetAdaptiveMaximumGap());
+            }
+        }
+    }
+
+    internal void ClearAdaptiveWeeklyHistory()
+    {
+        lock (_historyLock)
+        {
+            _adaptiveWeeklyUsageStore.Clear();
+        }
     }
 
     public Task RefreshAsync()
@@ -145,6 +184,13 @@ internal sealed partial class CodexUsageService : IDisposable
             if (RecordWindowHistory(_weeklyHistory, snapshot.Secondary, snapshot.UpdatedAt, now, now - TimeSpan.FromDays(7)))
             {
                 _weeklyHistoryStore.Save(_weeklyHistory);
+                if (_adaptiveWeeklyForecastEnabled)
+                {
+                    _adaptiveWeeklyUsageStore.Record(
+                        snapshot.Secondary,
+                        _weeklyHistory,
+                        GetAdaptiveMaximumGap());
+                }
             }
         }
     }
@@ -170,6 +216,9 @@ internal sealed partial class CodexUsageService : IDisposable
         history.Add(new UsageHistoryEntry(updatedAt, window.RemainingPercent));
         return true;
     }
+
+    private TimeSpan GetAdaptiveMaximumGap() =>
+        TimeSpan.FromTicks(Math.Max(TimeSpan.FromMinutes(5).Ticks, RefreshInterval.Ticks) * 3);
 
     private async Task ExecuteRefreshAsync(TaskCompletionSource completion, CancellationToken cancellationToken)
     {
