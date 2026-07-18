@@ -10,6 +10,7 @@ Each entry links to the commit or pull request that introduced the change.
 
 ### Added
 
+- Weekly allowance restorations are now shown with amber chart markers, summarized below the trend, and listed for the active quota window in Details. ([PR #15](https://github.com/TheBeems/CodexUsageDock/pull/15))
 - Weekly forecasts can now adapt cautiously to up to eight local quota cycles and six-hour usage patterns while retaining the current pace as their primary signal. ([commit e5fdbfb](https://github.com/TheBeems/CodexUsageDock/commit/e5fdbfb46e4b4bbf7cc16875369af15484876e05))
 - Codex Usage settings now let users pause adaptive weekly forecasting and confirm deletion of its learned local history. ([commit e5fdbfb](https://github.com/TheBeems/CodexUsageDock/commit/e5fdbfb46e4b4bbf7cc16875369af15484876e05))
 

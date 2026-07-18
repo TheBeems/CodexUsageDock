@@ -91,6 +91,9 @@ internal sealed class WeeklyUsageHistoryStore
                 && entry.RecordedAt <= now
                 && double.IsFinite(entry.RemainingPercent)
                 && entry.RemainingPercent is >= 0 and <= 100)
+            .Select(entry => entry.ResetsAt is not null && entry.WindowMinutes is > 0
+                ? entry
+                : entry with { ResetsAt = null, WindowMinutes = null })
             .OrderBy(entry => entry.RecordedAt)
             .DistinctBy(entry => entry.RecordedAt)
             .ToArray();

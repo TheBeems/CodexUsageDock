@@ -545,6 +545,111 @@ public sealed class UsageDataTests
     }
 
     [Fact]
+    public void WeeklyRestorationAppearsInChartCardAndDetails()
+    {
+        var windowStart = new DateTimeOffset(2026, 7, 18, 9, 0, 0, TimeSpan.Zero);
+        var reset = windowStart.AddDays(7);
+        var now = windowStart.AddMinutes(20);
+        UsageHistoryEntry[] history =
+        [
+            new(windowStart.AddMinutes(1), 100, reset, 10080),
+            new(windowStart.AddMinutes(10), 80, reset, 10080),
+            new(windowStart.AddMinutes(11), 95, reset, 10080),
+            new(windowStart.AddMinutes(14), 85, reset, 10080),
+            new(windowStart.AddMinutes(15), 92, reset, 10080),
+            new(now, 90, reset, 10080),
+        ];
+        var snapshot = CodexUsageSnapshot.Loading with
+        {
+            Secondary = new RateLimitWindow(10, 10080, reset),
+            UpdatedAt = now,
+            Source = UsageDataSource.AppServer,
+        };
+
+        var data = CodexUsageDockPage.FormatMainDataJson(
+            snapshot,
+            now,
+            isLoading: false,
+            primaryHistory: [],
+            weeklyHistory: history,
+            refreshInterval: TimeSpan.FromMinutes(1));
+        using var document = JsonDocument.Parse(data);
+        var root = document.RootElement;
+        var chart = ParseSvg(root.GetProperty("weeklyTrendChartUrl").GetString()!);
+        var markers = chart.Descendants(Svg + "line")
+            .Where(element => (string?)element.Attribute("data-marker") == "allowance-restored")
+            .ToArray();
+        var points = chart.Descendants(Svg + "circle")
+            .Where(element => (string?)element.Attribute("data-marker") == "allowance-restored-point")
+            .ToArray();
+
+        Assert.Equal(2, markers.Length);
+        Assert.Equal(2, points.Length);
+        Assert.True(root.GetProperty("weeklyRestorationAvailable").GetBoolean());
+        Assert.Contains("85% → 92% (+7 pp)", root.GetProperty("weeklyRestorationSummary").GetString(), StringComparison.Ordinal);
+        Assert.Contains("2 detected in this window", root.GetProperty("weeklyRestorationSummary").GetString(), StringComparison.Ordinal);
+        Assert.Contains("Forecast restarted from the latest restoration", root.GetProperty("weeklyProjection").GetString(), StringComparison.Ordinal);
+        Assert.Equal("7", points[^1].Attribute("data-increase")?.Value);
+        Assert.NotNull(markers[^1].Attribute("data-detected-at"));
+        Assert.Contains("2 allowance restorations were detected", root.GetProperty("weeklyTrendChartAlt").GetString(), StringComparison.Ordinal);
+
+        var details = CodexUsageDockPage.FormatDetailsBody(snapshot, now, history);
+        Assert.Contains("Detected allowance restorations", details, StringComparison.Ordinal);
+        Assert.Contains("80% → 95% (+15 pp)", details, StringComparison.Ordinal);
+        Assert.Contains("85% → 92% (+7 pp)", details, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void WeeklyRestorationDetectorIncludesEarlyResetAndExcludesScheduledRollover()
+    {
+        var previousReset = new DateTimeOffset(2026, 7, 20, 12, 0, 0, TimeSpan.Zero);
+        var earlyDetectedAt = new DateTimeOffset(2026, 7, 18, 12, 0, 0, TimeSpan.Zero);
+        var earlyWindow = new RateLimitWindow(5, 10080, earlyDetectedAt.AddDays(7));
+        var early = WeeklyAllowanceRestoration.Detect(
+            [
+                new UsageHistoryEntry(earlyDetectedAt.AddMinutes(-1), 20, previousReset, 10080),
+                new UsageHistoryEntry(earlyDetectedAt, 95, earlyWindow.ResetsAt, 10080),
+            ],
+            earlyWindow,
+            earlyDetectedAt);
+
+        var restoration = Assert.Single(early);
+        Assert.Equal(earlyDetectedAt, restoration.DetectedAt);
+        Assert.Equal(75, restoration.IncreasePercent);
+
+        var scheduledDetectedAt = previousReset.AddMinutes(1);
+        var scheduledWindow = new RateLimitWindow(0, 10080, previousReset.AddDays(7));
+        var scheduled = WeeklyAllowanceRestoration.Detect(
+            [
+                new UsageHistoryEntry(previousReset.AddMinutes(-1), 10, previousReset, 10080),
+                new UsageHistoryEntry(scheduledDetectedAt, 100, scheduledWindow.ResetsAt, 10080),
+            ],
+            scheduledWindow,
+            scheduledDetectedAt);
+
+        Assert.Empty(scheduled);
+    }
+
+    [Fact]
+    public void LegacyHistoryDetectsOnlyRestorationsInsideTheActiveWindow()
+    {
+        var reset = new DateTimeOffset(2026, 7, 25, 12, 0, 0, TimeSpan.Zero);
+        var start = reset.AddDays(-7);
+        var restorations = WeeklyAllowanceRestoration.Detect(
+            [
+                new UsageHistoryEntry(start.AddMinutes(-1), 10),
+                new UsageHistoryEntry(start, 100),
+                new UsageHistoryEntry(start.AddMinutes(1), 80),
+                new UsageHistoryEntry(start.AddMinutes(2), 90),
+            ],
+            new RateLimitWindow(10, 10080, reset),
+            start.AddMinutes(2));
+
+        var restoration = Assert.Single(restorations);
+        Assert.Equal(start.AddMinutes(2), restoration.DetectedAt);
+    }
+
+    [Fact]
     public void WeeklyTrendChartOmitsForecastWhenLatestObservationIsGapIsolated()
     {
         var windowStart = new DateTimeOffset(2026, 7, 10, 9, 0, 0, TimeSpan.Zero);
@@ -1779,6 +1884,36 @@ public sealed class UsageDataTests
                 TimeSpan.FromMinutes(5));
 
             Assert.Single(store.Snapshot.CompletedCycles);
+        }
+        finally
+        {
+            Directory.Delete(temporaryDirectory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void WeeklyHistoryStorePersistsWindowMetadataAndLoadsLegacySamples()
+    {
+        var temporaryDirectory = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
+        var path = Path.Combine(temporaryDirectory, "weekly-history.json");
+        var now = DateTimeOffset.Now;
+        var reset = now.AddDays(6);
+        try
+        {
+            var store = new WeeklyUsageHistoryStore(path);
+            store.Save(
+            [
+                new UsageHistoryEntry(now.AddMinutes(-2), 80),
+                new UsageHistoryEntry(now.AddMinutes(-1), 70, reset, 10080),
+            ]);
+
+            var entries = store.Load(now).ToArray();
+
+            Assert.Equal(2, entries.Length);
+            Assert.Null(entries[0].ResetsAt);
+            Assert.Null(entries[0].WindowMinutes);
+            Assert.Equal(reset, entries[1].ResetsAt);
+            Assert.Equal(10080, entries[1].WindowMinutes);
         }
         finally
         {

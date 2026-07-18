@@ -106,12 +106,17 @@ internal sealed partial class CodexUsageDockPage : ContentPage, IDisposable
         return data.ToJsonString();
     }
 
-    internal static string FormatDetailsBody(CodexUsageSnapshot snapshot, DateTimeOffset now) => $"""
+    internal static string FormatDetailsBody(
+        CodexUsageSnapshot snapshot,
+        DateTimeOffset now,
+        IReadOnlyList<UsageHistoryEntry>? weeklyHistory = null) => $"""
         ## Resets and credits
 
         {FormatResetSummary(snapshot.ResetCredits, now)}
         {FormatResetCredits(snapshot.ResetCredits)}
         - **Credits:** {FormatCredits(snapshot.Credits)}
+
+        {FormatRestorationDetails(snapshot.Secondary, weeklyHistory ?? [], now)}
 
         ## Account and data
 
@@ -265,6 +270,7 @@ internal sealed partial class CodexUsageDockPage : ContentPage, IDisposable
         TimeSpan maximumGap)
     {
         data["weeklyTrendAvailable"] = false;
+        data["weeklyRestorationAvailable"] = false;
         if (window is null || trend is null || !dataAvailable)
         {
             return;
@@ -280,7 +286,7 @@ internal sealed partial class CodexUsageDockPage : ContentPage, IDisposable
         }
 
         var chart = WeeklyUsageTrendChartRenderer.Create(
-            chartHistory,
+            history,
             window,
             now,
             maximumGap,
@@ -293,6 +299,48 @@ internal sealed partial class CodexUsageDockPage : ContentPage, IDisposable
         data["weeklyTrendAvailable"] = true;
         data["weeklyTrendChartUrl"] = chart.ImageUrl;
         data["weeklyTrendChartAlt"] = chart.AltText;
+
+        var restorations = WeeklyAllowanceRestoration.Detect(history, window, now);
+        if (restorations.Length > 0)
+        {
+            data["weeklyRestorationAvailable"] = true;
+            data["weeklyRestorationSummary"] = FormatRestorationSummary(restorations);
+            if (trend.Forecast is not null)
+            {
+                data["weeklyProjection"] = $"{trend.Message} Forecast restarted from the latest restoration.";
+            }
+        }
+    }
+
+    private static string FormatRestorationSummary(AllowanceRestoration[] restorations)
+    {
+        var latest = restorations[^1];
+        var count = restorations.Length > 1
+            ? $" {restorations.Length.ToString(CultureInfo.CurrentCulture)} detected in this window."
+            : string.Empty;
+        return $"Latest restoration detected: {FormatLocalTime(latest.DetectedAt, "ddd d MMM HH:mm")} · {latest.PreviousRemainingPercent.ToString("0", CultureInfo.CurrentCulture)}% → {latest.CurrentRemainingPercent.ToString("0", CultureInfo.CurrentCulture)}% (+{latest.IncreasePercent.ToString("0.#", CultureInfo.CurrentCulture)} pp).{count}";
+    }
+
+    private static string FormatRestorationDetails(
+        RateLimitWindow? window,
+        IReadOnlyList<UsageHistoryEntry> history,
+        DateTimeOffset now)
+    {
+        if (window is null)
+        {
+            return string.Empty;
+        }
+
+        var restorations = WeeklyAllowanceRestoration.Detect(history, window, now);
+        if (restorations.Length == 0)
+        {
+            return string.Empty;
+        }
+
+        var rows = restorations
+            .Reverse()
+            .Select(restoration => $"- **{FormatLocalTime(restoration.DetectedAt, "ddd d MMM HH:mm")}:** {restoration.PreviousRemainingPercent.ToString("0", CultureInfo.CurrentCulture)}% → {restoration.CurrentRemainingPercent.ToString("0", CultureInfo.CurrentCulture)}% (+{restoration.IncreasePercent.ToString("0.#", CultureInfo.CurrentCulture)} pp)");
+        return $"## Detected allowance restorations\n\n{string.Join(Environment.NewLine, rows)}";
     }
 
     private static (string Status, string Color) FormatPaceStatus(double usedPercent, double elapsedPercent)
@@ -534,7 +582,7 @@ internal sealed partial class CodexUsageDockPage : ContentPage, IDisposable
         var segmentStart = 0;
         for (var index = 1; index < historyInCurrentWindow.Length; index++)
         {
-            if (historyInCurrentWindow[index].RemainingPercent > historyInCurrentWindow[index - 1].RemainingPercent)
+            if (WeeklyAllowanceRestoration.IsIncrease(historyInCurrentWindow[index - 1], historyInCurrentWindow[index]))
             {
                 segmentStart = index;
             }
@@ -632,7 +680,7 @@ internal sealed partial class CodexUsageDockPage : ContentPage, IDisposable
             _usage.RefreshInterval,
             _settings.UseAdaptiveWeeklyForecast,
             _usage.AdaptiveWeeklyHistory);
-        _details.Body = FormatDetailsBody(snapshot, now);
+        _details.Body = FormatDetailsBody(snapshot, now, _usage.WeeklyHistory);
         RaiseItemsChanged(0);
     }
 

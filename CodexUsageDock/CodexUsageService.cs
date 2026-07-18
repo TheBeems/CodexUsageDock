@@ -230,7 +230,11 @@ internal sealed partial class CodexUsageService : IDisposable
             return changed;
         }
 
-        history.Add(new UsageHistoryEntry(updatedAt, window.RemainingPercent));
+        history.Add(new UsageHistoryEntry(
+            updatedAt,
+            window.RemainingPercent,
+            window.ResetsAt,
+            window.WindowMinutes));
         return true;
     }
 
