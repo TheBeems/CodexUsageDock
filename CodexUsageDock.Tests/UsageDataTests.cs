@@ -1892,6 +1892,82 @@ public sealed class UsageDataTests
     }
 
     [Fact]
+    public void AdaptiveWeeklyUsageStoreTreatsSmallResetTimeChangesAsTheSameCycle()
+    {
+        var temporaryDirectory = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
+        var path = Path.Combine(temporaryDirectory, "adaptive-weekly.json");
+        var reset = new DateTimeOffset(2026, 7, 24, 0, 0, 0, TimeSpan.Zero);
+        try
+        {
+            var store = new AdaptiveWeeklyUsageStore(path);
+            store.Record(new RateLimitWindow(0, 10080, reset), [], TimeSpan.FromMinutes(5));
+            store.Record(new RateLimitWindow(0, 10080, reset.AddSeconds(3)), [], TimeSpan.FromMinutes(5));
+
+            Assert.Empty(store.Snapshot.CompletedCycles);
+            Assert.Equal(reset, Assert.IsType<AdaptiveWeeklyUsageCycle>(store.Snapshot.ActiveCycle).ResetsAt);
+
+            store.Record(new RateLimitWindow(0, 10080, reset.AddDays(7)), [], TimeSpan.FromMinutes(5));
+
+            Assert.Empty(store.Snapshot.CompletedCycles);
+            Assert.Equal(reset.AddDays(7), Assert.IsType<AdaptiveWeeklyUsageCycle>(store.Snapshot.ActiveCycle).ResetsAt);
+        }
+        finally
+        {
+            Directory.Delete(temporaryDirectory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void AdaptiveWeeklyUsageStoreDropsPersistedCyclesDuplicatedByResetTimeJitter()
+    {
+        var temporaryDirectory = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
+        var path = Path.Combine(temporaryDirectory, "adaptive-weekly.json");
+        var reset = new DateTimeOffset(2026, 7, 24, 0, 0, 0, TimeSpan.Zero);
+        AdaptiveWeeklyUsageCycle Cycle(DateTimeOffset cycleReset, double observedMinutes) => new(
+            cycleReset,
+            10080,
+            observedMinutes,
+            1,
+            []);
+        try
+        {
+            Directory.CreateDirectory(temporaryDirectory);
+            var state = new AdaptiveWeeklyUsageState(
+                [Cycle(reset.AddSeconds(1), 10), Cycle(reset.AddSeconds(3), 20)],
+                Cycle(reset, 30),
+                null,
+                true);
+            File.WriteAllText(path, JsonSerializer.Serialize(state));
+
+            var store = new AdaptiveWeeklyUsageStore(path);
+
+            Assert.Empty(store.Snapshot.CompletedCycles);
+            Assert.Equal(reset, Assert.IsType<AdaptiveWeeklyUsageCycle>(store.Snapshot.ActiveCycle).ResetsAt);
+        }
+        finally
+        {
+            Directory.Delete(temporaryDirectory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void AdaptiveForecastUsesTheActiveCycleWhenItsResetTimeHasSmallJitter()
+    {
+        var reset = new DateTimeOffset(2026, 7, 24, 0, 0, 0, TimeSpan.Zero);
+        var active = new AdaptiveWeeklyUsageCycle(reset, 10080, 60, 6, []);
+
+        var projection = AdaptiveWeeklyForecast.Project(
+            new UsageHistoryEntry(reset.AddDays(-6), 90),
+            reset.AddDays(-7).AddSeconds(3),
+            reset.AddSeconds(3),
+            0.1,
+            enabled: true,
+            new AdaptiveWeeklyUsageHistory([], active));
+
+        Assert.Equal("Forecast: current pace + limited local history.", projection.Status);
+    }
+
+    [Fact]
     public void WeeklyHistoryStorePersistsWindowMetadataAndLoadsLegacySamples()
     {
         var temporaryDirectory = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));

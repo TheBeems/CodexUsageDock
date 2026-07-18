@@ -30,6 +30,8 @@ internal sealed class AdaptiveWeeklyUsageStore
     internal const int BucketCount = 28;
     internal static readonly TimeSpan BucketDuration = TimeSpan.FromHours(6);
 
+    // The app-server may report the same reset a few seconds apart on successive refreshes.
+    private static readonly TimeSpan ResetTimeJitterTolerance = TimeSpan.FromMinutes(1);
     private const string FileName = "adaptive-weekly-forecast.json";
     private readonly string _path;
     private AdaptiveWeeklyUsageState _state;
@@ -135,7 +137,7 @@ internal sealed class AdaptiveWeeklyUsageStore
     private bool StartCycleIfNeeded(RateLimitWindow window)
     {
         var active = _state.ActiveCycle;
-        if (active is not null && active.ResetsAt == window.ResetsAt && active.WindowMinutes == window.WindowMinutes)
+        if (active is not null && IsSameCycle(active, window.ResetsAt, window.WindowMinutes))
         {
             return false;
         }
@@ -288,15 +290,12 @@ internal sealed class AdaptiveWeeklyUsageStore
             return new AdaptiveWeeklyUsageState([], null, null, false);
         }
 
-        var completed = (state.CompletedCycles ?? [])
+        var active = NormalizeCycle(state.ActiveCycle);
+        var completed = NormalizeCompletedCycles((state.CompletedCycles ?? [])
             .Select(NormalizeCycle)
             .Where(cycle => cycle is not null)
             .Cast<AdaptiveWeeklyUsageCycle>()
-            .OrderBy(cycle => cycle.ResetsAt)
-            .DistinctBy(cycle => cycle.ResetsAt)
-            .TakeLast(MaximumCompletedCycles)
-            .ToArray();
-        var active = NormalizeCycle(state.ActiveCycle);
+            .ToArray(), active);
         var lastSample = active is not null && state.LastSample is { } sample && IsValidSample(sample)
             ? sample
             : null;
@@ -331,6 +330,41 @@ internal sealed class AdaptiveWeeklyUsageStore
         return cycle with { Buckets = buckets };
     }
 
+    private static AdaptiveWeeklyUsageCycle[] NormalizeCompletedCycles(
+        IEnumerable<AdaptiveWeeklyUsageCycle> cycles,
+        AdaptiveWeeklyUsageCycle? active)
+    {
+        var completed = new List<AdaptiveWeeklyUsageCycle>();
+        foreach (var cycle in cycles.OrderBy(cycle => cycle.ResetsAt))
+        {
+            if (active is not null && IsSameCycle(cycle, active.ResetsAt, active.WindowMinutes))
+            {
+                continue;
+            }
+
+            if (completed.Count > 0 && IsSameCycle(cycle, completed[^1].ResetsAt, completed[^1].WindowMinutes))
+            {
+                if (cycle.ObservedMinutes > completed[^1].ObservedMinutes)
+                {
+                    completed[^1] = cycle;
+                }
+
+                continue;
+            }
+
+            completed.Add(cycle);
+        }
+
+        return completed.TakeLast(MaximumCompletedCycles).ToArray();
+    }
+
+    internal static bool IsSameCycle(
+        AdaptiveWeeklyUsageCycle cycle,
+        DateTimeOffset resetsAt,
+        int windowMinutes) =>
+        cycle.WindowMinutes == windowMinutes
+        && Math.Abs((cycle.ResetsAt - resetsAt).TotalSeconds) < ResetTimeJitterTolerance.TotalSeconds;
+
     private static bool IsValidSample(UsageHistoryEntry sample) =>
         double.IsFinite(sample.RemainingPercent) && sample.RemainingPercent is >= 0 and <= 100;
 
@@ -364,8 +398,7 @@ internal static class AdaptiveWeeklyForecast
             .Take(AdaptiveWeeklyUsageStore.MaximumCompletedCycles)
             .ToArray();
         var provisional = history.ActiveCycle is { } active
-            && active.ResetsAt == resetsAt
-            && active.WindowMinutes == (int)TimeSpan.FromDays(7).TotalMinutes
+            && AdaptiveWeeklyUsageStore.IsSameCycle(active, resetsAt, (int)TimeSpan.FromDays(7).TotalMinutes)
             && GetRate(active) is not null
             ? active
             : null;
