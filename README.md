@@ -8,7 +8,8 @@ It displays:
 - the percentage remaining in the weekly usage window;
 - compact pace indicators that compare allowance used with elapsed window time;
 - a projected allowance at reset, or an estimated limit time when current consumption would exhaust it sooner;
-- a seven-day weekly trend chart with observed remaining allowance, a dashed projection, observed daily quota consumption, a 0–100% vertical scale, and localized weekday labels;
+- an optional adaptive weekly forecast that keeps the current pace dominant and gradually blends in up to eight local quota cycles and six-hour usage patterns;
+- a weekly trend chart with sampled remaining allowance, a dashed projection that can follow six-hour adaptive forecast points, equal-width local calendar-day columns, dated weekday labels, partial reset-boundary days, and a shared 0–100% vertical scale; the line connects samples across measurement gaps but breaks at allowance increases, while the forecast uses only the latest post-increase segment;
 - the number of available earned resets and their expiry times;
 - the remaining credits balance when Codex provides it.
 
@@ -29,6 +30,8 @@ Microsoft Store publication for version `0.5.0` is currently pending. That versi
 
 GitHub Actions artifacts are inputs for Microsoft Store certification, not public installers. Do not distribute or install them directly.
 
+Codex Usage Dock is activated inside PowerToys Command Palette and intentionally has no standalone Start-menu entry.
+
 ## Add Codex Usage to the Dock
 
 1. Open Command Palette settings.
@@ -42,7 +45,7 @@ The Dock will show entries similar to `5h 47%`, `Week 86%`, and `2 resets · 10.
 
 ## Customize the Dock
 
-Open Command Palette and select **Codex Usage settings** to choose which usage entries appear in the Dock. You can independently show or hide the five-hour limit, weekly limit, and resets and credits, choose whether usage entries show their reset time, and set the local data refresh interval to 1, 5, or 15 minutes. Command Palette stores these settings for the current user.
+Open Command Palette and select **Codex Usage settings** to choose which usage entries appear in the Dock. You can independently show or hide the five-hour limit, weekly limit, and resets and credits, choose whether usage entries show their reset time, set the local data refresh interval to 1, 5, or 15 minutes, and enable or pause the adaptive weekly forecast. Pausing the forecast keeps its learned local history; **Delete learned forecast history** asks for confirmation before permanently clearing it. Command Palette stores these settings for the current user.
 
 ## Update
 
@@ -67,7 +70,7 @@ Microsoft Store product `9NFCPJXQG9FG` is the only production and update channel
 
 ## Privacy
 
-The extension runs locally. It talks to the standalone Codex CLI app-server and may read local Codex session metadata for its fallback path. It keeps a rolling seven-day weekly usage trend on the device and does not send usage information to a separate service.
+The extension runs locally. It talks to the standalone Codex CLI app-server and may read local Codex session metadata for its fallback path. It keeps a rolling seven-day weekly usage trend and up to eight aggregated local weekly forecast profiles on the device, and does not send usage information to a separate service.
 
 See the full [Privacy Policy](PRIVACY.md).
 

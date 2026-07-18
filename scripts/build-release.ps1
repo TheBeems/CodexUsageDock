@@ -322,6 +322,10 @@ function Assert-CommandPaletteRegistrations {
         throw 'MSIX must declare MaxVersionTested 10.0.26100.0.'
     }
 
+    if (-not $visualElements -or [string]$visualElements.GetAttribute('AppListEntry') -cne 'none') {
+        throw 'The Command Palette extension entry point must be hidden from the Start menu with AppListEntry="none".'
+    }
+
     $visualAssetAttributes = [ordered]@{
         Square44x44Logo   = @($visualElements, 'Assets\Square44x44Logo.png')
         Square150x150Logo = @($visualElements, 'Assets\Square150x150Logo.png')

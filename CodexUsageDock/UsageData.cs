@@ -72,10 +72,13 @@ internal sealed record RateLimitResetCredits(int AvailableCount, IReadOnlyList<R
 
 internal sealed record UsageHistoryEntry(DateTimeOffset RecordedAt, double RemainingPercent);
 
+internal sealed record UsageTrendForecastPoint(DateTimeOffset RecordedAt, double RemainingPercent);
+
 internal sealed record UsageTrendForecast(
     DateTimeOffset EndsAt,
     double RemainingPercent,
-    bool ReachesLimitBeforeReset);
+    bool ReachesLimitBeforeReset,
+    IReadOnlyList<UsageTrendForecastPoint>? Points = null);
 
 internal enum UsageDataSource
 {

@@ -84,10 +84,11 @@ Complete every row on a clean x64 environment and a separate clean ARM64 environ
 | Update | Required | Required | The previous supported Store version updates in place; Command Palette discovers the new version and settings remain intact. |
 | Uninstall and reinstall | Required | Required | Uninstall removes the app and extension registration; reinstall restores discovery without stale or duplicate providers. |
 | Automated preflight | Required | Required | `test-integration.ps1` passes manifest, package, CLSID, COM, and AppExtension checks. |
+| Start-menu visibility | Required | Required | Codex Usage does not appear as a standalone app in Start; it is activated only by Command Palette through its packaged COM registration. |
 | Discovery and reload | Required | Required | After **Reload Command Palette Extension**, **Codex Usage** appears once under **Settings > Extensions** and can be enabled. |
-| Details page | Required | Required | Opening **Codex Usage** shows five-hour and weekly quota summaries that compare allowance used with elapsed window time and include a projection for each active window. The weekly view includes a seven-day chart that starts at the quota window start: continuous observed allowance is solid, a fresh projection is dashed, daily bars show only observed consumption, and host-safe axis labels show the 0–100% scale plus localized weekdays. Resets, credits, account status, and source appear in the native Details pane. Verify pace labels, inactive/projection fallback states, chart gap handling, visible axis labels, and semantic status colors at narrow and wide window sizes, light/dark themes, and high contrast; manual refresh must update both areas without clipping or freezing Command Palette. |
+| Details page | Required | Required | Opening **Codex Usage** shows five-hour and weekly quota summaries that compare allowance used with elapsed window time and include a projection for each active window. The weekly view spans the quota window: continuous observed allowance is solid, a fresh projection is dashed, bars show only observed consumption per local calendar day, dated weekday labels include the partial first and last reset-boundary days, and reset/current-time markers clarify the timeline. When adaptive forecasting has history, its dashed line may change at six-hour boundaries and the status line identifies the local-history depth; disabled or immature history falls back to current pace. Resets, credits, account status, and source appear in the native Details pane. Verify pace labels, inactive/projection fallback states, chart gap handling, visible 0–100% and calendar-date axes, partial-day placement, semantic status colors, narrow and wide window sizes, light/dark themes, and high contrast; manual refresh must update both areas without clipping or freezing Command Palette. |
 | Dock band | Required | Required | The band can be added, each enabled item opens details, and values update while Command Palette remains responsive. |
-| Settings | Required | Required | Visibility, reset-time, and refresh-interval choices apply immediately and persist after restarting Command Palette. |
+| Settings | Required | Required | Visibility, reset-time, refresh-interval, and adaptive-forecast choices apply immediately and persist after restarting Command Palette. Verify that disabling pauses learning while retaining history and that deleting learned history requires confirmation. |
 | Live app-server | Required | Required | With a signed-in standalone Codex CLI, the details page identifies the CLI app-server as the source and refreshes live data. |
 | Local fallback | Required | Required | In an isolated test account with local session metadata but no launchable standalone CLI, fallback data appears and is identified as local session data. Do not rename or delete a real CLI installation to create this state. |
 | No-data failure | Required | Required | In an isolated account with neither a CLI nor session data, the extension shows a bounded unavailable/error state and does not crash or loop. |
@@ -120,6 +121,7 @@ The command builds from an isolated manifest copy with the four-part MSIX versio
 - the complete generated asset set and its required pixel dimensions;
 - the complete app-local managed application and .NET runtime layout, including self-contained `includedFrameworks` metadata;
 - packaged COM and `com.microsoft.commandpalette` registrations;
+- a hidden Start-menu entry point, because the executable is activated as a Command Palette COM server rather than as a standalone app;
 - one bundle inside the final `.msixupload`.
 
 Successful output contains only:
@@ -145,7 +147,7 @@ The packages inside `.msixupload` are intentionally unsigned. Partner Center sig
 2. Set the project `<Version>` to the intended release version, commit it, and run **Store package** manually.
 3. Download and extract the corresponding `CodexUsageDock-<version>-store` Actions artifact.
 4. In Partner Center, open existing product `9NFCPJXQG9FG` and upload the matching `.msixupload` to a new submission.
-5. Complete the required Store listing and testing notes, then submit for certification.
+5. Complete the required Store listing and testing notes. State that this package is a PowerToys Command Palette extension, does not expose a standalone Start-menu app, and must be tested by enabling **Codex Usage** under **Command Palette > Settings > Extensions**, running **Reload Command Palette Extension**, and opening **Codex Usage** inside Command Palette. Then submit for certification.
 6. Stop on rejection and address the reported issue in a new package version. Do not use a self-signed or alternate distribution fallback.
 7. After the Store listing is publicly installable, verify x64 and ARM64 installation, removal, Command Palette discovery, and live Dock usage.
 8. Update `README.md` with `https://apps.microsoft.com/detail/9NFCPJXQG9FG`.

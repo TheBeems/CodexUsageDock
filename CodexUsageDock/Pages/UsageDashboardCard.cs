@@ -364,7 +364,7 @@ internal static class UsageDashboardCard
                     },
                     {
                       "type": "TextBlock",
-                      "text": "Solid: remaining allowance (%) · dashed: forecast · bars: observed daily use (%)",
+                      "text": "Solid: sampled allowance (%) · dashed: forecast · bars: observed calendar-day use (%)",
                       "isSubtle": true,
                       "spacing": "none",
                       "wrap": true
@@ -375,6 +375,13 @@ internal static class UsageDashboardCard
                       "altText": "${weeklyTrendChartAlt}",
                       "size": "stretch",
                       "spacing": "small"
+                    },
+                    {
+                      "type": "TextBlock",
+                      "text": "${weeklyForecastStatus}",
+                      "isSubtle": true,
+                      "spacing": "small",
+                      "wrap": true
                     }
                   ]
                 }

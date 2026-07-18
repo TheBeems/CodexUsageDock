@@ -8,8 +8,18 @@ Each entry links to the commit or pull request that introduced the change.
 
 ## [Unreleased]
 
+### Added
+
+- Weekly forecasts can now adapt cautiously to up to eight local quota cycles and six-hour usage patterns while retaining the current pace as their primary signal.
+- Codex Usage settings now let users pause adaptive weekly forecasting and confirm deletion of its learned local history.
+
 ### Fixed
 
+- Weekly trend lines now connect sampled values across measurement gaps while retaining breaks for quota increases and keeping daily-use bars and forecasts gap-safe.
+- Weekly trend calendar days now use equal-width columns, including reset-boundary days, and separate weekday names from their dates in axis labels.
+- Weekly trend charts now retain observed days before an in-window quota increase, while breaking the line at that increase and keeping the forecast anchored to the latest post-increase segment.
+- Weekly trend bars and dated weekday labels now follow local calendar days, with partial reset-boundary days and explicit reset and current-time markers.
+- Microsoft Store packages now hide the extension-only executable from the Start menu, preventing certification and users from treating its COM-server entry point as a standalone app.
 - Weekly trend forecasts are now suppressed when the newest observation is isolated by a data gap, avoiding a projection anchored to stale data. ([commit ead2fac](https://github.com/TheBeems/CodexUsageDock/commit/ead2fac09c2c889cd20236c9e98fbf001bcda4e9))
 - Weekly trend charts now fall back to invariant English weekday labels when localized abbreviations use glyphs that the host-safe bitmap renderer cannot display. ([commit ead2fac](https://github.com/TheBeems/CodexUsageDock/commit/ead2fac09c2c889cd20236c9e98fbf001bcda4e9))
 - Installation documentation now distinguishes the pending `0.5.0` Store submission and latest GitHub release from later versioned repository changes. ([commit ead2fac](https://github.com/TheBeems/CodexUsageDock/commit/ead2fac09c2c889cd20236c9e98fbf001bcda4e9))

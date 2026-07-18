@@ -164,6 +164,7 @@ function Test-CommandPaletteManifest {
         Capabilities         = @($manifest.SelectNodes("/f:Package/f:Capabilities/*", $namespaces) | ForEach-Object { "$(Get-AttributeValue -Node $_ -Name 'Name')|$($_.NamespaceURI)" } | Sort-Object)
         ApplicationExecutable = $applicationExecutable
         ComExecutable         = $comExecutable
+        AppListEntry          = Get-AttributeValue -Node $visualElements -Name "AppListEntry"
         Square44x44Logo      = Get-AttributeValue -Node $visualElements -Name "Square44x44Logo"
         Square150x150Logo    = Get-AttributeValue -Node $visualElements -Name "Square150x150Logo"
         Square71x71Logo      = Get-AttributeValue -Node $defaultTile -Name "Square71x71Logo"
@@ -209,6 +210,11 @@ function Test-CommandPaletteManifest {
     if ($releaseFacts['MaxVersionTested'] -cne '10.0.26100.0') {
         $hasRequiredReleaseFacts = $false
         Add-Failure "$Label must target Windows MaxVersionTested 10.0.26100.0."
+    }
+
+    if ($releaseFacts['AppListEntry'] -cne 'none') {
+        $hasRequiredReleaseFacts = $false
+        Add-Failure "$Label must hide the Command Palette extension entry point from the Start menu."
     }
 
     $capabilities = @($releaseFacts['Capabilities'])
@@ -452,7 +458,7 @@ if ($null -ne $sourceFacts -and $null -ne $generatedFacts) {
     }
 
     if ($sourceFacts.ReleaseFactsJson -cne $generatedFacts.ReleaseFactsJson) {
-        Add-Failure "Source and generated manifests differ in publisher, MaxVersionTested, capabilities, or tile references. Rebuild the selected artifact."
+        Add-Failure "Source and generated manifests differ in publisher, MaxVersionTested, Start-menu visibility, capabilities, or tile references. Rebuild the selected artifact."
     }
 }
 
