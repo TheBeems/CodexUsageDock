@@ -10,6 +10,7 @@ Each entry links to the commit or pull request that introduced the change.
 
 ### Added
 
+- Weekly allowance restorations are now shown with amber chart markers, summarized below the trend, and listed for the active quota window in Details. ([PR #15](https://github.com/TheBeems/CodexUsageDock/pull/15))
 - Weekly forecasts can now adapt cautiously to up to eight local quota cycles and six-hour usage patterns while retaining the current pace as their primary signal. ([commit e5fdbfb](https://github.com/TheBeems/CodexUsageDock/commit/e5fdbfb46e4b4bbf7cc16875369af15484876e05))
 - Codex Usage settings now let users pause adaptive weekly forecasting and confirm deletion of its learned local history. ([commit e5fdbfb](https://github.com/TheBeems/CodexUsageDock/commit/e5fdbfb46e4b4bbf7cc16875369af15484876e05))
 
@@ -19,6 +20,7 @@ Each entry links to the commit or pull request that introduced the change.
 
 ### Fixed
 
+- Adaptive weekly forecasts now use their learned local history in weekly dashboard projections, and pausing no longer learns measurements collected before the forecast is re-enabled. ([commit 0eb5072](https://github.com/TheBeems/CodexUsageDock/commit/0eb5072cfa7ca78f97b599ad415a20b2f5638f86))
 - Weekly trend lines now connect sampled values across measurement gaps while retaining breaks for quota increases and keeping daily-use bars and forecasts gap-safe. ([commit e5fdbfb](https://github.com/TheBeems/CodexUsageDock/commit/e5fdbfb46e4b4bbf7cc16875369af15484876e05))
 - Weekly trend calendar days now use equal-width columns, including reset-boundary days, and separate weekday names from their dates in axis labels. ([commit e5fdbfb](https://github.com/TheBeems/CodexUsageDock/commit/e5fdbfb46e4b4bbf7cc16875369af15484876e05))
 - Weekly trend charts now retain observed days before an in-window quota increase, while breaking the line at that increase and keeping the forecast anchored to the latest post-increase segment. ([commit e5fdbfb](https://github.com/TheBeems/CodexUsageDock/commit/e5fdbfb46e4b4bbf7cc16875369af15484876e05))

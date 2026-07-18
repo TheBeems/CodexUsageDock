@@ -70,7 +70,11 @@ internal sealed record RateLimitResetCredit(string? Title, string? Status, DateT
 
 internal sealed record RateLimitResetCredits(int AvailableCount, IReadOnlyList<RateLimitResetCredit>? Credits);
 
-internal sealed record UsageHistoryEntry(DateTimeOffset RecordedAt, double RemainingPercent);
+internal sealed record UsageHistoryEntry(
+    DateTimeOffset RecordedAt,
+    double RemainingPercent,
+    DateTimeOffset? ResetsAt = null,
+    int? WindowMinutes = null);
 
 internal sealed record UsageTrendForecastPoint(DateTimeOffset RecordedAt, double RemainingPercent);
 

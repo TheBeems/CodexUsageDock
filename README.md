@@ -9,7 +9,8 @@ It displays:
 - compact pace indicators that compare allowance used with elapsed window time;
 - a projected allowance at reset, or an estimated limit time when current consumption would exhaust it sooner;
 - an optional adaptive weekly forecast that keeps the current pace dominant and gradually blends in up to eight local quota cycles and six-hour usage patterns;
-- a weekly trend chart with sampled remaining allowance, a dashed projection that can follow six-hour adaptive forecast points, equal-width local calendar-day columns, dated weekday labels, partial reset-boundary days, and a shared 0–100% vertical scale; the line connects samples across measurement gaps but breaks at allowance increases, while the forecast uses only the latest post-increase segment;
+- a weekly trend chart with sampled remaining allowance, a dashed projection that can follow six-hour adaptive forecast points, equal-width local calendar-day columns, dated weekday labels, partial reset-boundary days, and a shared 0–100% vertical scale; the line connects samples across measurement gaps but breaks at allowance increases, amber markers identify detected allowance restorations, and the forecast uses only the latest post-restoration segment;
+- a textual summary of the latest detected weekly allowance restoration, plus the current window's restoration history in the Details pane;
 - the number of available earned resets and their expiry times;
 - the remaining credits balance when Codex provides it.
 
@@ -45,7 +46,7 @@ The Dock will show entries similar to `5h 47%`, `Week 86%`, and `2 resets · 10.
 
 ## Customize the Dock
 
-Open Command Palette and select **Codex Usage settings** to choose which usage entries appear in the Dock. You can independently show or hide the five-hour limit, weekly limit, and resets and credits, choose whether usage entries show their reset time, set the local data refresh interval to 1, 5, or 15 minutes, and enable or pause the adaptive weekly forecast. Pausing the forecast keeps its learned local history; **Delete learned forecast history** asks for confirmation before permanently clearing it. Command Palette stores these settings for the current user.
+Open Command Palette and select **Codex Usage settings** to choose which usage entries appear in the Dock. You can independently show or hide the five-hour limit, weekly limit, and resets and credits, choose whether usage entries show their reset time, set the local data refresh interval to 1, 5, or 15 minutes, and enable or pause the adaptive weekly forecast. Pausing the forecast keeps its learned local history and excludes measurements collected while it is paused; **Delete learned forecast history** asks for confirmation before permanently clearing it. Command Palette stores these settings for the current user.
 
 ## Update
 

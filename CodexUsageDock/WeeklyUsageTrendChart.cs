@@ -89,6 +89,7 @@ internal static class WeeklyUsageTrendChartRenderer
 
         var displayCulture = culture ?? CultureInfo.CurrentCulture;
         var displayTimeZone = timeZone ?? TimeZoneInfo.Local;
+        var restorations = WeeklyAllowanceRestoration.Detect(history, window, effectiveNow);
         var samples = Normalize(history, windowStart, effectiveNow);
         if (samples.Length < 2)
         {
@@ -112,12 +113,13 @@ internal static class WeeklyUsageTrendChartRenderer
         AddDailyUseBars(document, dailyUse, calendarScale, displayCulture);
         AddResetMarkers(document, windowStart, window.ResetsAt, calendarScale);
         AddNowMarker(document, windowStart, window.ResetsAt, effectiveNow, calendarScale);
+        AddRestorationMarkers(document, restorations, calendarScale);
         AddObservedLines(document, renderedSegments, calendarScale);
         AddForecastLine(document, forecastSegment, usableForecast, window.ResetsAt, calendarScale);
 
         var first = samples[0];
         var last = samples[^1];
-        var altText = FormatAltText(first, last, samples.Length, usableForecast, windowStart, window.ResetsAt, dailyUse, displayCulture, displayTimeZone);
+        var altText = FormatAltText(first, last, samples.Length, usableForecast, restorations, windowStart, window.ResetsAt, dailyUse, displayCulture, displayTimeZone);
         return new WeeklyUsageTrendChart(UsageDashboardCard.CreateSvgImageUrl(document), altText);
     }
 
@@ -226,13 +228,13 @@ internal static class WeeklyUsageTrendChartRenderer
         return SplitAtDiscontinuities(
             samples,
             (previous, current) => current.RecordedAt - previous.RecordedAt > gap ||
-                current.RemainingPercent > previous.RemainingPercent);
+                WeeklyAllowanceRestoration.IsIncrease(previous, current));
     }
 
     private static List<UsageHistoryEntry[]> SplitAtQuotaIncreases(UsageHistoryEntry[] samples) =>
         SplitAtDiscontinuities(
             samples,
-            (previous, current) => current.RemainingPercent > previous.RemainingPercent);
+            WeeklyAllowanceRestoration.IsIncrease);
 
     private static List<UsageHistoryEntry[]> SplitAtDiscontinuities(
         UsageHistoryEntry[] samples,
@@ -550,6 +552,41 @@ internal static class WeeklyUsageTrendChartRenderer
         AddBitmapLabel(document, "NOW", labelX, 0, BitmapLabelAlignment.Center, "marker");
     }
 
+    private static void AddRestorationMarkers(
+        XElement document,
+        AllowanceRestoration[] restorations,
+        CalendarDayScale calendarScale)
+    {
+        foreach (var restoration in restorations)
+        {
+            var x = calendarScale.GetX(restoration.DetectedAt);
+            var y = GetTrendY(restoration.CurrentRemainingPercent);
+            document.Add(
+                new XElement(
+                    Svg + "line",
+                    new XAttribute("x1", Format(x)),
+                    new XAttribute("x2", Format(x)),
+                    new XAttribute("y1", TrendTop),
+                    new XAttribute("y2", TrendBottom),
+                    new XAttribute("stroke", "#F2C94C"),
+                    new XAttribute("stroke-opacity", "0.8"),
+                    new XAttribute("stroke-width", "1.5"),
+                    new XAttribute("stroke-dasharray", "3 2"),
+                    new XAttribute("data-marker", "allowance-restored"),
+                    new XAttribute("data-detected-at", restoration.DetectedAt.ToString("O", CultureInfo.InvariantCulture))),
+                new XElement(
+                    Svg + "circle",
+                    new XAttribute("cx", Format(x)),
+                    new XAttribute("cy", Format(y)),
+                    new XAttribute("r", "3"),
+                    new XAttribute("fill", "#F2C94C"),
+                    new XAttribute("stroke", "#121212"),
+                    new XAttribute("stroke-width", "1"),
+                    new XAttribute("data-marker", "allowance-restored-point"),
+                    new XAttribute("data-increase", Format(restoration.IncreasePercent))));
+        }
+    }
+
     private static void AddObservedLines(
         XElement document,
         IReadOnlyList<UsageHistoryEntry[]> segments,
@@ -700,6 +737,7 @@ internal static class WeeklyUsageTrendChartRenderer
         UsageHistoryEntry last,
         int sampleCount,
         UsageTrendForecast? forecast,
+        AllowanceRestoration[] restorations,
         DateTimeOffset windowStart,
         DateTimeOffset windowEnd,
         IReadOnlyList<DailyUsage> dailyUse,
@@ -716,7 +754,10 @@ internal static class WeeklyUsageTrendChartRenderer
             { } => $" Forecast leaves {forecast.RemainingPercent:0}% at reset.",
             null => " Forecast is unavailable.",
         };
-        return $"Weekly quota trend from {period}. Remaining allowance changed from {first.RemainingPercent:0}% to {last.RemainingPercent:0}% across {sampleCount} observations. The vertical scale is percentages from 0% to 100% for both remaining allowance and daily-use bars; horizontal labels are local calendar dates, and reset markers bound the quota window. Solid line connects sampled values across measurement gaps; line breaks mark allowance increases or resets; dashed line is forecast.{forecastText} {daily}";
+        var restorationText = restorations.Length > 0
+            ? $" {restorations.Length} allowance restoration{(restorations.Length == 1 ? " was" : "s were")} detected; the latest at {TimeZoneInfo.ConvertTime(restorations[^1].DetectedAt, timeZone).ToString("ddd d MMM HH:mm", culture)} increased remaining allowance from {restorations[^1].PreviousRemainingPercent:0}% to {restorations[^1].CurrentRemainingPercent:0}%. Amber markers show detected restorations."
+            : " No allowance restorations were detected in this window.";
+        return $"Weekly quota trend from {period}. Remaining allowance changed from {first.RemainingPercent:0}% to {last.RemainingPercent:0}% across {sampleCount} observations. The vertical scale is percentages from 0% to 100% for both remaining allowance and daily-use bars; horizontal labels are local calendar dates, and reset markers bound the quota window. Solid line connects sampled values across measurement gaps; line breaks mark allowance increases or resets; dashed line is forecast.{restorationText}{forecastText} {daily}";
     }
 
     private static string FormatPoints(

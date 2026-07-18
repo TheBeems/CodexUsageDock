@@ -364,7 +364,7 @@ internal static class UsageDashboardCard
                     },
                     {
                       "type": "TextBlock",
-                      "text": "Solid: sampled allowance (%) · dashed: forecast · bars: observed calendar-day use (%)",
+                      "text": "Solid: sampled allowance (%) · dashed: forecast · bars: observed calendar-day use (%) · amber: detected restorations",
                       "isSubtle": true,
                       "spacing": "none",
                       "wrap": true
@@ -375,6 +375,14 @@ internal static class UsageDashboardCard
                       "altText": "${weeklyTrendChartAlt}",
                       "size": "stretch",
                       "spacing": "small"
+                    },
+                    {
+                      "type": "TextBlock",
+                      "text": "${weeklyRestorationSummary}",
+                      "color": "Warning",
+                      "spacing": "small",
+                      "wrap": true,
+                      "$when": "${weeklyRestorationAvailable}"
                     },
                     {
                       "type": "TextBlock",

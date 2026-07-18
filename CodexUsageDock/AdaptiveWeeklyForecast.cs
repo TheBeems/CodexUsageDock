@@ -57,40 +57,15 @@ internal sealed class AdaptiveWeeklyUsageStore
         IReadOnlyList<UsageHistoryEntry> weeklyHistory,
         TimeSpan maximumGap)
     {
-        if (window is null
-            || window.WindowMinutes != (int)TimeSpan.FromDays(7).TotalMinutes
-            || maximumGap <= TimeSpan.Zero)
+        if (maximumGap <= TimeSpan.Zero
+            || !TryGetWindowSamples(window, weeklyHistory, out var samples))
         {
             return;
         }
 
-        var windowStart = window.ResetsAt - TimeSpan.FromMinutes(window.WindowMinutes);
-        var samples = weeklyHistory
-            .Where(sample => sample.RecordedAt >= windowStart
-                && sample.RecordedAt <= window.ResetsAt
-                && IsValidSample(sample))
-            .OrderBy(sample => sample.RecordedAt)
-            .DistinctBy(sample => sample.RecordedAt)
-            .ToArray();
-
-        var active = _state.ActiveCycle;
         var replayHistory = !_state.IsInitialized;
-        if (active is null || active.ResetsAt != window.ResetsAt || active.WindowMinutes != window.WindowMinutes)
-        {
-            var completed = _state.CompletedCycles;
-            if (active is not null && active.ObservedMinutes > 0)
-            {
-                completed = completed
-                    .Append(active)
-                    .OrderBy(cycle => cycle.ResetsAt)
-                    .TakeLast(MaximumCompletedCycles)
-                    .ToArray();
-            }
-
-            replayHistory |= active is not null;
-            active = CreateCycle(window);
-            _state = new AdaptiveWeeklyUsageState(completed, active, null, true);
-        }
+        var hadActiveCycle = _state.ActiveCycle is not null;
+        replayHistory |= StartCycleIfNeeded(window!) && hadActiveCycle;
 
         var replay = replayHistory
             ? samples
@@ -105,11 +80,78 @@ internal sealed class AdaptiveWeeklyUsageStore
         Save();
     }
 
+    internal void AdvanceBaseline(
+        RateLimitWindow? window,
+        IReadOnlyList<UsageHistoryEntry> weeklyHistory)
+    {
+        if (!TryGetWindowSamples(window, weeklyHistory, out var samples))
+        {
+            return;
+        }
+
+        _ = StartCycleIfNeeded(window!);
+        var latest = samples.LastOrDefault();
+        if (latest is not null && (_state.LastSample is null || latest.RecordedAt > _state.LastSample.RecordedAt))
+        {
+            _state = _state with { LastSample = latest, IsInitialized = true };
+        }
+        else
+        {
+            _state = _state with { IsInitialized = true };
+        }
+
+        Save();
+    }
+
     internal void Clear()
     {
         // Keep only an empty initialization marker so old raw chart samples are not learnt again.
         _state = new AdaptiveWeeklyUsageState([], null, null, true);
         Save();
+    }
+
+    private static bool TryGetWindowSamples(
+        RateLimitWindow? window,
+        IReadOnlyList<UsageHistoryEntry> weeklyHistory,
+        out UsageHistoryEntry[] samples)
+    {
+        samples = [];
+        if (window is null || window.WindowMinutes != (int)TimeSpan.FromDays(7).TotalMinutes)
+        {
+            return false;
+        }
+
+        var windowStart = window.ResetsAt - TimeSpan.FromMinutes(window.WindowMinutes);
+        samples = weeklyHistory
+            .Where(sample => sample.RecordedAt >= windowStart
+                && sample.RecordedAt <= window.ResetsAt
+                && IsValidSample(sample))
+            .OrderBy(sample => sample.RecordedAt)
+            .DistinctBy(sample => sample.RecordedAt)
+            .ToArray();
+        return true;
+    }
+
+    private bool StartCycleIfNeeded(RateLimitWindow window)
+    {
+        var active = _state.ActiveCycle;
+        if (active is not null && active.ResetsAt == window.ResetsAt && active.WindowMinutes == window.WindowMinutes)
+        {
+            return false;
+        }
+
+        var completed = _state.CompletedCycles;
+        if (active is not null && active.ObservedMinutes > 0)
+        {
+            completed = completed
+                .Append(active)
+                .OrderBy(cycle => cycle.ResetsAt)
+                .TakeLast(MaximumCompletedCycles)
+                .ToArray();
+        }
+
+        _state = new AdaptiveWeeklyUsageState(completed, CreateCycle(window), null, true);
+        return true;
     }
 
     private static AdaptiveWeeklyUsageCycle CreateCycle(RateLimitWindow window) => new(

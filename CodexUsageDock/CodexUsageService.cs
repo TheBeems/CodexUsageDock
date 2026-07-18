@@ -22,6 +22,7 @@ internal sealed partial class CodexUsageService : IDisposable
     private bool _isLoading;
     private bool _started;
     private bool _adaptiveWeeklyForecastEnabled = true;
+    private bool _adaptiveWeeklyForecastNeedsBaseline;
 
     public CodexUsageService()
         : this(CodexAppServerReader.ReadAsync, LocalCodexSessionReader.ReadLatest)
@@ -131,13 +132,19 @@ internal sealed partial class CodexUsageService : IDisposable
     {
         lock (_historyLock)
         {
+            if (enabled == _adaptiveWeeklyForecastEnabled)
+            {
+                return;
+            }
+
             _adaptiveWeeklyForecastEnabled = enabled;
             if (enabled)
             {
-                _adaptiveWeeklyUsageStore.Record(
-                    Current.Secondary,
-                    _weeklyHistory,
-                    GetAdaptiveMaximumGap());
+                _adaptiveWeeklyForecastNeedsBaseline = true;
+            }
+            else
+            {
+                _adaptiveWeeklyForecastNeedsBaseline = false;
             }
         }
     }
@@ -181,10 +188,20 @@ internal sealed partial class CodexUsageService : IDisposable
         {
             var now = recordedAt ?? DateTimeOffset.Now;
             RecordWindowHistory(_primaryHistory, snapshot.Primary, snapshot.UpdatedAt, now, now - TimeSpan.FromHours(5));
-            if (RecordWindowHistory(_weeklyHistory, snapshot.Secondary, snapshot.UpdatedAt, now, now - TimeSpan.FromDays(7)))
+            var weeklyHistoryChanged = RecordWindowHistory(_weeklyHistory, snapshot.Secondary, snapshot.UpdatedAt, now, now - TimeSpan.FromDays(7));
+            if (weeklyHistoryChanged)
             {
                 _weeklyHistoryStore.Save(_weeklyHistory);
-                if (_adaptiveWeeklyForecastEnabled)
+            }
+
+            if (_adaptiveWeeklyForecastEnabled && (weeklyHistoryChanged || _adaptiveWeeklyForecastNeedsBaseline))
+            {
+                if (_adaptiveWeeklyForecastNeedsBaseline)
+                {
+                    _adaptiveWeeklyUsageStore.AdvanceBaseline(snapshot.Secondary, _weeklyHistory);
+                    _adaptiveWeeklyForecastNeedsBaseline = false;
+                }
+                else
                 {
                     _adaptiveWeeklyUsageStore.Record(
                         snapshot.Secondary,
@@ -213,7 +230,11 @@ internal sealed partial class CodexUsageService : IDisposable
             return changed;
         }
 
-        history.Add(new UsageHistoryEntry(updatedAt, window.RemainingPercent));
+        history.Add(new UsageHistoryEntry(
+            updatedAt,
+            window.RemainingPercent,
+            window.ResetsAt,
+            window.WindowMinutes));
         return true;
     }
 
