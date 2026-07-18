@@ -15,7 +15,7 @@ Each entry links to the commit or pull request that introduced the change.
 
 ### Changed
 
-- Weekly trend rendering is now validated with fixed English/UTC inputs and an 80 KB SVG URL budget, keeping the size check independent of the build agent locale and time zone.
+- Weekly trend rendering is now validated with fixed English/UTC inputs and an 80 KB SVG URL budget, keeping the size check independent of the build agent locale and time zone. ([commit e075651](https://github.com/TheBeems/CodexUsageDock/commit/e0756515ce4eef9b928f0224283055ea3f3a4f70))
 
 ### Fixed
 
