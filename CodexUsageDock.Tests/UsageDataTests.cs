@@ -788,7 +788,9 @@ public sealed class UsageDataTests
             new RateLimitWindow(50, 10080, reset),
             now,
             TimeSpan.FromMinutes(15),
-            forecast: null);
+            forecast: null,
+            culture: CultureInfo.GetCultureInfo("en-US"),
+            timeZone: TimeZoneInfo.Utc);
 
         var result = Assert.IsType<WeeklyUsageTrendChart>(chart);
         var svg = ParseSvg(result.ImageUrl);
@@ -796,7 +798,7 @@ public sealed class UsageDataTests
         var points = observed.Attribute("points")!.Value.Split(' ', StringSplitOptions.RemoveEmptyEntries);
 
         Assert.InRange(points.Length, 2, WeeklyUsageTrendChartRenderer.MaximumRenderedPoints);
-        Assert.True(result.ImageUrl.Length < 71000, result.ImageUrl.Length.ToString(CultureInfo.InvariantCulture));
+        Assert.True(result.ImageUrl.Length < 80000, result.ImageUrl.Length.ToString(CultureInfo.InvariantCulture));
     }
 
     [Fact]

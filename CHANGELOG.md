@@ -13,6 +13,10 @@ Each entry links to the commit or pull request that introduced the change.
 - Weekly forecasts can now adapt cautiously to up to eight local quota cycles and six-hour usage patterns while retaining the current pace as their primary signal. ([commit e5fdbfb](https://github.com/TheBeems/CodexUsageDock/commit/e5fdbfb46e4b4bbf7cc16875369af15484876e05))
 - Codex Usage settings now let users pause adaptive weekly forecasting and confirm deletion of its learned local history. ([commit e5fdbfb](https://github.com/TheBeems/CodexUsageDock/commit/e5fdbfb46e4b4bbf7cc16875369af15484876e05))
 
+### Changed
+
+- Weekly trend rendering is now validated with fixed English/UTC inputs and an 80 KB SVG URL budget, keeping the size check independent of the build agent locale and time zone.
+
 ### Fixed
 
 - Weekly trend lines now connect sampled values across measurement gaps while retaining breaks for quota increases and keeping daily-use bars and forecasts gap-safe. ([commit e5fdbfb](https://github.com/TheBeems/CodexUsageDock/commit/e5fdbfb46e4b4bbf7cc16875369af15484876e05))
