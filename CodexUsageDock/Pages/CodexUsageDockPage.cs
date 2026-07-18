@@ -244,7 +244,7 @@ internal sealed partial class CodexUsageDockPage : ContentPage, IDisposable
         var currentHistory = GetCurrentTrendHistory(history, windowStartsAt);
         var trend = AnalyzeTrend(
             currentHistory,
-            null,
+            windowStartsAt,
             window.ResetsAt,
             now,
             dataAvailable,

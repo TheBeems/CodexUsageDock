@@ -325,6 +325,51 @@ public sealed class UsageDataTests
     }
 
     [Fact]
+    public void WeeklyDashboardUsesAdaptiveLocalHistory()
+    {
+        var reset = new DateTimeOffset(2026, 7, 24, 0, 0, 0, TimeSpan.Zero);
+        var start = reset.AddDays(-7);
+        var now = start.AddHours(6);
+        var snapshot = new CodexUsageSnapshot(
+            null,
+            new RateLimitWindow(20, 10080, reset),
+            null,
+            null,
+            null,
+            now,
+            UsageDataSource.AppServer,
+            null);
+        var cycles = Enumerable.Range(1, 3)
+            .Select(offset => new AdaptiveWeeklyUsageCycle(
+                reset.AddDays(-7 * offset),
+                10080,
+                60,
+                6,
+                [new AdaptiveWeeklyUsageBucket(1, 60, 12)]))
+            .ToArray();
+
+        var data = CodexUsageDockPage.FormatMainDataJson(
+            snapshot,
+            now,
+            isLoading: false,
+            primaryHistory: [],
+            weeklyHistory:
+            [
+                new UsageHistoryEntry(now.AddHours(-1), 90),
+                new UsageHistoryEntry(now, 80),
+            ],
+            refreshInterval: TimeSpan.FromMinutes(1),
+            adaptiveWeeklyForecastEnabled: true,
+            adaptiveWeeklyHistory: new AdaptiveWeeklyUsageHistory(cycles, null));
+
+        using var document = JsonDocument.Parse(data);
+
+        Assert.Equal(
+            "Forecast: current pace + local history (3/8 cycles).",
+            document.RootElement.GetProperty("weeklyForecastStatus").GetString());
+    }
+
+    [Fact]
     public async Task DetailsPageRefreshUpdatesMainContentAndDetailsPane()
     {
         var now = DateTimeOffset.Now;
@@ -1734,6 +1779,58 @@ public sealed class UsageDataTests
                 TimeSpan.FromMinutes(5));
 
             Assert.Single(store.Snapshot.CompletedCycles);
+        }
+        finally
+        {
+            Directory.Delete(temporaryDirectory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task ReenablingAdaptiveForecastDoesNotLearnMeasurementsCollectedWhilePaused()
+    {
+        var temporaryDirectory = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
+        var historyPath = Path.Combine(temporaryDirectory, "weekly-history.json");
+        var adaptivePath = Path.Combine(temporaryDirectory, "adaptive-weekly.json");
+        var now = DateTimeOffset.UtcNow;
+        var reset = now.AddDays(6);
+
+        CodexUsageSnapshot CreateSnapshot(double remainingPercent, DateTimeOffset updatedAt) => new(
+            null,
+            new RateLimitWindow(100 - remainingPercent, 10080, reset),
+            null,
+            null,
+            null,
+            updatedAt,
+            UsageDataSource.AppServer,
+            null);
+
+        var latest = CreateSnapshot(70, now.AddMinutes(-1));
+        try
+        {
+            using var service = new CodexUsageService(
+                _ => Task.FromResult(latest),
+                () => latest,
+                new WeeklyUsageHistoryStore(historyPath),
+                new AdaptiveWeeklyUsageStore(adaptivePath));
+
+            service.RecordHistory(CreateSnapshot(100, now.AddMinutes(-4)), now);
+            service.RecordHistory(CreateSnapshot(90, now.AddMinutes(-3)), now);
+            Assert.Equal(10, Assert.IsType<AdaptiveWeeklyUsageCycle>(service.AdaptiveWeeklyHistory.ActiveCycle).ConsumedPercent, precision: 6);
+
+            service.SetAdaptiveWeeklyForecastEnabled(false);
+            service.RecordHistory(CreateSnapshot(80, now.AddMinutes(-2)), now);
+            service.RecordHistory(latest, now);
+            await service.RefreshAsync();
+
+            service.SetAdaptiveWeeklyForecastEnabled(true);
+
+            Assert.Equal(10, Assert.IsType<AdaptiveWeeklyUsageCycle>(service.AdaptiveWeeklyHistory.ActiveCycle).ConsumedPercent, precision: 6);
+
+            service.RecordHistory(CreateSnapshot(60, now), now);
+            service.RecordHistory(CreateSnapshot(50, now.AddMinutes(1)), now.AddMinutes(1));
+
+            Assert.Equal(20, Assert.IsType<AdaptiveWeeklyUsageCycle>(service.AdaptiveWeeklyHistory.ActiveCycle).ConsumedPercent, precision: 6);
         }
         finally
         {
