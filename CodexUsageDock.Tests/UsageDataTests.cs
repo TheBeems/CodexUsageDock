@@ -420,6 +420,41 @@ public sealed class UsageDataTests
     }
 
     [Fact]
+    public async Task CompletedRefreshInvalidatesDockBandItems()
+    {
+        var now = DateTimeOffset.Now;
+        var result = new TaskCompletionSource<CodexUsageSnapshot>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var service = new CodexUsageService(
+            _ => result.Task,
+            () => throw new InvalidOperationException("Fallback should not run."));
+        var provider = new CodexUsageDockCommandsProvider(service, new CodexUsageDockSettingsPage());
+        try
+        {
+            var band = Assert.Single(provider.GetDockBands()!);
+            var list = Assert.IsAssignableFrom<IListPage>(band.Command);
+            var invalidationCount = 0;
+            list.ItemsChanged += (_, _) => invalidationCount++;
+
+            var refresh = service.RefreshAsync();
+            result.SetResult(CodexUsageSnapshot.Loading with
+            {
+                Primary = new RateLimitWindow(25, 300, now.AddHours(4)),
+                UpdatedAt = now,
+                Source = UsageDataSource.AppServer,
+                Error = null,
+            });
+            await refresh.WaitAsync(AsyncTestTimeout);
+
+            Assert.Equal(1, invalidationCount);
+            Assert.Contains(list.GetItems(), item => item.Title == "5h 75%");
+        }
+        finally
+        {
+            provider.Dispose();
+        }
+    }
+
+    [Fact]
     public void UsageProgressBarCreatesSvgDataUri()
     {
         var bar = UsageDashboardCard.CreateProgressBarImageUrl(75, UsageBarPalette.FiveHour);

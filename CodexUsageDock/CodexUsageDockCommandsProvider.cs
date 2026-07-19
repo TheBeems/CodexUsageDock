@@ -5,16 +5,24 @@ namespace CodexUsageDock;
 
 public partial class CodexUsageDockCommandsProvider : CommandProvider
 {
-    private readonly CodexUsageDockSettingsPage _settings = new();
-    private readonly CodexUsageService _usage = new();
+    private readonly CodexUsageDockSettingsPage _settings;
+    private readonly CodexUsageService _usage;
     private readonly UsageDockItem _fiveHour;
     private readonly UsageDockItem _weekly;
     private readonly UsageDockItem _resetsAndCredits;
     private readonly ICommandItem[] _commands;
+    private WrappedDockItem? _dockBand;
     private ICommandItem[] _dockBands = [];
 
     public CodexUsageDockCommandsProvider()
+        : this(new CodexUsageService(), new CodexUsageDockSettingsPage())
     {
+    }
+
+    internal CodexUsageDockCommandsProvider(CodexUsageService usage, CodexUsageDockSettingsPage settings)
+    {
+        _usage = usage;
+        _settings = settings;
         DisplayName = "Codex Usage";
         Id = "nl.mathijs.codexusage";
         Icon = new IconInfo("\uE943");
@@ -41,6 +49,7 @@ public partial class CodexUsageDockCommandsProvider : CommandProvider
 
         _settings.Changed += OnSettingsChanged;
         _settings.ClearAdaptiveHistoryRequested += OnClearAdaptiveHistoryRequested;
+        _usage.Updated += OnUsageUpdated;
         _usage.SetAdaptiveWeeklyForecastEnabled(_settings.UseAdaptiveWeeklyForecast);
         RebuildDockBands();
 
@@ -67,7 +76,26 @@ public partial class CodexUsageDockCommandsProvider : CommandProvider
         _ = _usage.RefreshAsync();
     }
 
+    private void OnUsageUpdated(object? sender, EventArgs e)
+    {
+        if (_usage.IsLoading || _dockBand is null)
+        {
+            return;
+        }
+
+        _dockBand.Items = GetVisibleDockItems();
+    }
+
     private void RebuildDockBands()
+    {
+        var items = GetVisibleDockItems();
+        _dockBand = items.Length == 0
+            ? null
+            : new WrappedDockItem(items, "nl.mathijs.codexusage.dock", DisplayName);
+        _dockBands = _dockBand is null ? [] : [_dockBand];
+    }
+
+    private IListItem[] GetVisibleDockItems()
     {
         var items = new List<IListItem>(3);
         if (_settings.ShowFiveHourLimit)
@@ -85,15 +113,14 @@ public partial class CodexUsageDockCommandsProvider : CommandProvider
             items.Add(_resetsAndCredits);
         }
 
-        _dockBands = items.Count == 0
-            ? []
-            : [new WrappedDockItem([.. items], "nl.mathijs.codexusage.dock", DisplayName)];
+        return [.. items];
     }
 
     public override void Dispose()
     {
         _settings.Changed -= OnSettingsChanged;
         _settings.ClearAdaptiveHistoryRequested -= OnClearAdaptiveHistoryRequested;
+        _usage.Updated -= OnUsageUpdated;
         _fiveHour.Dispose();
         _weekly.Dispose();
         _resetsAndCredits.Dispose();
