@@ -364,7 +364,7 @@ internal static class UsageDashboardCard
                     },
                     {
                       "type": "TextBlock",
-                      "text": "Solid: sampled allowance (%) · dashed: forecast · bars: observed calendar-day use (%) · amber: detected restorations",
+                      "text": "${weeklyTrendLegend}",
                       "isSubtle": true,
                       "spacing": "none",
                       "wrap": true

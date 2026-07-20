@@ -58,7 +58,8 @@ internal sealed partial class CodexUsageDockPage : ContentPage, IDisposable
         IReadOnlyList<UsageHistoryEntry> weeklyHistory,
         TimeSpan refreshInterval,
         bool adaptiveWeeklyForecastEnabled = true,
-        AdaptiveWeeklyUsageHistory? adaptiveWeeklyHistory = null)
+        AdaptiveWeeklyUsageHistory? adaptiveWeeklyHistory = null,
+        LocalTokenUsageSnapshot? tokenUsage = null)
     {
         var dataAvailable = snapshot.Source != UsageDataSource.Unavailable;
         var maximumSampleAge = TrendFreshness(refreshInterval);
@@ -101,7 +102,8 @@ internal sealed partial class CodexUsageDockPage : ContentPage, IDisposable
             weeklyTrend,
             dataAvailable,
             now,
-            TrendMaximumGap(refreshInterval));
+            TrendMaximumGap(refreshInterval),
+            tokenUsage);
 
         return data.ToJsonString();
     }
@@ -267,7 +269,8 @@ internal sealed partial class CodexUsageDockPage : ContentPage, IDisposable
         TrendAnalysis? trend,
         bool dataAvailable,
         DateTimeOffset now,
-        TimeSpan maximumGap)
+        TimeSpan maximumGap,
+        LocalTokenUsageSnapshot? tokenUsage)
     {
         data["weeklyTrendAvailable"] = false;
         data["weeklyRestorationAvailable"] = false;
@@ -290,7 +293,8 @@ internal sealed partial class CodexUsageDockPage : ContentPage, IDisposable
             window,
             now,
             maximumGap,
-            trend.Forecast);
+            trend.Forecast,
+            tokenUsage);
         if (chart is null)
         {
             return;
@@ -299,6 +303,12 @@ internal sealed partial class CodexUsageDockPage : ContentPage, IDisposable
         data["weeklyTrendAvailable"] = true;
         data["weeklyTrendChartUrl"] = chart.ImageUrl;
         data["weeklyTrendChartAlt"] = chart.AltText;
+        data["weeklyTrendLegend"] = tokenUsage?.Status switch
+        {
+            LocalTokenUsageStatus.Complete => "Solid: remaining allowance (%) · dashed: forecast · bars: local tokens per day · amber: detected restorations",
+            LocalTokenUsageStatus.Partial => "Solid: remaining allowance (%) · dashed: forecast · bars: partial local tokens per day · amber: detected restorations",
+            _ => "Solid: remaining allowance (%) · dashed: forecast · local token data unavailable · amber: detected restorations",
+        };
 
         var restorations = WeeklyAllowanceRestoration.Detect(history, window, now);
         if (restorations.Length > 0)
@@ -679,7 +689,8 @@ internal sealed partial class CodexUsageDockPage : ContentPage, IDisposable
             _usage.WeeklyHistory,
             _usage.RefreshInterval,
             _settings.UseAdaptiveWeeklyForecast,
-            _usage.AdaptiveWeeklyHistory);
+            _usage.AdaptiveWeeklyHistory,
+            _usage.CurrentTokenUsage);
         _details.Body = FormatDetailsBody(snapshot, now, _usage.WeeklyHistory);
         RaiseItemsChanged(0);
     }

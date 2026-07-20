@@ -84,6 +84,26 @@ internal sealed record UsageTrendForecast(
     bool ReachesLimitBeforeReset,
     IReadOnlyList<UsageTrendForecastPoint>? Points = null);
 
+internal sealed record DailyTokenUsage(DateOnly Date, long TotalTokens);
+
+internal enum LocalTokenUsageStatus
+{
+    Complete,
+    Partial,
+    Unavailable,
+}
+
+internal sealed record LocalTokenUsageSnapshot(
+    IReadOnlyList<DailyTokenUsage> Days,
+    DateTimeOffset UpdatedAt,
+    LocalTokenUsageStatus Status)
+{
+    public static LocalTokenUsageSnapshot Unavailable { get; } = new(
+        [],
+        DateTimeOffset.MinValue,
+        LocalTokenUsageStatus.Unavailable);
+}
+
 internal enum UsageDataSource
 {
     Initializing,

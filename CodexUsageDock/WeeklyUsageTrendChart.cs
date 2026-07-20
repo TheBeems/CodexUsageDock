@@ -12,7 +12,7 @@ internal static class WeeklyUsageTrendChartRenderer
     internal const int MaximumRenderedPoints = 180;
 
     private const double Left = 38;
-    private const double Right = 6;
+    private const double Right = 38;
     private const double TrendTop = 8;
     private const double TrendBottom = 114;
     private const double TrendHeight = TrendBottom - TrendTop;
@@ -63,6 +63,7 @@ internal static class WeeklyUsageTrendChartRenderer
         ['Z'] = "111001010100111",
         [' '] = "000000000000000",
         ['%'] = "101001010100101",
+        ['.'] = "000000000000010",
         ['?'] = "111001010000010",
     };
 
@@ -72,6 +73,7 @@ internal static class WeeklyUsageTrendChartRenderer
         DateTimeOffset now,
         TimeSpan maximumGap,
         UsageTrendForecast? forecast,
+        LocalTokenUsageSnapshot? tokenUsage = null,
         CultureInfo? culture = null,
         TimeZoneInfo? timeZone = null)
     {
@@ -97,10 +99,11 @@ internal static class WeeklyUsageTrendChartRenderer
         }
 
         var dailyUse = CreateCalendarDays(windowStart, window.ResetsAt, effectiveNow, displayTimeZone);
+        ApplyDailyTokens(dailyUse, tokenUsage);
+        var tokenScaleMaximum = GetTokenScaleMaximum(dailyUse);
         var calendarScale = new CalendarDayScale(dailyUse);
         var forecastSegments = SplitAtGapsOrQuotaIncreases(samples, maximumGap);
         var renderedSegments = DownsampleSegments(SplitAtQuotaIncreases(samples), windowStart, window.ResetsAt);
-        CalculateDailyUse(samples, dailyUse, effectiveNow, maximumGap);
         var latestSegment = forecastSegments.LastOrDefault();
         var forecastSegment = latestSegment is { Length: >= 2 } ? latestSegment : null;
         var usableForecast = forecastSegment is not null && forecast is { } candidate && candidate.EndsAt > forecastSegment[^1].RecordedAt
@@ -109,8 +112,9 @@ internal static class WeeklyUsageTrendChartRenderer
 
         var document = CreateDocument();
         AddTrendGrid(document);
+        AddTokenAxis(document, tokenScaleMaximum);
         AddCalendarDayGrid(document, dailyUse, calendarScale);
-        AddDailyUseBars(document, dailyUse, calendarScale, displayCulture);
+        AddDailyTokenBars(document, dailyUse, calendarScale, displayCulture, tokenScaleMaximum);
         AddResetMarkers(document, windowStart, window.ResetsAt, calendarScale);
         AddNowMarker(document, windowStart, window.ResetsAt, effectiveNow, calendarScale);
         AddRestorationMarkers(document, restorations, calendarScale);
@@ -119,7 +123,19 @@ internal static class WeeklyUsageTrendChartRenderer
 
         var first = samples[0];
         var last = samples[^1];
-        var altText = FormatAltText(first, last, samples.Length, usableForecast, restorations, windowStart, window.ResetsAt, dailyUse, displayCulture, displayTimeZone);
+        var altText = FormatAltText(
+            first,
+            last,
+            samples.Length,
+            usableForecast,
+            restorations,
+            windowStart,
+            window.ResetsAt,
+            dailyUse,
+            tokenUsage,
+            tokenScaleMaximum,
+            displayCulture,
+            displayTimeZone);
         return new WeeklyUsageTrendChart(UsageDashboardCard.CreateSvgImageUrl(document), altText);
     }
 
@@ -303,42 +319,35 @@ internal static class WeeklyUsageTrendChartRenderer
         return new DateTimeOffset(TimeZoneInfo.ConvertTimeToUtc(local, timeZone), TimeSpan.Zero);
     }
 
-    private static void CalculateDailyUse(
-        UsageHistoryEntry[] samples,
-        IReadOnlyList<DailyUsage> dailyUse,
-        DateTimeOffset now,
-        TimeSpan maximumGap)
+    private static void ApplyDailyTokens(
+        IReadOnlyList<DailyUsage> days,
+        LocalTokenUsageSnapshot? tokenUsage)
     {
-        var gap = maximumGap > TimeSpan.Zero ? maximumGap : TimeSpan.FromMinutes(5);
-
-        for (var index = 1; index < samples.Length; index++)
+        if (tokenUsage is null || tokenUsage.Status == LocalTokenUsageStatus.Unavailable)
         {
-            var previous = samples[index - 1];
-            var current = samples[index];
-            var rangeStart = previous.RecordedAt;
-            var rangeEnd = current.RecordedAt > now ? now : current.RecordedAt;
-            if (rangeEnd <= rangeStart || rangeEnd - rangeStart > gap)
-            {
-                continue;
-            }
-
-            var observedUse = Math.Max(0, previous.RemainingPercent - current.RemainingPercent);
-            var rangeDuration = rangeEnd - rangeStart;
-            for (var dayIndex = 0; dayIndex < dailyUse.Count; dayIndex++)
-            {
-                var dayStart = dailyUse[dayIndex].Start;
-                var dayEnd = dailyUse[dayIndex].End;
-                var overlapStart = rangeStart > dayStart ? rangeStart : dayStart;
-                var overlapEnd = rangeEnd < dayEnd ? rangeEnd : dayEnd;
-                if (overlapEnd <= overlapStart)
-                {
-                    continue;
-                }
-
-                dailyUse[dayIndex].HasObservation = true;
-                dailyUse[dayIndex].ConsumedPercent += observedUse * (overlapEnd - overlapStart).TotalMilliseconds / rangeDuration.TotalMilliseconds;
-            }
+            return;
         }
+
+        var totals = tokenUsage.Days.ToDictionary(day => day.Date, day => day.TotalTokens);
+        foreach (var day in days)
+        {
+            day.HasTokenData = true;
+            day.TotalTokens = Math.Max(0, totals.GetValueOrDefault(day.Date));
+        }
+    }
+
+    private static long GetTokenScaleMaximum(IReadOnlyList<DailyUsage> days)
+    {
+        var maximum = days.Max(day => day.TotalTokens);
+        if (maximum <= 0)
+        {
+            return 0;
+        }
+
+        var magnitude = (long)Math.Pow(10, Math.Floor(Math.Log10(maximum)));
+        var normalized = maximum / (double)magnitude;
+        var nice = normalized <= 1 ? 1 : normalized <= 2 ? 2 : normalized <= 5 ? 5 : 10;
+        return checked(nice * magnitude);
     }
 
     private static void AddCalendarDayGrid(
@@ -389,6 +398,30 @@ internal static class WeeklyUsageTrendChartRenderer
                 Math.Clamp(y - BitmapLabelHeight / 2, 0, Height - BitmapLabelHeight),
                 BitmapLabelAlignment.End,
                 "vertical");
+        }
+    }
+
+    private static void AddTokenAxis(XElement document, long tokenScaleMaximum)
+    {
+        if (tokenScaleMaximum <= 0)
+        {
+            return;
+        }
+
+        foreach (var (tokens, y) in new[]
+        {
+            // Keep the top token label below the reset label at the chart boundary.
+            (tokenScaleMaximum, TrendTop + BitmapLabelHeight + 2),
+            (tokenScaleMaximum / 2d, TrendTop + TrendHeight / 2),
+        })
+        {
+            AddBitmapLabel(
+                document,
+                FormatCompactTokens(tokens),
+                UsageDashboardCard.BarWidth - Right + 5,
+                Math.Clamp(y - BitmapLabelHeight / 2, 0, Height - BitmapLabelHeight),
+                BitmapLabelAlignment.Start,
+                "tokens");
         }
     }
 
@@ -685,11 +718,12 @@ internal static class WeeklyUsageTrendChartRenderer
                 new XAttribute("stroke-opacity", "0.9")));
     }
 
-    private static void AddDailyUseBars(
+    private static void AddDailyTokenBars(
         XElement document,
         IReadOnlyList<DailyUsage> dailyUse,
         CalendarDayScale calendarScale,
-        CultureInfo culture)
+        CultureInfo culture,
+        long tokenScaleMaximum)
     {
         var baseline = TrendBottom;
 
@@ -700,9 +734,9 @@ internal static class WeeklyUsageTrendChartRenderer
             var dayRight = calendarScale.GetDayEndX(index);
             var x = dayLeft + 3;
             var width = Math.Max(2, dayRight - dayLeft - 6);
-            if (day.HasObservation && day.ConsumedPercent > 0)
+            if (day.HasTokenData && day.TotalTokens > 0 && tokenScaleMaximum > 0)
             {
-                var height = Math.Max(1, Math.Clamp(day.ConsumedPercent, 0, 100) / 100 * TrendHeight);
+                var height = Math.Max(1, Math.Clamp(day.TotalTokens / (double)tokenScaleMaximum, 0, 1) * TrendHeight);
                 document.Add(
                     new XElement(
                         Svg + "rect",
@@ -713,8 +747,9 @@ internal static class WeeklyUsageTrendChartRenderer
                         new XAttribute("rx", "1.5"),
                         new XAttribute("fill", "#7A7A7A"),
                         new XAttribute("fill-opacity", "0.45"),
-                        new XAttribute("data-series", "daily-use"),
+                        new XAttribute("data-series", "daily-tokens"),
                         new XAttribute("data-date", day.Date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)),
+                        new XAttribute("data-tokens", day.TotalTokens),
                         new XAttribute("data-partial", day.IsPartial),
                         new XAttribute("data-current", day.IsCurrent),
                         new XAttribute("stroke", day.IsCurrent ? "#C8C8C8" : "none"),
@@ -741,13 +776,13 @@ internal static class WeeklyUsageTrendChartRenderer
         DateTimeOffset windowStart,
         DateTimeOffset windowEnd,
         IReadOnlyList<DailyUsage> dailyUse,
+        LocalTokenUsageSnapshot? tokenUsage,
+        long tokenScaleMaximum,
         CultureInfo culture,
         TimeZoneInfo timeZone)
     {
         var period = $"{TimeZoneInfo.ConvertTime(windowStart, timeZone).ToString("ddd d MMM HH:mm", culture)} to {TimeZoneInfo.ConvertTime(windowEnd, timeZone).ToString("ddd d MMM HH:mm", culture)}";
-        var daily = dailyUse.Any(day => day.HasObservation)
-            ? "Calendar-day bars show observed quota consumption; the first and last days can be partial, and the current day is measured through now."
-            : "No continuous measurements are available for calendar-day consumption bars.";
+        var daily = FormatDailyTokenAltText(dailyUse, tokenUsage, tokenScaleMaximum, culture);
         var forecastText = forecast switch
         {
             { ReachesLimitBeforeReset: true } => $" Forecast reaches the limit around {TimeZoneInfo.ConvertTime(forecast.EndsAt, timeZone).ToString("ddd d MMM HH:mm", culture)}.",
@@ -757,7 +792,45 @@ internal static class WeeklyUsageTrendChartRenderer
         var restorationText = restorations.Length > 0
             ? $" {restorations.Length} allowance restoration{(restorations.Length == 1 ? " was" : "s were")} detected; the latest at {TimeZoneInfo.ConvertTime(restorations[^1].DetectedAt, timeZone).ToString("ddd d MMM HH:mm", culture)} increased remaining allowance from {restorations[^1].PreviousRemainingPercent:0}% to {restorations[^1].CurrentRemainingPercent:0}%. Amber markers show detected restorations."
             : " No allowance restorations were detected in this window.";
-        return $"Weekly quota trend from {period}. Remaining allowance changed from {first.RemainingPercent:0}% to {last.RemainingPercent:0}% across {sampleCount} observations. The vertical scale is percentages from 0% to 100% for both remaining allowance and daily-use bars; horizontal labels are local calendar dates, and reset markers bound the quota window. Solid line connects sampled values across measurement gaps; line breaks mark allowance increases or resets; dashed line is forecast.{restorationText}{forecastText} {daily}";
+        return $"Weekly quota trend from {period}. Remaining allowance changed from {first.RemainingPercent:0}% to {last.RemainingPercent:0}% across {sampleCount} observations. The left vertical scale is remaining allowance from 0% to 100%; the independent right scale is locally observed total tokens per calendar day. Horizontal labels are local calendar dates, and reset markers bound the quota window. Solid line connects sampled values across measurement gaps; line breaks mark allowance increases or resets; dashed line is forecast.{restorationText}{forecastText} {daily}";
+    }
+
+    private static string FormatDailyTokenAltText(
+        IReadOnlyList<DailyUsage> days,
+        LocalTokenUsageSnapshot? tokenUsage,
+        long tokenScaleMaximum,
+        CultureInfo culture)
+    {
+        if (tokenUsage is null || tokenUsage.Status == LocalTokenUsageStatus.Unavailable)
+        {
+            return "Local token data is unavailable, so no token bars are shown.";
+        }
+
+        var status = tokenUsage.Status == LocalTokenUsageStatus.Partial
+            ? "Local token data is partial."
+            : "Local token data is complete.";
+        var totals = string.Join(
+            ", ",
+            days.Select(day => $"{day.Date.ToString("ddd d MMM", culture)}: {day.TotalTokens.ToString("N0", culture)}"));
+        var scale = tokenScaleMaximum > 0
+            ? $" Token bars use a right-axis maximum of {tokenScaleMaximum.ToString("N0", culture)}."
+            : string.Empty;
+        return $"{status}{scale} Calendar-day token totals are {totals}. The first and last days can be partial, and the current day is measured through now.";
+    }
+
+    private static string FormatCompactTokens(double tokens)
+    {
+        if (tokens >= 1_000_000)
+        {
+            return $"{(tokens / 1_000_000).ToString("0.#", CultureInfo.InvariantCulture)}M";
+        }
+
+        if (tokens >= 1_000)
+        {
+            return $"{(tokens / 1_000).ToString("0.#", CultureInfo.InvariantCulture)}K";
+        }
+
+        return Math.Round(tokens).ToString(CultureInfo.InvariantCulture);
     }
 
     private static string FormatPoints(
@@ -802,9 +875,9 @@ internal static class WeeklyUsageTrendChartRenderer
 
         public bool IsCurrent { get; } = isCurrent;
 
-        public double ConsumedPercent { get; set; }
+        public long TotalTokens { get; set; }
 
-        public bool HasObservation { get; set; }
+        public bool HasTokenData { get; set; }
     }
 
     private sealed class CalendarDayScale(IReadOnlyList<DailyUsage> days)

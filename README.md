@@ -9,12 +9,12 @@ It displays:
 - compact pace indicators that compare allowance used with elapsed window time;
 - a projected allowance at reset, or an estimated limit time when current consumption would exhaust it sooner;
 - an optional adaptive weekly forecast that keeps the current pace dominant and gradually blends in up to eight local quota cycles and six-hour usage patterns;
-- a weekly trend chart with sampled remaining allowance, a dashed projection that can follow six-hour adaptive forecast points, equal-width local calendar-day columns, dated weekday labels, partial reset-boundary days, and a shared 0–100% vertical scale; the line connects samples across measurement gaps but breaks at allowance increases, amber markers identify detected allowance restorations, and the forecast uses only the latest post-restoration segment;
+- a weekly trend chart with sampled remaining allowance on a 0–100% scale, a dashed projection that can follow six-hour adaptive forecast points, and locally observed total-token bars on an independent daily scale; equal-width local calendar-day columns retain dated weekday labels and partial reset-boundary days, the line connects samples across measurement gaps but breaks at allowance increases, amber markers identify detected allowance restorations, and the forecast uses only the latest post-restoration segment;
 - a textual summary of the latest detected weekly allowance restoration, plus the current window's restoration history in the Details pane;
 - the number of available earned resets and their expiry times;
 - the remaining credits balance when Codex provides it.
 
-The values refresh once per minute. The extension reads live data from the standalone Codex CLI app-server and uses local Codex session metadata as a fallback. The details page identifies the source: the live route is explicitly the CLI app-server; session metadata may have been written by the desktop app, CLI, or another local Codex client and cannot be attributed more precisely.
+The values refresh once per minute. The extension reads live data from the standalone Codex CLI app-server and uses local Codex session metadata as a fallback. It also reads aggregate `token_count` records from active and archived local Codex session logs to show locally observed total tokens per calendar day. These token bars are local activity observations, not an exact accounting of allowance consumption. The details page identifies the allowance source: the live route is explicitly the CLI app-server; session metadata may have been written by the desktop app, CLI, or another local Codex client and cannot be attributed more precisely.
 
 ## Requirements
 
@@ -71,7 +71,7 @@ Microsoft Store product `9NFCPJXQG9FG` is the only production and update channel
 
 ## Privacy
 
-The extension runs locally. It talks to the standalone Codex CLI app-server and may read local Codex session metadata for its fallback path. It keeps a rolling seven-day weekly usage trend and up to eight aggregated local weekly forecast profiles on the device, and does not send usage information to a separate service.
+The extension runs locally. It talks to the standalone Codex CLI app-server and may read local Codex session metadata for its fallback path and aggregate token counters for the daily chart bars. It does not retain prompts, responses, tool output, thread names, or source paths for token analysis. It keeps a rolling seven-day weekly usage trend and up to eight aggregated local weekly forecast profiles on the device, and does not send usage information to a separate service.
 
 See the full [Privacy Policy](PRIVACY.md).
 
