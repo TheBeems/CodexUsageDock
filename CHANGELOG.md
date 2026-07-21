@@ -8,6 +8,8 @@ Each entry links to the commit or pull request that introduced the change.
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-07-21
+
 ### Added
 
 - Weekly allowance restorations are now shown with amber chart markers, summarized below the trend, and listed for the active quota window in Details. ([PR #15](https://github.com/TheBeems/CodexUsageDock/pull/15))
@@ -21,6 +23,7 @@ Each entry links to the commit or pull request that introduced the change.
 
 ### Fixed
 
+- Dock allowance percentages now rebuild and explicitly invalidate their complete Dock band after each completed refresh, preventing cached values from diverging from the usage details page.
 - Dock allowance percentages now explicitly invalidate their dock band after each completed refresh, preventing stale values when Command Palette misses an item property notification. ([commit 283ea47](https://github.com/TheBeems/CodexUsageDock/commit/283ea47))
 - Adaptive weekly forecasting now treats small reset-time fluctuations as one quota cycle and removes duplicate local cycles created by earlier fluctuations. ([commit 1257595](https://github.com/TheBeems/CodexUsageDock/commit/12575953b9f1082d0262911cbd4db432a5eeea1a))
 - Adaptive weekly forecasts now use their learned local history in weekly dashboard projections, and pausing no longer learns measurements collected before the forecast is re-enabled. ([commit 0eb5072](https://github.com/TheBeems/CodexUsageDock/commit/0eb5072cfa7ca78f97b599ad415a20b2f5638f86))

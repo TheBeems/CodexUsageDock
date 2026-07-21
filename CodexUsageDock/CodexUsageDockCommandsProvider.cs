@@ -78,12 +78,13 @@ public partial class CodexUsageDockCommandsProvider : CommandProvider
 
     private void OnUsageUpdated(object? sender, EventArgs e)
     {
-        if (_usage.IsLoading || _dockBand is null)
+        if (_usage.IsLoading)
         {
             return;
         }
 
-        _dockBand.Items = GetVisibleDockItems();
+        RebuildDockBands();
+        RaiseItemsChanged();
     }
 
     private void RebuildDockBands()

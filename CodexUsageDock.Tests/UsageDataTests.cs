@@ -199,7 +199,7 @@ public sealed class UsageDataTests
         using var service = new CodexUsageService();
         using var page = new CodexUsageDockPage(service, new CodexUsageDockSettingsPage());
 
-        Assert.Equal("0.5.3", CodexUsageDockMetadata.Version);
+        Assert.Equal("0.6.0", CodexUsageDockMetadata.Version);
         Assert.Equal($"Codex Usage - {CodexUsageDockMetadata.Version}", page.Title);
     }
 
@@ -445,7 +445,7 @@ public sealed class UsageDataTests
     }
 
     [Fact]
-    public async Task CompletedRefreshInvalidatesDockBandItems()
+    public async Task CompletedRefreshRebuildsAndInvalidatesDockBands()
     {
         var now = DateTimeOffset.Now;
         var result = new TaskCompletionSource<CodexUsageSnapshot>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -455,10 +455,8 @@ public sealed class UsageDataTests
         var provider = new CodexUsageDockCommandsProvider(service, new CodexUsageDockSettingsPage());
         try
         {
-            var band = Assert.Single(provider.GetDockBands()!);
-            var list = Assert.IsAssignableFrom<IListPage>(band.Command);
             var invalidationCount = 0;
-            list.ItemsChanged += (_, _) => invalidationCount++;
+            provider.ItemsChanged += (_, _) => invalidationCount++;
 
             var refresh = service.RefreshAsync();
             result.SetResult(CodexUsageSnapshot.Loading with
@@ -471,6 +469,8 @@ public sealed class UsageDataTests
             await refresh.WaitAsync(AsyncTestTimeout);
 
             Assert.Equal(1, invalidationCount);
+            var band = Assert.Single(provider.GetDockBands()!);
+            var list = Assert.IsAssignableFrom<IListPage>(band.Command);
             Assert.Contains(list.GetItems(), item => item.Title == "5h 75%");
         }
         finally
