@@ -23,7 +23,7 @@ Each entry links to the commit or pull request that introduced the change.
 
 ### Fixed
 
-- Dock allowance percentages now rebuild and explicitly invalidate their complete Dock band after each completed refresh, preventing cached values from diverging from the usage details page.
+- Dock allowance percentages now rebuild and explicitly invalidate their complete Dock band after each completed refresh, preventing cached values from diverging from the usage details page. ([commit eed6505](https://github.com/TheBeems/CodexUsageDock/commit/eed6505c5fef9a4a6a5c39d6bd5bff619aa13f07))
 - Dock allowance percentages now explicitly invalidate their dock band after each completed refresh, preventing stale values when Command Palette misses an item property notification. ([commit 283ea47](https://github.com/TheBeems/CodexUsageDock/commit/283ea47))
 - Adaptive weekly forecasting now treats small reset-time fluctuations as one quota cycle and removes duplicate local cycles created by earlier fluctuations. ([commit 1257595](https://github.com/TheBeems/CodexUsageDock/commit/12575953b9f1082d0262911cbd4db432a5eeea1a))
 - Adaptive weekly forecasts now use their learned local history in weekly dashboard projections, and pausing no longer learns measurements collected before the forecast is re-enabled. ([commit 0eb5072](https://github.com/TheBeems/CodexUsageDock/commit/0eb5072cfa7ca78f97b599ad415a20b2f5638f86))
@@ -134,7 +134,8 @@ Each entry links to the commit or pull request that introduced the change.
 - Initial release of the Windows Command Palette extension for viewing local Codex usage. [commit ac72fe5](https://github.com/TheBeems/CodexUsageDock/commit/ac72fe50fcd1af36f41cda896f1d792899573351)
 - Automated release installer creation and smoke-test handling. [commit 64a3305](https://github.com/TheBeems/CodexUsageDock/commit/64a33058b7486dea12f026561c545b362eb2d622), [commit 21790a1](https://github.com/TheBeems/CodexUsageDock/commit/21790a1ea60a9bfec14ec578d77356c5576472fb)
 
-[Unreleased]: https://github.com/TheBeems/CodexUsageDock/compare/312dc394ff51648f1b063cd39afdfabaf33d8a3e...main
+[Unreleased]: https://github.com/TheBeems/CodexUsageDock/compare/eed6505c5fef9a4a6a5c39d6bd5bff619aa13f07...main
+[0.6.0]: https://github.com/TheBeems/CodexUsageDock/commit/eed6505c5fef9a4a6a5c39d6bd5bff619aa13f07
 [0.5.3]: https://github.com/TheBeems/CodexUsageDock/commit/312dc394ff51648f1b063cd39afdfabaf33d8a3e
 [0.5.2]: https://github.com/TheBeems/CodexUsageDock/releases/tag/v0.5.2
 [0.5.0]: https://github.com/TheBeems/CodexUsageDock/releases/tag/v0.5.0
