@@ -27,7 +27,7 @@ The package includes the required .NET runtime. You do not need the .NET SDK to 
 
 ## Install
 
-Microsoft Store publication for version `0.5.0` is currently pending. That version remains the active Store submission and latest GitHub release; later versioned changes in this repository have not replaced it as the supported production candidate. Once certification is complete, the Store listing will be linked here as the only supported production installer.
+Microsoft Store version `0.5.3` is publicly available and is the supported production installer. Install [Codex Usage Dock from the Microsoft Store](https://apps.microsoft.com/detail/9NFCPJXQG9FG).
 
 GitHub Actions artifacts are inputs for Microsoft Store certification, not public installers. Do not distribute or install them directly.
 
@@ -67,7 +67,7 @@ Remove **Codex Usage Dock** from **Windows Settings > Apps > Installed apps**.
 
 ## Distribution status
 
-Microsoft Store product `9NFCPJXQG9FG` is the only production and update channel starting with version `0.3.0`. Publication of version `0.5.0` is currently awaiting Store certification, so later versioned repository changes are not yet separate production releases. The GitHub `v0.5.0` release records the current source release and does not contain an unsigned installer.
+Microsoft Store product `9NFCPJXQG9FG` is the only production and update channel. Version `0.5.3` is publicly available in the Store. The GitHub `v0.5.3` release records the corresponding source release and does not contain an unsigned installer.
 
 ## Privacy
 
