@@ -10,7 +10,7 @@ Each entry links to the commit or pull request that introduced the change.
 
 ### Changed
 
-- Expanded the release skill to cover scoped commit/push, Store submission, resumable certification tracking, and verified installation, with a repository-local Codex entry point.
+- Expanded the release skill to cover scoped commit/push, Store submission, resumable certification tracking, and verified installation, with a repository-local Codex entry point. ([commit e54709c](https://github.com/TheBeems/CodexUsageDock/commit/e54709ce6e26b9aaa072d6f88625a9a3aa067494))
 
 ## [0.6.1] - 2026-09-09
 
