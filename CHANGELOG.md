@@ -10,18 +10,18 @@ Each entry links to the commit or pull request that introduced the change.
 
 ### Added
 
-- Separate quota categories and arbitrary window durations from modern Codex responses, while preserving legacy five-hour and weekly limits.
-- Safe diagnostics with running-build version, source, freshness, refresh attempts, and reset-field availability.
+- Separate quota categories and arbitrary window durations from modern Codex responses, while preserving legacy five-hour and weekly limits. ([PR #18](https://github.com/TheBeems/CodexUsageDock/pull/18))
+- Safe diagnostics with running-build version, source, freshness, refresh attempts, and reset-field availability. ([PR #18](https://github.com/TheBeems/CodexUsageDock/pull/18))
 
 ### Fixed
 
-- Keep the last confirmed live measurement during outages, without resetting its age or continuing projections and learning.
-- Apply one freshness policy across the Dock, details, and forecasts, and keep account/category history isolated. Unidentified legacy history is no longer imported into verified accounts.
+- Keep the last confirmed live measurement during outages, without resetting its age or continuing projections and learning. ([PR #18](https://github.com/TheBeems/CodexUsageDock/pull/18))
+- Apply one freshness policy across the Dock, details, and forecasts, and keep account/category history isolated. Unidentified legacy history is no longer imported into verified accounts. ([PR #18](https://github.com/TheBeems/CodexUsageDock/pull/18))
 
 ### Changed
 
 - Expanded the release skill to cover scoped commit/push, Store submission, resumable certification tracking, and verified installation, with a repository-local Codex entry point. ([commit e54709c](https://github.com/TheBeems/CodexUsageDock/commit/e54709ce6e26b9aaa072d6f88625a9a3aa067494))
-- Distinguish source releases, the running extension build, and Microsoft Store rollout in installation guidance.
+- Distinguish source releases, the running extension build, and Microsoft Store rollout in installation guidance. ([PR #18](https://github.com/TheBeems/CodexUsageDock/pull/18))
 
 ## [0.6.1] - 2026-09-09
 

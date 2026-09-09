@@ -4,7 +4,7 @@ This series implements the recommended Codex-first roadmap, followed by a small,
 
 | Sprint | Feature branch | Scope | Status |
 | --- | --- | --- | --- |
-| 1 | `codex/sprint-1-reliable-usage` | Modern quota categories, consistent freshness, last confirmed data, account-scoped history, safe diagnostics, version communication | Implemented; 186 native ARM64 tests passed; x64/ARM64 Debug builds passed |
+| 1 | `codex/sprint-1-reliable-usage` | Modern quota categories, consistent freshness, last confirmed data, account-scoped history, safe diagnostics, version communication | [PR #18](https://github.com/TheBeems/CodexUsageDock/pull/18); 186 native ARM64 tests passed; x64/ARM64 Debug builds passed |
 | 2 | `codex/sprint-2-attention-controls` | Quiet alerts, compact and individually pinnable Dock entries, account activity where supported, explicit source configuration | Planned |
 | 3 | `codex/sprint-3-history-planning` | Retained aggregates and export, workday planning, forecast explanation and validation, supported task analysis, explicit earned-reset action | Planned |
 | 4 | `codex/sprint-4-provider-pilot` | Optional Claude statusline bridge, explicit local profiles/WSL paths, efficient fallback reads, accessible text alternatives | Planned |
