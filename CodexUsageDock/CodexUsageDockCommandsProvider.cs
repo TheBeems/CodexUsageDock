@@ -20,8 +20,8 @@ public partial class CodexUsageDockCommandsProvider : CommandProvider
     private readonly CodexUsageTablePage _textUsage;
     private readonly CodexProfilesPage _profiles;
     private readonly ClaudeUsagePage _claude;
-    private readonly ListItem _claudeFiveHour;
-    private readonly ListItem _claudeWeekly;
+    private readonly UsageDockListItem _claudeFiveHour;
+    private readonly UsageDockListItem _claudeWeekly;
     private readonly object _claudePresentationLock = new();
     private readonly UsageAlertEvaluator _alerts = new();
     private readonly Action<string> _notify;
@@ -31,6 +31,13 @@ public partial class CodexUsageDockCommandsProvider : CommandProvider
     private const string WeeklyDockId = "nl.mathijs.codexusage.dock.weekly";
     private const string CreditsDockId = "nl.mathijs.codexusage.dock.credits";
     private const string ClaudeDockId = "nl.mathijs.codexusage.dock.claude";
+    private readonly object _dockLayoutLock = new();
+    private readonly UsageDockBand _combinedBand;
+    private readonly UsageDockBand _fiveHourBand;
+    private readonly UsageDockBand _weeklyBand;
+    private readonly UsageDockBand _creditsBand;
+    private readonly UsageDockBand _claudeBand;
+    private readonly UsageDockBand[] _allDockBands;
     private ICommandItem[] _dockBands = [];
 
     public CodexUsageDockCommandsProvider()
@@ -68,12 +75,18 @@ public partial class CodexUsageDockCommandsProvider : CommandProvider
         _profiles = new CodexProfilesPage(new CodexProfileStore(_settings.ProfileStoragePath));
         _profiles.ProfileSelected += OnProfileSelected;
         _claude = new ClaudeUsagePage(_usage);
-        _claudeFiveHour = new ListItem(_claude);
-        _claudeWeekly = new ListItem(_claude);
+        _claudeFiveHour = new UsageDockListItem(_claude);
+        _claudeWeekly = new UsageDockListItem(_claude);
         _details.Commands = [.. _details.Commands, new CommandContextItem(_textUsage) { Title = "Read usage in text" }];
         _fiveHour = new UsageDockItem(_usage, UsageDockItemKind.FiveHour, details, _settings);
         _weekly = new UsageDockItem(_usage, UsageDockItemKind.Weekly, details, _settings);
         _resetsAndCredits = new UsageDockItem(_usage, UsageDockItemKind.ResetsAndCredits, details);
+        _combinedBand = new("nl.mathijs.codexusage.dock", DisplayName);
+        _fiveHourBand = new(FiveHourDockId, "Codex five-hour usage");
+        _weeklyBand = new(WeeklyDockId, "Codex weekly usage");
+        _creditsBand = new(CreditsDockId, "Codex resets and credits");
+        _claudeBand = new(ClaudeDockId, "Claude usage");
+        _allDockBands = [_combinedBand, _fiveHourBand, _weeklyBand, _creditsBand, _claudeBand];
 
         _commands =
         [
@@ -111,29 +124,19 @@ public partial class CodexUsageDockCommandsProvider : CommandProvider
         _usage.Updated += OnUsageUpdated;
         _usage.ClaudeUpdated += OnClaudeUpdated;
         RefreshClaudeItems();
-        RebuildDockBands();
+        UpdateDockLayout();
 
         _usage.Start();
     }
 
     public override ICommandItem[] TopLevelCommands() => _commands;
 
-    public override ICommandItem[]? GetDockBands() => _dockBands;
+    public override ICommandItem[]? GetDockBands() => [.. Volatile.Read(ref _dockBands)];
 
     public override ICommandItem? GetCommandItem(string id)
     {
         if (string.IsNullOrWhiteSpace(id)) return null;
-        var known = _commands.Concat(_dockBands).FirstOrDefault(item => item.Command.Id == id);
-        if (known is not null) return known;
-        return id switch
-        {
-            "nl.mathijs.codexusage.dock" => new WrappedDockItem(GetVisibleDockItems(), "nl.mathijs.codexusage.dock", DisplayName),
-            FiveHourDockId => new WrappedDockItem([_fiveHour], FiveHourDockId, "Codex five-hour usage"),
-            WeeklyDockId => new WrappedDockItem([_weekly], WeeklyDockId, "Codex weekly usage"),
-            CreditsDockId => new WrappedDockItem([_resetsAndCredits], CreditsDockId, "Codex resets and credits"),
-            ClaudeDockId => new WrappedDockItem(_settings.EnableClaude ? [_claudeFiveHour, _claudeWeekly] : [], ClaudeDockId, "Claude usage"),
-            _ => null,
-        };
+        return _commands.Concat(Volatile.Read(ref _dockBands)).FirstOrDefault(item => item.Command.Id == id);
     }
 
     private void OnSettingsChanged(object? sender, EventArgs e)
@@ -154,8 +157,7 @@ public partial class CodexUsageDockCommandsProvider : CommandProvider
         _details.Refresh();
         _planner.Refresh();
         _history.Refresh();
-        RebuildDockBands();
-        RaiseItemsChanged();
+        UpdateDockLayout();
         if (sourceChanged) _ = _usage.RefreshAsync();
     }
 
@@ -171,8 +173,7 @@ public partial class CodexUsageDockCommandsProvider : CommandProvider
     private void OnClaudeUpdated(object? sender, EventArgs args)
     {
         RefreshClaudeItems();
-        RebuildDockBands();
-        RaiseItemsChanged();
+        if (_claudeBand.HasItems) _claudeBand.NotifyItemsChanged();
     }
 
     private void RefreshClaudeItems()
@@ -212,8 +213,10 @@ public partial class CodexUsageDockCommandsProvider : CommandProvider
             return;
         }
 
-        RebuildDockBands();
-        RaiseItemsChanged();
+        foreach (var band in Volatile.Read(ref _dockBands).OfType<UsageDockBand>())
+        {
+            if (!ReferenceEquals(band, _claudeBand)) band.NotifyItemsChanged();
+        }
         var alerts = _alerts.Evaluate(_usage.GetPresentation(), _clock(), _usage.RefreshInterval,
             new UsageAlertOptions(Enabled: _settings.EnableUsageAlerts));
         if (alerts.Count > 0)
@@ -224,25 +227,31 @@ public partial class CodexUsageDockCommandsProvider : CommandProvider
         }
     }
 
-    private void RebuildDockBands()
+    private void UpdateDockLayout()
     {
-        var items = GetVisibleDockItems();
-        ICommandItem[] bands;
-        if (_settings.SeparateDockItems)
+        var changedBands = new List<UsageDockBand>();
+        bool catalogChanged;
+        lock (_dockLayoutLock)
         {
-            bands = items.Select(item => new WrappedDockItem([item],
-                ReferenceEquals(item, _fiveHour) ? FiveHourDockId : ReferenceEquals(item, _weekly) ? WeeklyDockId : CreditsDockId,
-                ReferenceEquals(item, _fiveHour) ? "Codex five-hour usage" : ReferenceEquals(item, _weekly) ? "Codex weekly usage" : "Codex resets and credits"))
-                .Cast<ICommandItem>().ToArray();
+            var separate = _settings.SeparateDockItems;
+            Publish(_combinedBand, separate ? [] : GetVisibleDockItems());
+            Publish(_fiveHourBand, separate && _settings.ShowFiveHourLimit ? [_fiveHour] : []);
+            Publish(_weeklyBand, separate && _settings.ShowWeeklyLimit ? [_weekly] : []);
+            Publish(_creditsBand, separate && _settings.ShowResetsAndCredits ? [_resetsAndCredits] : []);
+            Publish(_claudeBand, _settings.EnableClaude ? [_claudeFiveHour, _claudeWeekly] : []);
+            ICommandItem[] bands = _allDockBands.Where(band => band.HasItems).ToArray();
+            catalogChanged = !Volatile.Read(ref _dockBands).SequenceEqual(bands);
+            Volatile.Write(ref _dockBands, bands);
         }
-        else
+
+        // No host callback may run while the layout lock is held.
+        foreach (var band in changedBands) band.NotifyItemsChanged();
+        if (catalogChanged) RaiseItemsChanged();
+
+        void Publish(UsageDockBand band, IListItem[] items)
         {
-            var dockBand = items.Length == 0 ? null : new WrappedDockItem(items, "nl.mathijs.codexusage.dock", DisplayName);
-            bands = dockBand is null ? [] : [dockBand];
+            if (band.PublishItems(items)) changedBands.Add(band);
         }
-        if (_settings.EnableClaude)
-            bands = [.. bands, new WrappedDockItem([_claudeFiveHour, _claudeWeekly], ClaudeDockId, "Claude usage")];
-        _dockBands = bands;
     }
 
     private IListItem[] GetVisibleDockItems()

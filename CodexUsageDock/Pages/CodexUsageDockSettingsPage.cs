@@ -87,7 +87,7 @@ internal sealed partial class CodexUsageDockSettingsPage : ContentPage
         _settings.Add(new ToggleSetting(SeparateDockItemsKey, false)
         {
             Label = "Separate Dock items",
-            Description = "Show each usage item as its own Dock entry.",
+            Description = "Offer separate metric bands instead of the combined band. Other-mode pins are hidden. After switching, add the desired bands through Dock customization if needed.",
         });
         _settings.Add(new ToggleSetting(ShowAccountActivityKey, true)
         {
