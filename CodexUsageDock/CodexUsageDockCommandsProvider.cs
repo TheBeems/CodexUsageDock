@@ -13,6 +13,14 @@ public partial class CodexUsageDockCommandsProvider : CommandProvider
     private readonly ICommandItem[] _commands;
     private readonly CodexUsageDockPage _details;
     private readonly CodexUsageDiagnosticsPage _diagnostics;
+    private readonly CodexAccountActivityPage _accountActivity;
+    private readonly UsageAlertEvaluator _alerts = new();
+    private readonly Action<string> _notify;
+    private readonly Func<DateTimeOffset> _clock;
+    private bool _lastAlertsEnabled;
+    private const string FiveHourDockId = "nl.mathijs.codexusage.dock.five-hour";
+    private const string WeeklyDockId = "nl.mathijs.codexusage.dock.weekly";
+    private const string CreditsDockId = "nl.mathijs.codexusage.dock.credits";
     private ICommandItem[] _dockBands = [];
 
     public CodexUsageDockCommandsProvider()
@@ -20,18 +28,27 @@ public partial class CodexUsageDockCommandsProvider : CommandProvider
     {
     }
 
-    internal CodexUsageDockCommandsProvider(CodexUsageService usage, CodexUsageDockSettingsPage settings)
+    internal CodexUsageDockCommandsProvider(CodexUsageService usage, CodexUsageDockSettingsPage settings,
+        Action<string>? notify = null, Func<DateTimeOffset>? clock = null)
     {
         _usage = usage;
         _settings = settings;
+        _settings.Id = "nl.mathijs.codexusage.settings";
+        _notify = notify ?? (message => new ToastStatusMessage(message).Show());
+        _clock = clock ?? (() => DateTimeOffset.Now);
+        _lastAlertsEnabled = _settings.EnableUsageAlerts;
         DisplayName = "Codex Usage";
         Id = "nl.mathijs.codexusage";
         Icon = new IconInfo("\uE943");
 
         _usage.SetRefreshInterval(_settings.RefreshInterval);
         _usage.SetAdaptiveWeeklyForecastEnabled(_settings.UseAdaptiveWeeklyForecast);
+        ApplySourceSettings();
+        _usage.SetAccountActivityEnabled(_settings.ShowAccountActivity);
         var details = _details = new CodexUsageDockPage(_usage, _settings);
         _diagnostics = new CodexUsageDiagnosticsPage(_usage);
+        _diagnostics.Id = "nl.mathijs.codexusage.diagnostics";
+        _accountActivity = new CodexAccountActivityPage(_usage);
         _fiveHour = new UsageDockItem(_usage, UsageDockItemKind.FiveHour, details, _settings);
         _weekly = new UsageDockItem(_usage, UsageDockItemKind.Weekly, details, _settings);
         _resetsAndCredits = new UsageDockItem(_usage, UsageDockItemKind.ResetsAndCredits, details);
@@ -54,6 +71,11 @@ public partial class CodexUsageDockCommandsProvider : CommandProvider
                 Title = "Codex Usage diagnostics",
                 Subtitle = "Source, freshness, supported fields, and safe troubleshooting details",
             },
+            new CommandItem(_accountActivity)
+            {
+                Title = "Codex account activity",
+                Subtitle = "Account-wide daily tokens reported by Codex",
+            },
         ];
 
         _settings.Changed += OnSettingsChanged;
@@ -68,15 +90,45 @@ public partial class CodexUsageDockCommandsProvider : CommandProvider
 
     public override ICommandItem[]? GetDockBands() => _dockBands;
 
+    public override ICommandItem? GetCommandItem(string id)
+    {
+        if (string.IsNullOrWhiteSpace(id)) return null;
+        var known = _commands.Concat(_dockBands).FirstOrDefault(item => item.Command.Id == id);
+        if (known is not null) return known;
+        return id switch
+        {
+            "nl.mathijs.codexusage.dock" => new WrappedDockItem(GetVisibleDockItems(), "nl.mathijs.codexusage.dock", DisplayName),
+            FiveHourDockId => new WrappedDockItem([_fiveHour], FiveHourDockId, "Codex five-hour usage"),
+            WeeklyDockId => new WrappedDockItem([_weekly], WeeklyDockId, "Codex weekly usage"),
+            CreditsDockId => new WrappedDockItem([_resetsAndCredits], CreditsDockId, "Codex resets and credits"),
+            _ => null,
+        };
+    }
+
     private void OnSettingsChanged(object? sender, EventArgs e)
     {
+        if (_lastAlertsEnabled != _settings.EnableUsageAlerts)
+        {
+            _alerts.Reset();
+            _lastAlertsEnabled = _settings.EnableUsageAlerts;
+        }
         _usage.SetRefreshInterval(_settings.RefreshInterval);
         _usage.SetAdaptiveWeeklyForecastEnabled(_settings.UseAdaptiveWeeklyForecast);
+        var sourceChanged = ApplySourceSettings();
+        _usage.SetAccountActivityEnabled(_settings.ShowAccountActivity);
         _fiveHour.Refresh();
         _weekly.Refresh();
         _details.Refresh();
         RebuildDockBands();
         RaiseItemsChanged();
+        if (sourceChanged) _ = _usage.RefreshAsync();
+    }
+
+    private bool ApplySourceSettings()
+    {
+        _ = CodexSourceOptions.TryCreate(_settings.CodexExecutablePath, _settings.CodexHomePath, out var options, out var error);
+        if (error is not null) _settings.ShowOperationStatus(error);
+        return _usage.ConfigureSource(options, error);
     }
 
     private void OnClearAdaptiveHistoryRequested(object? sender, EventArgs e)
@@ -101,11 +153,27 @@ public partial class CodexUsageDockCommandsProvider : CommandProvider
 
         RebuildDockBands();
         RaiseItemsChanged();
+        var alerts = _alerts.Evaluate(_usage.GetPresentation(), _clock(), _usage.RefreshInterval,
+            new UsageAlertOptions(Enabled: _settings.EnableUsageAlerts));
+        if (alerts.Count > 0)
+        {
+            var message = string.Join(" · ", alerts.Take(3).Select(alert => alert.Message));
+            if (alerts.Count > 3) message += $" · {alerts.Count - 3} more usage alerts";
+            _notify(message);
+        }
     }
 
     private void RebuildDockBands()
     {
         var items = GetVisibleDockItems();
+        if (_settings.SeparateDockItems)
+        {
+            _dockBands = items.Select(item => new WrappedDockItem([item],
+                ReferenceEquals(item, _fiveHour) ? FiveHourDockId : ReferenceEquals(item, _weekly) ? WeeklyDockId : CreditsDockId,
+                ReferenceEquals(item, _fiveHour) ? "Codex five-hour usage" : ReferenceEquals(item, _weekly) ? "Codex weekly usage" : "Codex resets and credits"))
+                .Cast<ICommandItem>().ToArray();
+            return;
+        }
         var dockBand = items.Length == 0
             ? null
             : new WrappedDockItem(items, "nl.mathijs.codexusage.dock", DisplayName);
@@ -143,6 +211,7 @@ public partial class CodexUsageDockCommandsProvider : CommandProvider
         _resetsAndCredits.Dispose();
         _details.Dispose();
         _diagnostics.Dispose();
+        _accountActivity.Dispose();
         _usage.Dispose();
         base.Dispose();
         GC.SuppressFinalize(this);

@@ -8,12 +8,20 @@ namespace CodexUsageDock;
 
 internal sealed partial class CodexUsageDockSettingsPage : ContentPage
 {
+    private const string InvalidSourcePath = "Invalid source path: re-enter or clear this field";
     private const string ShowFiveHourLimitKey = "showFiveHourLimit";
     private const string ShowWeeklyLimitKey = "showWeeklyLimit";
     private const string ShowResetsAndCreditsKey = "showResetsAndCredits";
     private const string ShowResetTimeKey = "showResetTime";
     private const string RefreshIntervalKey = "refreshInterval";
     private const string UseAdaptiveWeeklyForecastKey = "useAdaptiveWeeklyForecast";
+    private const string EnableUsageAlertsKey = "enableUsageAlerts";
+    private const string CompactDockKey = "compactDock";
+    private const string SeparateDockItemsKey = "separateDockItems";
+    private const string ShowAccountActivityKey = "showAccountActivity";
+    private const string CodexExecutablePathKey = "codexExecutablePath";
+    private const string CodexHomePathKey = "codexHomePath";
+    private const int MaximumPathLength = 1024;
     private readonly Settings _settings = new();
     private readonly string _path;
     private readonly FormContent _statusContent = new()
@@ -59,6 +67,40 @@ internal sealed partial class CodexUsageDockSettingsPage : ContentPage
         {
             Label = "Use adaptive weekly forecast",
             Description = "Blend the current pace with up to eight local weekly cycles. Turning this off pauses learning and keeps saved history.",
+        });
+        _settings.Add(new ToggleSetting(EnableUsageAlertsKey, false)
+        {
+            Label = "Enable usage alerts",
+            Description = "Show a quiet notification when the usage status changes.",
+        });
+        _settings.Add(new ToggleSetting(CompactDockKey, false)
+        {
+            Label = "Compact Dock",
+            Description = "Use shorter usage labels and hide reset times in the Dock.",
+        });
+        _settings.Add(new ToggleSetting(SeparateDockItemsKey, false)
+        {
+            Label = "Separate Dock items",
+            Description = "Show each usage item as its own Dock entry.",
+        });
+        _settings.Add(new ToggleSetting(ShowAccountActivityKey, true)
+        {
+            Label = "Show account activity",
+            Description = "Read account-wide daily tokens from the Codex service after quotas load. Older CLI versions may not support this.",
+        });
+        _settings.Add(new TextSetting(CodexExecutablePathKey, string.Empty)
+        {
+            Label = "Codex executable path",
+            Description = "Optional explicit path to codex.exe or codex.cmd.",
+            Placeholder = @"C:\Path\to\codex.exe",
+            Multiline = false,
+        });
+        _settings.Add(new TextSetting(CodexHomePathKey, string.Empty)
+        {
+            Label = "Codex home path",
+            Description = "Optional Codex home directory. It may be a Windows-accessible WSL directory; this extension does not launch WSL or modify Codex configuration.",
+            Placeholder = @"C:\Users\you\.codex",
+            Multiline = false,
         });
         _settings.Add(new ChoiceSetSetting(
             RefreshIntervalKey,
@@ -107,6 +149,18 @@ internal sealed partial class CodexUsageDockSettingsPage : ContentPage
 
     public bool UseAdaptiveWeeklyForecast => _settings.GetSetting<bool>(UseAdaptiveWeeklyForecastKey);
 
+    public bool EnableUsageAlerts => _settings.GetSetting<bool>(EnableUsageAlertsKey);
+
+    public bool CompactDock => _settings.GetSetting<bool>(CompactDockKey);
+
+    public bool SeparateDockItems => _settings.GetSetting<bool>(SeparateDockItemsKey);
+
+    public bool ShowAccountActivity => _settings.GetSetting<bool>(ShowAccountActivityKey);
+
+    public string CodexExecutablePath => GetPathSetting(CodexExecutablePathKey);
+
+    public string CodexHomePath => GetPathSetting(CodexHomePathKey);
+
     public TimeSpan RefreshInterval => ParseRefreshInterval(_settings.GetSetting<string>(RefreshIntervalKey));
 
     internal string? StatusMessage { get; private set; }
@@ -147,6 +201,19 @@ internal sealed partial class CodexUsageDockSettingsPage : ContentPage
             var valid = new JsonObject();
             foreach (var property in document.RootElement.EnumerateObject())
             {
+                if (property.Name is CodexExecutablePathKey or CodexHomePathKey)
+                {
+                    valid[property.Name] = property.Value.ValueKind == JsonValueKind.String && IsValidPathSetting(property.Value.GetString())
+                        ? property.Value.GetString() : InvalidSourcePath;
+                    continue;
+                }
+                if (property.Value.ValueKind is JsonValueKind.True or JsonValueKind.False
+                    && IsBooleanSetting(property.Name))
+                {
+                    valid[property.Name] = property.Value.GetBoolean() ? "true" : "false";
+                    continue;
+                }
+
                 if (property.Value.ValueKind != JsonValueKind.String)
                 {
                     continue;
@@ -157,8 +224,7 @@ internal sealed partial class CodexUsageDockSettingsPage : ContentPage
                 {
                     valid[property.Name] = value;
                 }
-                else if (property.Name is ShowFiveHourLimitKey or ShowWeeklyLimitKey or ShowResetsAndCreditsKey or ShowResetTimeKey or UseAdaptiveWeeklyForecastKey
-                    && bool.TryParse(value, out var enabled))
+                else if (IsBooleanSetting(property.Name) && bool.TryParse(value, out var enabled))
                 {
                     valid[property.Name] = enabled ? "true" : "false";
                 }
@@ -171,6 +237,35 @@ internal sealed partial class CodexUsageDockSettingsPage : ContentPage
             LocalStorage.TraceFailure("load settings", error);
             ShowOperationStatus("Saved settings could not be read. Default settings are being used.");
         }
+    }
+
+    private static bool IsBooleanSetting(string name) => name is
+        ShowFiveHourLimitKey or ShowWeeklyLimitKey or ShowResetsAndCreditsKey or ShowResetTimeKey or
+        UseAdaptiveWeeklyForecastKey or EnableUsageAlertsKey or CompactDockKey or SeparateDockItemsKey or
+        ShowAccountActivityKey;
+
+    private static bool IsValidPathSetting(string? value)
+    {
+        if (value is null || value.Length > MaximumPathLength)
+        {
+            return false;
+        }
+
+        foreach (var character in value)
+        {
+            if (char.IsControl(character))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private string GetPathSetting(string key)
+    {
+        var value = _settings.GetSetting<string>(key);
+        return IsValidPathSetting(value) ? value! : InvalidSourcePath;
     }
 
     private void OnSettingsChanged(object sender, Settings args)

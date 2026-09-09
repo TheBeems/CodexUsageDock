@@ -35,7 +35,7 @@ internal sealed partial class UsageDockItem : ListItem, IDisposable
         var window = _kind == UsageDockItemKind.FiveHour ? snapshot.Primary : snapshot.Secondary;
         if (snapshot.Source == UsageDataSource.Unavailable)
         {
-            (Title, Subtitle) = FormatUnavailable(_kind);
+            (Title, Subtitle) = FormatUnavailable(_kind, _settings?.CompactDock == true);
             Icon = new IconInfo("\uE783");
             return;
         }
@@ -45,12 +45,13 @@ internal sealed partial class UsageDockItem : ListItem, IDisposable
             Title = FormatResetsAndCredits(snapshot);
             Subtitle = CombineStatusAndDetail(
                 FormatSourceFreshness(snapshot, now, _usage.RefreshInterval),
-                FormatResetExpiry(snapshot.ResetCredits, now));
+                _settings?.CompactDock == true ? string.Empty : FormatResetExpiry(snapshot.ResetCredits, now));
             Icon = new IconInfo("\uE777");
             return;
         }
 
-        var label = _kind == UsageDockItemKind.FiveHour ? "5h" : "Week";
+        var compact = _settings?.CompactDock == true;
+        var label = _kind == UsageDockItemKind.FiveHour ? "5h" : compact ? "W" : "Week";
         if (window is null)
         {
             var dataWasLoaded = snapshot.Primary is not null || snapshot.Secondary is not null;
@@ -72,8 +73,8 @@ internal sealed partial class UsageDockItem : ListItem, IDisposable
             return;
         }
 
-        Title = $"{label} {window.RemainingPercent:0}%";
-        var reset = _settings?.ShowResetTime == false ? string.Empty : $"reset {FormatReset(window.ResetsAt)}";
+        Title = FormatQuotaTitle(_kind, window.RemainingPercent, compact);
+        var reset = compact || _settings?.ShowResetTime == false ? string.Empty : $"reset {FormatReset(window.ResetsAt)}";
         Subtitle = CombineStatusAndDetail(FormatSourceFreshness(snapshot, now, _usage.RefreshInterval), reset);
         Icon = new IconInfo(window.RemainingPercent <= 10 ? "\uE7BA" : "\uE916");
     }
@@ -101,6 +102,20 @@ internal sealed partial class UsageDockItem : ListItem, IDisposable
             : age < TimeSpan.FromHours(1) ? $"Fallback · {(int)age.TotalMinutes} minutes old"
             : age < TimeSpan.FromDays(1) ? $"Fallback · {(int)age.TotalHours} hours old"
             : $"Fallback · {(int)age.TotalDays} days old";
+    }
+
+    internal static string FormatQuotaTitle(UsageDockItemKind kind, double remainingPercent, bool compact)
+    {
+        var label = kind switch
+        {
+            UsageDockItemKind.FiveHour => "5h",
+            UsageDockItemKind.Weekly => compact ? "W" : "Week",
+            _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, "The resets and credits item has no quota percentage."),
+        };
+
+        return compact
+            ? $"{label}{remainingPercent:0}%"
+            : $"{label} {remainingPercent:0}%";
     }
 
     internal static string FormatSourceFreshness(
@@ -214,11 +229,11 @@ internal sealed partial class UsageDockItem : ListItem, IDisposable
             : $"expires in {(int)Math.Ceiling(remaining.TotalDays)} days";
     }
 
-    internal static (string Title, string Subtitle) FormatUnavailable(UsageDockItemKind kind) =>
+    internal static (string Title, string Subtitle) FormatUnavailable(UsageDockItemKind kind, bool compact = false) =>
         (kind switch
         {
             UsageDockItemKind.FiveHour => "5h --",
-            UsageDockItemKind.Weekly => "Week --",
+            UsageDockItemKind.Weekly => compact ? "W --" : "Week --",
             _ => "-- resets",
         }, "Codex usage unavailable");
 

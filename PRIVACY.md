@@ -22,6 +22,8 @@ The extension does not create an external user account or remote database. Setti
 
 Account-scoped history uses a one-way hash of the account identity supplied by Codex, combined with the default quota category, as an opaque local directory name. Raw account identifiers and email addresses are not stored or shown in diagnostics. Legacy history without account attribution is not imported into a verified account; unverified observations remain in memory and do not train saved forecasts. The last confirmed usage snapshot is retained only in memory during an outage, with its original timestamp. Diagnostics exposes field availability and bounded status messages, not raw service errors, credentials, or personal paths.
 
+Optional source preferences store the user-selected executable and Codex home paths locally in settings. These paths are not included in diagnostic reports or logs. Account activity requests travel through the local Codex app-server and retain only aggregate daily token counts and optional totals in memory. Identity is checked before and after each request. Optional usage notifications contain a quota label and bounded status text, without account identifiers; their deduplication state remains in memory. Disabling account activity clears the visible account activity state and stops new optional reads.
+
 ## Permissions
 
 The Windows `runFullTrust` capability is required to run the packaged Command Palette COM server and to communicate with the locally installed Codex process. It is not used to bypass Windows security controls or access unrelated user data.

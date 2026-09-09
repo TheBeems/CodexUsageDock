@@ -5,7 +5,7 @@ This series implements the recommended Codex-first roadmap, followed by a small,
 | Sprint | Feature branch | Scope | Status |
 | --- | --- | --- | --- |
 | 1 | `codex/sprint-1-reliable-usage` | Modern quota categories, consistent freshness, last confirmed data, account-scoped history, safe diagnostics, version communication | [PR #18](https://github.com/TheBeems/CodexUsageDock/pull/18); 186 native ARM64 tests passed; x64/ARM64 Debug builds passed |
-| 2 | `codex/sprint-2-attention-controls` | Quiet alerts, compact and individually pinnable Dock entries, account activity where supported, explicit source configuration | Planned |
+| 2 | `codex/sprint-2-attention-controls` | Quiet alerts, compact and individually pinnable Dock entries, account activity where supported, explicit source configuration | Implemented; x64/ARM64 compilation passed; GitHub test validation pending |
 | 3 | `codex/sprint-3-history-planning` | Retained aggregates and export, workday planning, forecast explanation and validation, supported task analysis, explicit earned-reset action | Planned |
 | 4 | `codex/sprint-4-provider-pilot` | Optional Claude statusline bridge, explicit local profiles/WSL paths, efficient fallback reads, accessible text alternatives | Planned |
 
@@ -25,3 +25,9 @@ Gemini/Cursor/Copilot expansion, a standalone tray app, cloud sync, team dashboa
 ### Sprint 1 verification
 
 Native ARM64 tests passed (186/186); application builds have no warnings. Existing test-name analyzer warnings remain unchanged. The x64 .NET 10 test runtime is unavailable locally, so x64 test execution belongs to PR CI. The integration preflight passed manifest, COM identity, generated-output freshness, self-contained runtime, and asset checks. Package registration and AppExtension discovery were unavailable in this test context; Command Palette reload, visual behavior, Store installation, and real-account compatibility were not verified. Tests use isolated synthetic data and do not consume actual reset credits.
+
+The final sprint 1 head also passed [GitHub Actions](https://github.com/TheBeems/CodexUsageDock/actions/runs/34379840746), including x64 tests, both architecture builds, and Store-package validation.
+
+### Sprint 2 verification
+
+The x64 and ARM64 application code compiles without warnings. Local ARM64 test execution was blocked while loading the assembly by Windows Application Control (`0x800711C7`), including a retry with elevated execution. This is an execution gap, not a passing test result. No Windows security policy was changed. The existing GitHub workflow will run the synthetic tests and both architecture/package checks on the pushed feature branch. Live account activity, notifications, individual pinning, and configuration changes still require Command Palette verification after an authorized installation.
