@@ -8,6 +8,22 @@ Each entry links to the commit or pull request that introduced the change.
 
 ## [Unreleased]
 
+## [0.6.1] - 2026-09-09
+
+### Fixed
+
+- Dock visibility, reset-time, refresh-interval, and adaptive-forecast settings now persist per Windows user and are applied before the first refresh. Failed saves are shown on the settings page.
+- The main status now identifies the most restrictive active quota window, including an exhausted weekly allowance.
+- Local fallback data now uses the newest valid quota event timestamp across active and archived sessions, preserves explicitly inactive windows, skips unreadable files, and shows measurement age in the Dock.
+- Live limits now update before optional token analysis finishes. Token scans are cancellable, cannot overlap, and cannot publish results for a superseded quota snapshot.
+- Text and chart forecasts now use the same most recent continuous measurement segment, pausing after gaps or stale data.
+- Invalid and null history entries no longer prevent startup. Local storage failures are reported, and deleting learned history reports success only after the cleared state is saved.
+
+### Changed
+
+- Tests now require isolated temporary settings and history storage, preventing synthetic measurements from reaching the user's saved history.
+- Local storage paths and forecast analysis are shared helpers; local session readers consistently honor `CODEX_HOME`.
+
 ## [0.6.0] - 2026-07-21
 
 ### Added
@@ -134,7 +150,8 @@ Each entry links to the commit or pull request that introduced the change.
 - Initial release of the Windows Command Palette extension for viewing local Codex usage. [commit ac72fe5](https://github.com/TheBeems/CodexUsageDock/commit/ac72fe50fcd1af36f41cda896f1d792899573351)
 - Automated release installer creation and smoke-test handling. [commit 64a3305](https://github.com/TheBeems/CodexUsageDock/commit/64a33058b7486dea12f026561c545b362eb2d622), [commit 21790a1](https://github.com/TheBeems/CodexUsageDock/commit/21790a1ea60a9bfec14ec578d77356c5576472fb)
 
-[Unreleased]: https://github.com/TheBeems/CodexUsageDock/compare/eed6505c5fef9a4a6a5c39d6bd5bff619aa13f07...main
+[Unreleased]: https://github.com/TheBeems/CodexUsageDock/compare/v0.6.1...main
+[0.6.1]: https://github.com/TheBeems/CodexUsageDock/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/TheBeems/CodexUsageDock/commit/eed6505c5fef9a4a6a5c39d6bd5bff619aa13f07
 [0.5.3]: https://github.com/TheBeems/CodexUsageDock/commit/312dc394ff51648f1b063cd39afdfabaf33d8a3e
 [0.5.2]: https://github.com/TheBeems/CodexUsageDock/releases/tag/v0.5.2

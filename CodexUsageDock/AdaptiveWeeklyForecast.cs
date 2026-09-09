@@ -42,13 +42,9 @@ internal sealed class AdaptiveWeeklyUsageStore
         _state = Load();
     }
 
-    internal static AdaptiveWeeklyUsageStore CreateDefault()
-    {
-        var directory = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "CodexUsageDock");
-        return new AdaptiveWeeklyUsageStore(Path.Combine(directory, FileName));
-    }
+    internal static AdaptiveWeeklyUsageStore CreateDefault() => new(LocalStorage.GetPath(FileName));
+
+    internal string? StorageError { get; private set; }
 
     internal AdaptiveWeeklyUsageHistory Snapshot => new(
         _state.CompletedCycles.ToArray(),
@@ -105,11 +101,17 @@ internal sealed class AdaptiveWeeklyUsageStore
         Save();
     }
 
-    internal void Clear()
+    internal bool Clear()
     {
         // Keep only an empty initialization marker so old raw chart samples are not learnt again.
-        _state = new AdaptiveWeeklyUsageState([], null, null, true);
-        Save();
+        var cleared = new AdaptiveWeeklyUsageState([], null, null, true);
+        if (!Save(cleared))
+        {
+            return false;
+        }
+
+        _state = cleared;
+        return true;
     }
 
     private static bool TryGetWindowSamples(
@@ -246,43 +248,18 @@ internal sealed class AdaptiveWeeklyUsageStore
         }
         catch (Exception error) when (error is IOException or UnauthorizedAccessException or JsonException or NotSupportedException)
         {
+            LocalStorage.TraceFailure("load forecast history", error);
+            StorageError = "Saved forecast history could not be read. A new history will be collected.";
             return new AdaptiveWeeklyUsageState([], null, null, false);
         }
     }
 
-    private void Save()
+    private bool Save(AdaptiveWeeklyUsageState? state = null)
     {
-        var temporaryPath = $"{_path}.{Guid.NewGuid():N}.tmp";
-        try
-        {
-            var directory = Path.GetDirectoryName(_path);
-            if (string.IsNullOrWhiteSpace(directory))
-            {
-                return;
-            }
-
-            Directory.CreateDirectory(directory);
-            File.WriteAllText(temporaryPath, JsonSerializer.Serialize(_state, AdaptiveWeeklyUsageJsonContext.Default.AdaptiveWeeklyUsageState));
-            File.Move(temporaryPath, _path, overwrite: true);
-        }
-        catch (Exception error) when (error is IOException or UnauthorizedAccessException or JsonException or NotSupportedException)
-        {
-        }
-        finally
-        {
-            try
-            {
-                if (File.Exists(temporaryPath))
-                {
-                    File.Delete(temporaryPath);
-                }
-            }
-            catch (Exception error) when (error is IOException or UnauthorizedAccessException)
-            {
-            }
-        }
+        var saved = LocalStorage.TryWrite(_path, JsonSerializer.Serialize(state ?? _state, AdaptiveWeeklyUsageJsonContext.Default.AdaptiveWeeklyUsageState));
+        StorageError = saved ? null : "Learned forecast history could not be saved. Please try again.";
+        return saved;
     }
-
     private static AdaptiveWeeklyUsageState Normalize(AdaptiveWeeklyUsageState? state)
     {
         if (state is null)
@@ -297,6 +274,8 @@ internal sealed class AdaptiveWeeklyUsageStore
             .Cast<AdaptiveWeeklyUsageCycle>()
             .ToArray(), active);
         var lastSample = active is not null && state.LastSample is { } sample && IsValidSample(sample)
+            && sample.RecordedAt >= active.ResetsAt.AddMinutes(-active.WindowMinutes)
+            && sample.RecordedAt <= active.ResetsAt
             ? sample
             : null;
         return new AdaptiveWeeklyUsageState(completed, active, lastSample, state.IsInitialized);
@@ -308,6 +287,8 @@ internal sealed class AdaptiveWeeklyUsageStore
             || cycle.WindowMinutes != (int)TimeSpan.FromDays(7).TotalMinutes
             || !double.IsFinite(cycle.ObservedMinutes)
             || !double.IsFinite(cycle.ConsumedPercent)
+            || cycle.ResetsAt < DateTimeOffset.MinValue.AddDays(7)
+            || cycle.ObservedMinutes > cycle.WindowMinutes
             || cycle.ObservedMinutes < 0
             || cycle.ConsumedPercent < 0)
         {
@@ -315,16 +296,19 @@ internal sealed class AdaptiveWeeklyUsageStore
         }
 
         var buckets = (cycle.Buckets ?? [])
-            .Where(bucket => bucket.Index is >= 0 and < BucketCount
+            .Where(bucket => bucket is not null && bucket.Index is >= 0 and < BucketCount
                 && double.IsFinite(bucket.ObservedMinutes)
                 && double.IsFinite(bucket.ConsumedPercent)
                 && bucket.ObservedMinutes >= 0
+                && bucket.ObservedMinutes <= BucketDuration.TotalMinutes
                 && bucket.ConsumedPercent >= 0)
             .GroupBy(bucket => bucket.Index)
             .Select(group => new AdaptiveWeeklyUsageBucket(
                 group.Key,
                 group.Sum(bucket => bucket.ObservedMinutes),
                 group.Sum(bucket => bucket.ConsumedPercent)))
+            .Where(bucket => bucket.ObservedMinutes <= BucketDuration.TotalMinutes
+                && double.IsFinite(bucket.ConsumedPercent))
             .OrderBy(bucket => bucket.Index)
             .ToArray();
         return cycle with { Buckets = buckets };

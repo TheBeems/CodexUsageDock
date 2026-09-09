@@ -56,6 +56,8 @@ Run a testhost only on a compatible Windows architecture. ARM64 Windows can run 
 
 Always specify both `Platform` and its matching RID. Omitting `-r win-x64` or `-r win-arm64` can make MSBuild combine the host architecture with a conflicting `PlatformTarget`.
 
+Tests must use `TestEnvironment` or explicitly inject both history stores and a temporary settings path. Only the production parameterless service constructor selects the current user's storage. Never instantiate it in a unit test. Each test owns and deletes its unique temporary directory; synthetic quota events must never reach real user history. Token tests await `TokenRefreshTask` separately because `RefreshAsync` completes when limits are published. Forecast arithmetic fixtures should use continuous measurements; gap and stale-data scenarios are tested separately.
+
 ## Integration smoke test
 
 After building the matching Debug package, run the non-destructive preflight:
@@ -94,6 +96,8 @@ Complete every row on a clean x64 environment and a separate clean ARM64 environ
 | No-data failure | Required | Required | In an isolated account with neither a CLI nor session data, the extension shows a bounded unavailable/error state and does not crash or loop. |
 
 Store install, update, and uninstall behavior must be tested with a Store-signed test acquisition when it is available. Development manifest registration is sufficient only for the earlier COM activation, discovery, page, Dock, and settings checks.
+
+For settings and storage changes, also restart Command Palette and Windows in the isolated test environment and verify all saved choices, including the first refresh interval. Make the test settings/history file unwritable, verify a visible failure, restore write access, and retry. A failed learned-history deletion must preserve the saved history; a successful deletion must remain cleared after restart. With a large synthetic session directory, verify that limits appear before token analysis completes and that text and chart projections both pause after a measurement gap.
 
 ## Build the Microsoft Store package
 

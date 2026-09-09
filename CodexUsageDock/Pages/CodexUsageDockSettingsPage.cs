@@ -1,6 +1,8 @@
 using Microsoft.CommandPalette.Extensions;
 using Microsoft.CommandPalette.Extensions.Toolkit;
 using Microsoft.CmdPal.Common.Commands;
+using System.Text.Json;
+using System.Text.Json.Nodes;
 
 namespace CodexUsageDock;
 
@@ -13,9 +15,22 @@ internal sealed partial class CodexUsageDockSettingsPage : ContentPage
     private const string RefreshIntervalKey = "refreshInterval";
     private const string UseAdaptiveWeeklyForecastKey = "useAdaptiveWeeklyForecast";
     private readonly Settings _settings = new();
+    private readonly string _path;
+    private readonly FormContent _statusContent = new()
+    {
+        TemplateJson = """
+        {"type":"AdaptiveCard","version":"1.5","body":[{"type":"TextBlock","text":"${message}","color":"${color}","wrap":true}]}
+        """,
+    };
 
     public CodexUsageDockSettingsPage()
+        : this(LocalStorage.GetPath("settings.json"))
     {
+    }
+
+    internal CodexUsageDockSettingsPage(string path)
+    {
+        _path = Path.GetFullPath(path);
         Name = "Settings";
         Title = "Codex Usage settings";
         Icon = new IconInfo("\uE713");
@@ -74,6 +89,7 @@ internal sealed partial class CodexUsageDockSettingsPage : ContentPage
                 Title = "Delete learned forecast history",
             },
         ];
+        Load();
         _settings.SettingsChanged += OnSettingsChanged;
     }
 
@@ -93,7 +109,18 @@ internal sealed partial class CodexUsageDockSettingsPage : ContentPage
 
     public TimeSpan RefreshInterval => ParseRefreshInterval(_settings.GetSetting<string>(RefreshIntervalKey));
 
-    public override IContent[] GetContent() => _settings.ToContent();
+    internal string? StatusMessage { get; private set; }
+
+    public override IContent[] GetContent() => StatusMessage is null
+        ? _settings.ToContent()
+        : [_statusContent, .. _settings.ToContent()];
+
+    internal void ShowOperationStatus(string? message, bool succeeded = false)
+    {
+        StatusMessage = message;
+        _statusContent.DataJson = new JsonObject { ["message"] = message, ["color"] = succeeded ? "Good" : "Attention" }.ToJsonString();
+        RaiseItemsChanged(0);
+    }
 
     internal static TimeSpan ParseRefreshInterval(string? value) => value switch
     {
@@ -102,5 +129,54 @@ internal sealed partial class CodexUsageDockSettingsPage : ContentPage
         _ => TimeSpan.FromMinutes(1),
     };
 
-    private void OnSettingsChanged(object sender, Settings args) => Changed?.Invoke(this, EventArgs.Empty);
+    private void Load()
+    {
+        try
+        {
+            if (!File.Exists(_path))
+            {
+                return;
+            }
+
+            using var document = JsonDocument.Parse(File.ReadAllText(_path));
+            if (document.RootElement.ValueKind != JsonValueKind.Object)
+            {
+                throw new JsonException("Settings must be an object.");
+            }
+
+            var valid = new JsonObject();
+            foreach (var property in document.RootElement.EnumerateObject())
+            {
+                if (property.Value.ValueKind != JsonValueKind.String)
+                {
+                    continue;
+                }
+
+                var value = property.Value.GetString();
+                if (property.Name == RefreshIntervalKey && value is "1" or "5" or "15")
+                {
+                    valid[property.Name] = value;
+                }
+                else if (property.Name is ShowFiveHourLimitKey or ShowWeeklyLimitKey or ShowResetsAndCreditsKey or ShowResetTimeKey or UseAdaptiveWeeklyForecastKey
+                    && bool.TryParse(value, out var enabled))
+                {
+                    valid[property.Name] = enabled ? "true" : "false";
+                }
+            }
+
+            _settings.Update(valid.ToJsonString());
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException or JsonException)
+        {
+            LocalStorage.TraceFailure("load settings", error);
+            ShowOperationStatus("Saved settings could not be read. Default settings are being used.");
+        }
+    }
+
+    private void OnSettingsChanged(object sender, Settings args)
+    {
+        var saved = LocalStorage.TryWrite(_path, _settings.ToJson());
+        ShowOperationStatus(saved ? null : "Settings apply now but could not be saved. Try saving again before restarting.");
+        Changed?.Invoke(this, EventArgs.Empty);
+    }
 }

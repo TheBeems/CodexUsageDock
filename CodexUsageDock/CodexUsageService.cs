@@ -17,8 +17,11 @@ internal sealed partial class CodexUsageService : IDisposable
     private readonly CancellationTokenSource _lifetimeCancellation = new();
     private readonly Func<CancellationToken, Task<CodexUsageSnapshot>> _appServerReader;
     private readonly Func<CancellationToken, CodexUsageSnapshot> _localSessionReader;
-    private readonly Func<DateTimeOffset, DateTimeOffset, TimeZoneInfo, CancellationToken, Task<LocalTokenUsageSnapshot>> _localTokenUsageReader;
+    private readonly Func<DateTimeOffset, DateTimeOffset, TimeZoneInfo, CancellationToken, Task<LocalTokenUsageSnapshot>>? _localTokenUsageReader;
     private Task? _refreshTask;
+    private Task<LocalTokenUsageSnapshot>? _tokenReadTask;
+    private Task _tokenRefreshTask = Task.CompletedTask;
+    private long _tokenGeneration;
     private bool _disposed;
     private bool _isLoading;
     private bool _started;
@@ -29,6 +32,8 @@ internal sealed partial class CodexUsageService : IDisposable
         : this(
             CodexAppServerReader.ReadAsync,
             LocalCodexSessionReader.ReadLatest,
+            WeeklyUsageHistoryStore.CreateDefault(),
+            AdaptiveWeeklyUsageStore.CreateDefault(),
             localTokenUsageReader: new LocalCodexTokenUsageReader().ReadAsync)
     {
     }
@@ -36,23 +41,23 @@ internal sealed partial class CodexUsageService : IDisposable
     internal CodexUsageService(
         Func<CancellationToken, Task<CodexUsageSnapshot>> appServerReader,
         Func<CancellationToken, CodexUsageSnapshot> localSessionReader,
-        WeeklyUsageHistoryStore? weeklyHistoryStore = null,
-        AdaptiveWeeklyUsageStore? adaptiveWeeklyUsageStore = null,
+        WeeklyUsageHistoryStore weeklyHistoryStore,
+        AdaptiveWeeklyUsageStore adaptiveWeeklyUsageStore,
         Func<DateTimeOffset, DateTimeOffset, TimeZoneInfo, CancellationToken, Task<LocalTokenUsageSnapshot>>? localTokenUsageReader = null)
     {
         _appServerReader = appServerReader;
         _localSessionReader = localSessionReader;
-        _localTokenUsageReader = localTokenUsageReader ?? ((_, _, _, _) => Task.FromResult(LocalTokenUsageSnapshot.Unavailable));
-        _weeklyHistoryStore = weeklyHistoryStore ?? WeeklyUsageHistoryStore.CreateDefault();
-        _adaptiveWeeklyUsageStore = adaptiveWeeklyUsageStore ?? AdaptiveWeeklyUsageStore.CreateDefault();
+        _localTokenUsageReader = localTokenUsageReader;
+        _weeklyHistoryStore = weeklyHistoryStore;
+        _adaptiveWeeklyUsageStore = adaptiveWeeklyUsageStore;
         _weeklyHistory.AddRange(_weeklyHistoryStore.Load(DateTimeOffset.Now));
     }
 
     internal CodexUsageService(
         Func<CancellationToken, Task<CodexUsageSnapshot>> appServerReader,
         Func<CodexUsageSnapshot> localSessionReader,
-        WeeklyUsageHistoryStore? weeklyHistoryStore = null,
-        AdaptiveWeeklyUsageStore? adaptiveWeeklyUsageStore = null,
+        WeeklyUsageHistoryStore weeklyHistoryStore,
+        AdaptiveWeeklyUsageStore adaptiveWeeklyUsageStore,
         Func<DateTimeOffset, DateTimeOffset, TimeZoneInfo, CancellationToken, Task<LocalTokenUsageSnapshot>>? localTokenUsageReader = null)
         : this(appServerReader, _ => localSessionReader(), weeklyHistoryStore, adaptiveWeeklyUsageStore, localTokenUsageReader)
     {
@@ -61,6 +66,17 @@ internal sealed partial class CodexUsageService : IDisposable
     public CodexUsageSnapshot Current { get; private set; } = CodexUsageSnapshot.Loading;
 
     public LocalTokenUsageSnapshot CurrentTokenUsage { get; private set; } = LocalTokenUsageSnapshot.Unavailable;
+
+    internal Task TokenRefreshTask
+    {
+        get
+        {
+            lock (_refreshStateLock)
+            {
+                return _tokenRefreshTask;
+            }
+        }
+    }
 
     public bool IsLoading
     {
@@ -158,17 +174,29 @@ internal sealed partial class CodexUsageService : IDisposable
         }
     }
 
-    internal void ClearAdaptiveWeeklyHistory()
+    internal bool ClearAdaptiveWeeklyHistory()
     {
         lock (_historyLock)
         {
-            _adaptiveWeeklyUsageStore.Clear();
+            return _adaptiveWeeklyUsageStore.Clear();
+        }
+    }
+
+    internal string? HistoryStorageError
+    {
+        get
+        {
+            lock (_historyLock)
+            {
+                return _weeklyHistoryStore.StorageError ?? _adaptiveWeeklyUsageStore.StorageError;
+            }
         }
     }
 
     public Task RefreshAsync()
     {
         TaskCompletionSource completion;
+        CancellationToken cancellationToken;
         lock (_refreshStateLock)
         {
             if (_disposed)
@@ -184,10 +212,11 @@ internal sealed partial class CodexUsageService : IDisposable
             _isLoading = true;
             completion = new(TaskCreationOptions.RunContinuationsAsynchronously);
             _refreshTask = completion.Task;
+            cancellationToken = _lifetimeCancellation.Token;
         }
 
         RaiseUpdated();
-        _ = ExecuteRefreshAsync(completion, _lifetimeCancellation.Token);
+        _ = ExecuteRefreshAsync(completion, cancellationToken);
         return completion.Task;
     }
 
@@ -248,17 +277,18 @@ internal sealed partial class CodexUsageService : IDisposable
     }
 
     private TimeSpan GetAdaptiveMaximumGap() =>
-        TimeSpan.FromTicks(Math.Max(TimeSpan.FromMinutes(5).Ticks, RefreshInterval.Ticks) * 3);
+        UsageTrendHistory.MaximumGap(RefreshInterval);
 
     private async Task ExecuteRefreshAsync(TaskCompletionSource completion, CancellationToken cancellationToken)
     {
+        CodexUsageSnapshot? tokenSnapshot = null;
         try
         {
             var snapshot = await ReadSnapshotAsync(cancellationToken).ConfigureAwait(false);
-            var tokenUsage = await ReadTokenUsageAsync(snapshot, cancellationToken).ConfigureAwait(false);
-            if (!cancellationToken.IsCancellationRequested && TryPublish(snapshot, tokenUsage))
+            if (!cancellationToken.IsCancellationRequested && TryPublish(snapshot))
             {
                 RecordHistory(snapshot);
+                tokenSnapshot = snapshot;
             }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -268,7 +298,7 @@ internal sealed partial class CodexUsageService : IDisposable
         {
             TraceFailure("unexpected refresh", error);
             var unavailable = CreateUnavailableSnapshot();
-            if (TryPublish(unavailable, LocalTokenUsageSnapshot.Unavailable with { UpdatedAt = DateTimeOffset.Now }))
+            if (TryPublish(unavailable))
             {
                 RecordHistory(unavailable);
             }
@@ -281,6 +311,10 @@ internal sealed partial class CodexUsageService : IDisposable
             }
 
             RaiseUpdated();
+            if (tokenSnapshot is not null)
+            {
+                StartTokenRefresh(tokenSnapshot);
+            }
             completion.TrySetResult();
         }
     }
@@ -328,7 +362,7 @@ internal sealed partial class CodexUsageService : IDisposable
         var windowEnd = DateTimeOffset.Now < weekly.ResetsAt ? DateTimeOffset.Now : weekly.ResetsAt;
         try
         {
-            return await _localTokenUsageReader(windowStart, windowEnd, TimeZoneInfo.Local, cancellationToken).ConfigureAwait(false);
+            return await _localTokenUsageReader!(windowStart, windowEnd, TimeZoneInfo.Local, cancellationToken).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -341,7 +375,69 @@ internal sealed partial class CodexUsageService : IDisposable
         }
     }
 
-    private bool TryPublish(CodexUsageSnapshot snapshot, LocalTokenUsageSnapshot tokenUsage)
+    private void StartTokenRefresh(CodexUsageSnapshot snapshot)
+    {
+        lock (_refreshStateLock)
+        {
+            if (_disposed || _localTokenUsageReader is null || snapshot.Secondary is null
+                || _tokenReadTask is { IsCompleted: false })
+            {
+                return;
+            }
+
+            var cancellation = CancellationTokenSource.CreateLinkedTokenSource(_lifetimeCancellation.Token);
+            cancellation.CancelAfter(TimeSpan.FromSeconds(20));
+            // Keep the actual read task, even after a timeout, so a non-cooperative
+            // file read cannot cause overlapping scans of the reader's mutable cache.
+            var generation = _tokenGeneration;
+            var read = _tokenReadTask = Task.Run(() => ReadTokenUsageAsync(snapshot, cancellation.Token));
+            // Notifications must run outside the state lock, even if the read finishes immediately.
+            _tokenRefreshTask = Task.Run(() => ObserveTokenRefreshAsync(read, cancellation, generation));
+        }
+    }
+
+    private async Task ObserveTokenRefreshAsync(Task<LocalTokenUsageSnapshot> read, CancellationTokenSource cancellation, long generation)
+    {
+        try
+        {
+            var result = await read.WaitAsync(cancellation.Token).ConfigureAwait(false);
+            lock (_refreshStateLock)
+            {
+                if (_disposed || generation != _tokenGeneration)
+                {
+                    return;
+                }
+
+                CurrentTokenUsage = result;
+            }
+
+            RaiseUpdated();
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch (Exception error)
+        {
+            TraceFailure("token refresh", error);
+        }
+        finally
+        {
+            if (read.IsCompleted)
+            {
+                cancellation.Dispose();
+            }
+            else
+            {
+                _ = read.ContinueWith(task =>
+                {
+                    _ = task.Exception;
+                    cancellation.Dispose();
+                }, CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+            }
+        }
+    }
+
+    private bool TryPublish(CodexUsageSnapshot snapshot)
     {
         lock (_refreshStateLock)
         {
@@ -350,8 +446,14 @@ internal sealed partial class CodexUsageService : IDisposable
                 return false;
             }
 
+            if (Current.Secondary?.ResetsAt != snapshot.Secondary?.ResetsAt
+                || snapshot.Source == UsageDataSource.Unavailable)
+            {
+                CurrentTokenUsage = LocalTokenUsageSnapshot.Unavailable;
+            }
+
             Current = snapshot;
-            CurrentTokenUsage = tokenUsage;
+            _tokenGeneration++;
             return true;
         }
     }
@@ -415,7 +517,7 @@ internal sealed partial class CodexUsageService : IDisposable
             }
 
             _disposed = true;
-            refreshTask = _refreshTask;
+            refreshTask = Task.WhenAll(_refreshTask ?? Task.CompletedTask, _tokenRefreshTask);
         }
 
         _timer.Stop();

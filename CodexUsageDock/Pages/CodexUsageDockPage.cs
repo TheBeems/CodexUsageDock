@@ -8,6 +8,8 @@ namespace CodexUsageDock;
 internal sealed partial class CodexUsageDockPage : ContentPage, IDisposable
 {
     private static readonly string Version = CodexUsageDockMetadata.Version;
+    private readonly object _presentationLock = new();
+    private bool _disposed;
     private readonly CodexUsageService _usage;
     private readonly CodexUsageDockSettingsPage _settings;
     private readonly FormContent _mainContent = new()
@@ -136,7 +138,9 @@ internal sealed partial class CodexUsageDockPage : ContentPage, IDisposable
 
     private static (string Title, string Description) FormatSummaryParts(CodexUsageSnapshot snapshot, DateTimeOffset now)
     {
-        var activeWindow = snapshot.Primary ?? snapshot.Secondary;
+        var activeWindow = snapshot.Primary is { } primary && snapshot.Secondary is { } secondary
+            ? (primary.RemainingPercent <= secondary.RemainingPercent ? primary : secondary)
+            : snapshot.Primary ?? snapshot.Secondary;
         if (activeWindow is null)
         {
             return ("Status: Usage allowance unknown", FormatDataStatus(snapshot, now));
@@ -152,7 +156,10 @@ internal sealed partial class CodexUsageDockPage : ContentPage, IDisposable
         var weekly = snapshot.Primary is not null && snapshot.Secondary is not null
             ? $" Weekly allowance: {snapshot.Secondary.RemainingPercent:0}%."
             : string.Empty;
-        return ($"Status: {title}", $"{remaining:0}% available; resets {FormatRelativeTime(activeWindow.ResetsAt, now)}.{weekly}");
+        var limitingWindow = snapshot.Primary is not null && snapshot.Secondary is not null
+            ? (ReferenceEquals(activeWindow, snapshot.Secondary) ? "Weekly window: " : "5-hour window: ")
+            : string.Empty;
+        return ($"Status: {title}", $"{limitingWindow}{remaining:0}% available; resets {FormatRelativeTime(activeWindow.ResetsAt, now)}.{weekly}");
     }
 
     internal static string FormatCredits(CreditBalance? credits)
@@ -209,7 +216,7 @@ internal sealed partial class CodexUsageDockPage : ContentPage, IDisposable
         return $"## {name}\n\n**{window.RemainingPercent:0}% available**  \nResets {FormatRelativeTime(window.ResetsAt, now)} · {FormatLocalTime(window.ResetsAt, "ddd d MMM HH:mm")}";
     }
 
-    private static TrendAnalysis? AddWindowData(
+    private static UsageTrendAnalyzer.TrendAnalysis? AddWindowData(
         JsonObject data,
         string prefix,
         string windowName,
@@ -248,9 +255,9 @@ internal sealed partial class CodexUsageDockPage : ContentPage, IDisposable
         data[$"{prefix}PaceStatus"] = paceStatus;
         data[$"{prefix}PaceColor"] = paceColor;
 
-        var currentHistory = GetCurrentTrendHistory(history, windowStartsAt);
-        var trend = AnalyzeTrend(
-            currentHistory,
+
+        var trend = UsageTrendAnalyzer.Analyze(
+            history,
             windowStartsAt,
             window.ResetsAt,
             now,
@@ -266,7 +273,7 @@ internal sealed partial class CodexUsageDockPage : ContentPage, IDisposable
         JsonObject data,
         RateLimitWindow? window,
         IReadOnlyList<UsageHistoryEntry> history,
-        TrendAnalysis? trend,
+        UsageTrendAnalyzer.TrendAnalysis? trend,
         bool dataAvailable,
         DateTimeOffset now,
         TimeSpan maximumGap,
@@ -282,7 +289,7 @@ internal sealed partial class CodexUsageDockPage : ContentPage, IDisposable
         data["weeklyForecastStatus"] = trend.ForecastStatus;
 
         var windowStartsAt = window.ResetsAt - TimeSpan.FromMinutes(window.WindowMinutes);
-        var chartHistory = GetHistoryInWindow(history, windowStartsAt);
+        var chartHistory = history.Where(sample => sample.RecordedAt >= windowStartsAt).ToArray();
         if (chartHistory.Length < 2)
         {
             return;
@@ -458,7 +465,7 @@ internal sealed partial class CodexUsageDockPage : ContentPage, IDisposable
         bool adaptiveWeeklyForecastEnabled = false,
         AdaptiveWeeklyUsageHistory? adaptiveWeeklyHistory = null)
     {
-        var analysis = AnalyzeTrend(
+        var analysis = UsageTrendAnalyzer.Analyze(
             history,
             windowStartsAt,
             resetsAt,
@@ -476,148 +483,11 @@ internal sealed partial class CodexUsageDockPage : ContentPage, IDisposable
         return $"{analysis.HistoryValues}  \n{message}";
     }
 
-    private static TrendAnalysis AnalyzeTrend(
-        IReadOnlyList<UsageHistoryEntry> history,
-        DateTimeOffset? windowStartsAt,
-        DateTimeOffset? resetsAt,
-        DateTimeOffset now,
-        bool dataAvailable,
-        TimeSpan maximumSampleAge,
-        bool adaptiveWeeklyForecastEnabled = false,
-        AdaptiveWeeklyUsageHistory? adaptiveWeeklyHistory = null)
-    {
-        if (!dataAvailable)
-        {
-            return new([], null, "Projection unavailable until fresh usage data is loaded.", false, null, "Forecast unavailable.");
-        }
-
-        var currentWindow = GetCurrentTrendHistory(history, windowStartsAt);
-        if (currentWindow.Length < 2)
-        {
-            return new(currentWindow, null, "Projection will appear after another measurement.", false, null, "Forecast: waiting for another measurement.");
-        }
-
-        var samples = currentWindow.Length <= 5 ? currentWindow : currentWindow.Where((_, index) => index % Math.Max(1, currentWindow.Length / 4) == 0).Take(4).Append(currentWindow[^1]).ToArray();
-        var values = string.Join(" → ", samples.Select(sample => $"{sample.RemainingPercent:0}%"));
-        var first = currentWindow[0];
-        var last = currentWindow[^1];
-        var elapsedMinutes = (last.RecordedAt - first.RecordedAt).TotalMinutes;
-        var consumed = first.RemainingPercent - last.RemainingPercent;
-        if (elapsedMinutes < 2 || consumed <= 0.5)
-        {
-            return new(currentWindow, values, "No meaningful change yet; projection pending.", false, null, "Forecast: waiting for a meaningful change.");
-        }
-
-        if (now - last.RecordedAt > maximumSampleAge)
-        {
-            return new(currentWindow, values, "Projection paused because the latest measurement is too old.", false, null, "Forecast: waiting for a fresh measurement.");
-        }
-
-        var currentRate = consumed / elapsedMinutes;
-        if (resetsAt is { } reset)
-        {
-            AdaptiveWeeklyForecastProjection projection;
-            if (windowStartsAt is { } start)
-            {
-                projection = AdaptiveWeeklyForecast.Project(
-                    last,
-                    start,
-                    reset,
-                    currentRate,
-                    adaptiveWeeklyForecastEnabled,
-                    adaptiveWeeklyHistory);
-            }
-            else
-            {
-                var estimatedAtCurrentRate = last.RecordedAt.AddMinutes(last.RemainingPercent / currentRate);
-                var forecast = estimatedAtCurrentRate >= reset
-                    ? new UsageTrendForecast(
-                        reset,
-                        Math.Max(0, last.RemainingPercent - currentRate * (reset - last.RecordedAt).TotalMinutes),
-                        false,
-                        [new UsageTrendForecastPoint(reset, Math.Max(0, last.RemainingPercent - currentRate * (reset - last.RecordedAt).TotalMinutes))])
-                    : new UsageTrendForecast(
-                        estimatedAtCurrentRate,
-                        0,
-                        true,
-                        [new UsageTrendForecastPoint(estimatedAtCurrentRate, 0)]);
-                projection = new AdaptiveWeeklyForecastProjection(forecast, "Forecast: current pace only.");
-            }
-
-            if (!projection.Forecast.ReachesLimitBeforeReset)
-            {
-                return new(
-                    currentWindow,
-                    values,
-                    $"Projected at reset: {projection.Forecast.RemainingPercent:0}% available.",
-                    true,
-                    projection.Forecast,
-                    projection.Status);
-            }
-
-            return new(
-                currentWindow,
-                values,
-                $"At the current rate, the limit may be reached around {FormatLimitEstimate(projection.Forecast.EndsAt, now)}.",
-                true,
-                projection.Forecast,
-                projection.Status);
-        }
-
-        var minutesToEmpty = last.RemainingPercent / currentRate;
-        var estimated = last.RecordedAt.AddMinutes(minutesToEmpty);
-
-        return new(
-            currentWindow,
-            values,
-            $"At the current rate, the limit may be reached around {FormatLimitEstimate(estimated, now)}.",
-            true,
-            new UsageTrendForecast(estimated, 0, true, [new UsageTrendForecastPoint(estimated, 0)]),
-            "Forecast: current pace only.");
-    }
-
-    private sealed record TrendAnalysis(
-        UsageHistoryEntry[] History,
-        string? HistoryValues,
-        string Message,
-        bool IsEstimate,
-        UsageTrendForecast? Forecast,
-        string ForecastStatus);
-
-    private static UsageHistoryEntry[] GetCurrentTrendHistory(
-        IReadOnlyList<UsageHistoryEntry> history,
-        DateTimeOffset? windowStartsAt)
-    {
-        var historyInCurrentWindow = GetHistoryInWindow(history, windowStartsAt);
-        var segmentStart = 0;
-        for (var index = 1; index < historyInCurrentWindow.Length; index++)
-        {
-            if (WeeklyAllowanceRestoration.IsIncrease(historyInCurrentWindow[index - 1], historyInCurrentWindow[index]))
-            {
-                segmentStart = index;
-            }
-        }
-
-        return historyInCurrentWindow[segmentStart..];
-    }
-
-    private static UsageHistoryEntry[] GetHistoryInWindow(
-        IReadOnlyList<UsageHistoryEntry> history,
-        DateTimeOffset? windowStartsAt) =>
-        windowStartsAt is { } start
-            ? history.Where(sample => sample.RecordedAt >= start).ToArray()
-            : history.ToArray();
-
-    private static string FormatLimitEstimate(DateTimeOffset estimated, DateTimeOffset now) =>
-        estimated.ToLocalTime().Date == now.ToLocalTime().Date
-            ? FormatLocalTime(estimated, "HH:mm")
-            : FormatLocalTime(estimated, "ddd d MMM HH:mm");
-
     private static TimeSpan TrendFreshness(TimeSpan refreshInterval) =>
-        refreshInterval > TimeSpan.FromMinutes(5) ? refreshInterval : TimeSpan.FromMinutes(5);
+        UsageTrendHistory.Freshness(refreshInterval);
 
     private static TimeSpan TrendMaximumGap(TimeSpan refreshInterval) =>
-        TimeSpan.FromTicks(TrendFreshness(refreshInterval).Ticks * 3);
+        UsageTrendHistory.MaximumGap(refreshInterval);
 
     internal static string FormatResetSummary(RateLimitResetCredits? resets, DateTimeOffset now)
     {
@@ -678,28 +548,44 @@ internal sealed partial class CodexUsageDockPage : ContentPage, IDisposable
 
     private void UpdatePresentation()
     {
-        var snapshot = _usage.Current;
-        var now = DateTimeOffset.Now;
-        IsLoading = _usage.IsLoading;
-        _mainContent.DataJson = FormatMainDataJson(
-            snapshot,
-            now,
-            _usage.IsLoading,
-            _usage.PrimaryHistory,
-            _usage.WeeklyHistory,
-            _usage.RefreshInterval,
-            _settings.UseAdaptiveWeeklyForecast,
-            _usage.AdaptiveWeeklyHistory,
-            _usage.CurrentTokenUsage);
-        _details.Body = FormatDetailsBody(snapshot, now, _usage.WeeklyHistory);
+        lock (_presentationLock)
+        {
+            if (_disposed)
+            {
+                return;
+            }
+
+            var snapshot = _usage.Current;
+            var now = DateTimeOffset.Now;
+            IsLoading = _usage.IsLoading;
+            _mainContent.DataJson = FormatMainDataJson(
+                snapshot,
+                now,
+                _usage.IsLoading,
+                _usage.PrimaryHistory,
+                _usage.WeeklyHistory,
+                _usage.RefreshInterval,
+                _settings.UseAdaptiveWeeklyForecast,
+                _usage.AdaptiveWeeklyHistory,
+                _usage.CurrentTokenUsage);
+            _details.Body = FormatDetailsBody(snapshot, now, _usage.WeeklyHistory)
+                + (_usage.HistoryStorageError is { } error ? $"\n\n> **Local storage:** {error}" : string.Empty);
+        }
+
         RaiseItemsChanged(0);
     }
 
     private void OnUpdated(object? sender, EventArgs e) => UpdatePresentation();
 
+    internal void Refresh() => UpdatePresentation();
+
     public void Dispose()
     {
-        _usage.Updated -= OnUpdated;
+        lock (_presentationLock)
+        {
+            _disposed = true;
+            _usage.Updated -= OnUpdated;
+        }
         GC.SuppressFinalize(this);
     }
 }

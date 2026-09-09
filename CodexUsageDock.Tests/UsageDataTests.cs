@@ -6,8 +6,12 @@ using Microsoft.CommandPalette.Extensions.Toolkit;
 using Xunit;
 namespace CodexUsageDock.Tests;
 
-public sealed class UsageDataTests
+public sealed class UsageDataTests : IDisposable
 {
+    private readonly TestEnvironment _environment = new();
+
+    public void Dispose() => _environment.Dispose();
+
     private static readonly TimeSpan AsyncTestTimeout = TimeSpan.FromSeconds(5);
     private static readonly XNamespace Svg = "http://www.w3.org/2000/svg";
 
@@ -46,7 +50,7 @@ public sealed class UsageDataTests
     [Fact]
     public void SettingsDefaultToShowingAllDockUsageInformation()
     {
-        var settings = new CodexUsageDockSettingsPage();
+        var settings = _environment.CreateSettings();
 
         Assert.True(settings.ShowFiveHourLimit);
         Assert.True(settings.ShowWeeklyLimit);
@@ -196,18 +200,18 @@ public sealed class UsageDataTests
     [Fact]
     public void DetailsPageUsesTheProjectReleaseVersion()
     {
-        using var service = new CodexUsageService();
-        using var page = new CodexUsageDockPage(service, new CodexUsageDockSettingsPage());
+        using var service = _environment.CreateService();
+        using var page = new CodexUsageDockPage(service, _environment.CreateSettings());
 
-        Assert.Equal("0.6.0", CodexUsageDockMetadata.Version);
+        Assert.Equal("0.6.1", CodexUsageDockMetadata.Version);
         Assert.Equal($"Codex Usage - {CodexUsageDockMetadata.Version}", page.Title);
     }
 
     [Fact]
     public void DetailsPageContextMenuIncludesRefreshThenSettings()
     {
-        using var service = new CodexUsageService();
-        using var page = new CodexUsageDockPage(service, new CodexUsageDockSettingsPage());
+        using var service = _environment.CreateService();
+        using var page = new CodexUsageDockPage(service, _environment.CreateSettings());
 
         Assert.Collection(
             page.Commands,
@@ -218,8 +222,8 @@ public sealed class UsageDataTests
     [Fact]
     public void DetailsPageUsesNativeMediumDetailsPane()
     {
-        using var service = new CodexUsageService();
-        using var page = new CodexUsageDockPage(service, new CodexUsageDockSettingsPage());
+        using var service = _environment.CreateService();
+        using var page = new CodexUsageDockPage(service, _environment.CreateSettings());
 
         var details = Assert.IsType<Details>(page.Details);
         var main = Assert.IsType<FormContent>(Assert.Single(page.GetContent()));
@@ -255,12 +259,8 @@ public sealed class UsageDataTests
             snapshot,
             now,
             isLoading: false,
-            [new UsageHistoryEntry(now.AddMinutes(-30), 90), new UsageHistoryEntry(now, 80)],
-            [
-                new UsageHistoryEntry(now.AddHours(-12), 99),
-                new UsageHistoryEntry(now.AddMinutes(-10), 98.01),
-                new UsageHistoryEntry(now, 98),
-            ],
+            ContinuousHistory(now.AddMinutes(-30), 90, now, 80),
+            ContinuousHistory(now.AddHours(-12), 99, now, 98),
             TimeSpan.FromMinutes(1));
         var details = CodexUsageDockPage.FormatDetailsBody(snapshot, now);
         using var mainData = JsonDocument.Parse(main);
@@ -380,7 +380,7 @@ public sealed class UsageDataTests
             primaryHistory: [],
             weeklyHistory:
             [
-                new UsageHistoryEntry(now.AddHours(-1), 90),
+                new UsageHistoryEntry(now.AddMinutes(-10), 90),
                 new UsageHistoryEntry(now, 80),
             ],
             refreshInterval: TimeSpan.FromMinutes(1),
@@ -399,10 +399,10 @@ public sealed class UsageDataTests
     {
         var now = DateTimeOffset.Now;
         var result = new TaskCompletionSource<CodexUsageSnapshot>(TaskCreationOptions.RunContinuationsAsynchronously);
-        using var service = new CodexUsageService(
+        using var service = _environment.CreateService(
             _ => result.Task,
             () => throw new InvalidOperationException("Fallback should not run."));
-        using var page = new CodexUsageDockPage(service, new CodexUsageDockSettingsPage());
+        using var page = new CodexUsageDockPage(service, _environment.CreateSettings());
         var main = Assert.IsType<FormContent>(Assert.Single(page.GetContent()));
         var details = Assert.IsType<Details>(page.Details);
 
@@ -449,10 +449,10 @@ public sealed class UsageDataTests
     {
         var now = DateTimeOffset.Now;
         var result = new TaskCompletionSource<CodexUsageSnapshot>(TaskCreationOptions.RunContinuationsAsynchronously);
-        var service = new CodexUsageService(
+        var service = _environment.CreateService(
             _ => result.Task,
             () => throw new InvalidOperationException("Fallback should not run."));
-        var provider = new CodexUsageDockCommandsProvider(service, new CodexUsageDockSettingsPage());
+        var provider = new CodexUsageDockCommandsProvider(service, _environment.CreateSettings());
         try
         {
             var invalidationCount = 0;
@@ -1450,14 +1450,14 @@ public sealed class UsageDataTests
         var now = new DateTimeOffset(2026, 7, 12, 14, 30, 0, TimeSpan.Zero);
         UsageHistoryEntry[] history =
         [
-            new(now.AddMinutes(-30), 80),
+            new(now.AddMinutes(-10), 80),
             new(now, 60),
         ];
 
         var trend = CodexUsageDockPage.FormatTrend(history, now);
 
         Assert.Contains("80% → 60%", trend, StringComparison.Ordinal);
-        Assert.Contains($"limit may be reached around {now.AddMinutes(90).ToLocalTime():HH:mm}", trend, StringComparison.Ordinal);
+        Assert.Contains($"limit may be reached around {now.AddMinutes(30).ToLocalTime():HH:mm}", trend, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -1468,7 +1468,7 @@ public sealed class UsageDataTests
         [
             new(now.AddMinutes(-90), 10),
             new(now.AddMinutes(-60), 5),
-            new(now.AddMinutes(-30), 100),
+            new(now.AddMinutes(-10), 100),
             new(now, 80),
         ];
 
@@ -1476,7 +1476,7 @@ public sealed class UsageDataTests
 
         Assert.Contains("100% → 80%", trend, StringComparison.Ordinal);
         Assert.DoesNotContain("10%", trend, StringComparison.Ordinal);
-        Assert.Contains($"limit may be reached around {now.AddHours(2).ToLocalTime():HH:mm}", trend, StringComparison.Ordinal);
+        Assert.Contains($"limit may be reached around {now.AddMinutes(40).ToLocalTime():HH:mm}", trend, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -1575,7 +1575,7 @@ public sealed class UsageDataTests
             Source = UsageDataSource.LocalSession,
             Error = null,
         };
-        using var service = new CodexUsageService(
+        using var service = _environment.CreateService(
             _ => Task.FromException<CodexUsageSnapshot>(new InvalidOperationException(@"C:\Users\Alice\token.json")),
             () => fallback);
 
@@ -1590,7 +1590,7 @@ public sealed class UsageDataTests
     [Fact]
     public async Task RefreshPublishesUnavailableStateWhenBothSourcesFail()
     {
-        using var service = new CodexUsageService(
+        using var service = _environment.CreateService(
             _ => Task.FromException<CodexUsageSnapshot>(new InvalidOperationException("live failure")),
             () => throw new DirectoryNotFoundException(@"C:\Users\Alice\.codex\sessions"));
 
@@ -1609,7 +1609,7 @@ public sealed class UsageDataTests
     {
         var result = new TaskCompletionSource<CodexUsageSnapshot>(TaskCreationOptions.RunContinuationsAsynchronously);
         var readCount = 0;
-        using var service = new CodexUsageService(
+        using var service = _environment.CreateService(
             _ =>
             {
                 Interlocked.Increment(ref readCount);
@@ -1640,7 +1640,7 @@ public sealed class UsageDataTests
     public async Task RefreshNotifiesLoadingAndCompletionWithoutTrustingSubscribers()
     {
         var loadingStates = new List<bool>();
-        using var service = new CodexUsageService(
+        using var service = _environment.CreateService(
             _ => Task.FromResult(CodexUsageSnapshot.Loading with
             {
                 Secondary = new RateLimitWindow(10, 10080, DateTimeOffset.Now.AddDays(3)),
@@ -1660,7 +1660,7 @@ public sealed class UsageDataTests
     public async Task DisposeCancelsAnInFlightRefreshWithoutFaultingItsTask()
     {
         var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        using var service = new CodexUsageService(
+        using var service = _environment.CreateService(
             async cancellationToken =>
             {
                 started.SetResult();
@@ -1681,7 +1681,7 @@ public sealed class UsageDataTests
     public async Task DisposeCancelsAnInFlightFallbackReader()
     {
         var fallbackStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        using var service = new CodexUsageService(
+        using var service = _environment.CreateService(
             _ => Task.FromException<CodexUsageSnapshot>(new InvalidOperationException("Live data unavailable.")),
             cancellationToken =>
             {
@@ -1708,7 +1708,7 @@ public sealed class UsageDataTests
     [Fact]
     public void History_DeduplicatesAndPrunesStaleFallbackSamples()
     {
-        using var service = new CodexUsageService();
+        using var service = _environment.CreateService();
         var now = new DateTimeOffset(2026, 7, 12, 14, 30, 0, TimeSpan.Zero);
         var staleSnapshot = CodexUsageSnapshot.Loading with
         {
@@ -1728,7 +1728,7 @@ public sealed class UsageDataTests
     [Fact]
     public void History_RejectsFallbackSamplesOlderThanLatestLiveSample()
     {
-        using var service = new CodexUsageService();
+        using var service = _environment.CreateService();
         var now = new DateTimeOffset(2026, 7, 12, 14, 30, 0, TimeSpan.Zero);
         var liveSnapshot = CodexUsageSnapshot.Loading with
         {
@@ -1754,7 +1754,7 @@ public sealed class UsageDataTests
     [Fact]
     public void History_PrunesExpiredSamplesWhenPrimaryDataIsUnavailable()
     {
-        using var service = new CodexUsageService();
+        using var service = _environment.CreateService();
         var now = new DateTimeOffset(2026, 7, 12, 14, 30, 0, TimeSpan.Zero);
         var liveSnapshot = CodexUsageSnapshot.Loading with
         {
@@ -1841,7 +1841,7 @@ public sealed class UsageDataTests
         };
         try
         {
-            using (var service = new CodexUsageService(_ => Task.FromResult(snapshot), () => snapshot, new WeeklyUsageHistoryStore(path)))
+            using (var service = _environment.CreateService(_ => Task.FromResult(snapshot), () => snapshot, new WeeklyUsageHistoryStore(path)))
             {
                 service.RecordHistory(snapshot, now);
                 service.RecordHistory(snapshot, now);
@@ -1850,7 +1850,7 @@ public sealed class UsageDataTests
                 Assert.Single(service.WeeklyHistory);
             }
 
-            using var restarted = new CodexUsageService(_ => Task.FromResult(snapshot), () => snapshot, new WeeklyUsageHistoryStore(path));
+            using var restarted = _environment.CreateService(_ => Task.FromResult(snapshot), () => snapshot, new WeeklyUsageHistoryStore(path));
             Assert.Empty(restarted.PrimaryHistory);
             Assert.Single(restarted.WeeklyHistory);
         }
@@ -1881,7 +1881,7 @@ public sealed class UsageDataTests
         var now = DateTimeOffset.Now;
         var trend = CodexUsageDockPage.FormatTrend(
             "Weekly usage trend",
-            [new UsageHistoryEntry(now.AddDays(-1), 80), new UsageHistoryEntry(now, 70)],
+            ContinuousHistory(now.AddDays(-1), 80, now, 70),
             new RateLimitWindow(30, 10080, now.AddDays(3)),
             now,
             dataAvailable: true,
@@ -1898,7 +1898,7 @@ public sealed class UsageDataTests
         var now = DateTimeOffset.Now;
         var trend = CodexUsageDockPage.FormatTrend(
             "Weekly usage trend",
-            [new UsageHistoryEntry(now.AddHours(-1), 30), new UsageHistoryEntry(now, 10)],
+            [new UsageHistoryEntry(now.AddMinutes(-10), 30), new UsageHistoryEntry(now, 10)],
             new RateLimitWindow(90, 10080, now.AddDays(3)),
             now,
             dataAvailable: true,
@@ -1914,7 +1914,7 @@ public sealed class UsageDataTests
         var estimated = now.AddHours(99);
         var trend = CodexUsageDockPage.FormatTrend(
             "Weekly usage trend",
-            [new UsageHistoryEntry(now.AddHours(-1), 100), new UsageHistoryEntry(now, 99)],
+            ContinuousHistory(now.AddHours(-1), 100, now, 99),
             new RateLimitWindow(1, 10080, now.AddDays(6)),
             now,
             dataAvailable: true,
@@ -1932,7 +1932,7 @@ public sealed class UsageDataTests
             [
                 new UsageHistoryEntry(now.AddHours(-3), 10),
                 new UsageHistoryEntry(now.AddHours(-2), 5),
-                new UsageHistoryEntry(now.AddHours(-1), 100),
+                new UsageHistoryEntry(now.AddMinutes(-10), 100),
                 new UsageHistoryEntry(now, 80),
             ],
             new RateLimitWindow(20, 10080, now.AddDays(6)),
@@ -1954,7 +1954,7 @@ public sealed class UsageDataTests
             [
                 new UsageHistoryEntry(now.AddDays(-2), 90),
                 new UsageHistoryEntry(now.AddDays(-1).AddMinutes(-1), 50),
-                new UsageHistoryEntry(now.AddHours(-1), 40),
+                new UsageHistoryEntry(now.AddMinutes(-10), 40),
                 new UsageHistoryEntry(now, 30),
             ],
             new RateLimitWindow(70, 10080, reset),
@@ -2155,7 +2155,7 @@ public sealed class UsageDataTests
         var latest = CreateSnapshot(70, now.AddMinutes(-1));
         try
         {
-            using var service = new CodexUsageService(
+            using var service = _environment.CreateService(
                 _ => Task.FromResult(latest),
                 () => latest,
                 new WeeklyUsageHistoryStore(historyPath),
@@ -2304,5 +2304,15 @@ public sealed class UsageDataTests
             document.Descendants(Svg + "polyline"),
             element => (string?)element.Attribute("stroke-dasharray") == "5 4");
         Assert.True(((string?)dashed.Attribute("points"))!.Split(' ', StringSplitOptions.RemoveEmptyEntries).Length >= 4);
+    }
+    // Forecast arithmetic fixtures model uninterrupted polling; gap behavior has separate tests.
+    private static UsageHistoryEntry[] ContinuousHistory(DateTimeOffset start, double first, DateTimeOffset end, double last)
+    {
+        var steps = (int)Math.Ceiling((end - start).TotalMinutes / 5);
+        return Enumerable.Range(0, steps + 1)
+            .Select(index => new UsageHistoryEntry(
+                start.AddTicks((end - start).Ticks * index / steps),
+                first + (last - first) * index / steps))
+            .ToArray();
     }
 }

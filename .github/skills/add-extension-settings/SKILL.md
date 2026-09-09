@@ -9,7 +9,7 @@ description: >-
 
 # Add Extension Settings
 
-Add a settings page to your Command Palette extension using the built-in settings helpers. Settings are automatically persisted and restored by the extension host.
+Add a settings page to your Command Palette extension using the built-in settings helpers. These helpers hold form values in memory; the extension must explicitly load and save them to persist choices across restarts.
 
 ## When to Use This Skill
 
@@ -23,7 +23,9 @@ Add a settings page to your Command Palette extension using the built-in setting
 
 ### Step 1: Create a Settings Manager
 
-Create a new file `SettingsManager.cs`:
+The following example illustrates wiring settings only; it is not a complete persistent settings manager. In this repository, extend the existing [CodexUsageDockSettingsPage](../../../CodexUsageDock/Pages/CodexUsageDockSettingsPage.cs) and use [LocalStorage](../../../CodexUsageDock/LocalStorage.cs). Load validated known keys after adding defaults but before subscribing to change events. Save on changes, report failures, and apply loaded choices before starting background work. Test a new instance against the same temporary file and a failed save followed by a retry.
+
+For another extension, a minimal in-memory `SettingsManager.cs` starts as follows:
 
 ```csharp
 using Microsoft.CommandPalette.Extensions;
@@ -142,7 +144,7 @@ internal sealed partial class MyPage : ListPage
 
 ## Key Points
 
-- Settings are automatically persisted by the CmdPal host
+- Persistence requires explicit load/save logic; exposing settings to CmdPal does not save them
 - Use `SettingsChanged` event to react to changes in real-time
 - Access values via `GetSetting<T>(id)` with the setting's string id
 - Pass the settings manager to pages/commands that need configuration
