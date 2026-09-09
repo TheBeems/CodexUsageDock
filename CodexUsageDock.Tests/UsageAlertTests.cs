@@ -238,11 +238,16 @@ public sealed class UsageAlertTests
             primaryRemaining: null,
             secondaryRemaining: null,
             resetCredits: outside), now: Now));
+        Assert.Empty(Evaluate(evaluator, Presentation(
+            primaryRemaining: null,
+            secondaryRemaining: null,
+            resetCredits: inside,
+            updatedAt: Now), now: Now.AddHours(2)));
         var transition = Evaluate(evaluator, Presentation(
             primaryRemaining: null,
             secondaryRemaining: null,
             resetCredits: inside,
-            updatedAt: Now), now: Now.AddHours(2));
+            updatedAt: Now.AddHours(2)), now: Now.AddHours(2));
         Assert.Single(transition);
         Assert.StartsWith("reset-expiry:", transition[0].Key, StringComparison.Ordinal);
         Assert.DoesNotContain("First title", transition[0].Message, StringComparison.Ordinal);
@@ -252,12 +257,12 @@ public sealed class UsageAlertTests
             primaryRemaining: null,
             secondaryRemaining: null,
             resetCredits: new RateLimitResetCredits(1, [new RateLimitResetCredit("Changed title", "available", expiry)]),
-            updatedAt: Now), now: Now.AddHours(2)));
+            updatedAt: Now.AddHours(2)), now: Now.AddHours(2)));
         Assert.Empty(Evaluate(evaluator, Presentation(
             primaryRemaining: null,
             secondaryRemaining: null,
             resetCredits: new RateLimitResetCredits(1, [new RateLimitResetCredit("Used", "used", expiry)]),
-            updatedAt: Now), now: Now.AddHours(2)));
+            updatedAt: Now.AddHours(2)), now: Now.AddHours(2)));
     }
 
     [Fact]

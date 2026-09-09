@@ -10,7 +10,7 @@ Each entry links to the commit or pull request that introduced the change.
 
 ### Added
 
-- Optional quiet usage alerts, compact Dock labels, and separate pinnable quota and credit entries with stable identifiers. ([PR #19](https://github.com/TheBeems/CodexUsageDock/pull/19))
+- Optional quiet usage alerts from fresh, identified accounts, compact Dock labels, and separate pinnable quota and credit entries with stable identifiers. ([PR #19](https://github.com/TheBeems/CodexUsageDock/pull/19))
 - Account-wide daily token activity on compatible Codex versions, with independent refresh and account-identity verification. ([PR #19](https://github.com/TheBeems/CodexUsageDock/pull/19))
 - Explicit executable and Codex home settings, with invalid-source errors and protection against results from a previous profile. ([PR #19](https://github.com/TheBeems/CodexUsageDock/pull/19))
 - Separate quota categories and arbitrary window durations from modern Codex responses, while preserving legacy five-hour and weekly limits. ([PR #18](https://github.com/TheBeems/CodexUsageDock/pull/18))

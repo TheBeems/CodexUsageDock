@@ -240,7 +240,9 @@ public sealed class AccountUsageTests
         var info = CodexAppServerReader.CreateStartInfo(new CodexSourceOptions(executable, home));
 
         Assert.Equal(executable, info.FileName);
-        Assert.Equal(new[] { "app-server", "--stdio" }, info.ArgumentList);
+        Assert.Collection(info.ArgumentList,
+            argument => Assert.Equal("app-server", argument),
+            argument => Assert.Equal("--stdio", argument));
         Assert.Equal(home, info.Environment["CODEX_HOME"]);
         Assert.Equal(Path.GetDirectoryName(executable), info.WorkingDirectory);
         Assert.False(info.UseShellExecute);
