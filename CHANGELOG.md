@@ -12,17 +12,17 @@ Each entry links to the commit or pull request that introduced the change.
 
 ### Fixed
 
-- Dock visibility, reset-time, refresh-interval, and adaptive-forecast settings now persist per Windows user and are applied before the first refresh. Failed saves are shown on the settings page.
-- The main status now identifies the most restrictive active quota window, including an exhausted weekly allowance.
-- Local fallback data now uses the newest valid quota event timestamp across active and archived sessions, preserves explicitly inactive windows, skips unreadable files, and shows measurement age in the Dock.
-- Live limits now update before optional token analysis finishes. Token scans are cancellable, cannot overlap, and cannot publish results for a superseded quota snapshot.
-- Text and chart forecasts now use the same most recent continuous measurement segment, pausing after gaps or stale data.
-- Invalid and null history entries no longer prevent startup. Local storage failures are reported, and deleting learned history reports success only after the cleared state is saved.
+- Dock visibility, reset-time, refresh-interval, and adaptive-forecast settings now persist per Windows user and are applied before the first refresh. Failed saves are shown on the settings page. ([PR #17](https://github.com/TheBeems/CodexUsageDock/pull/17))
+- The main status now identifies the most restrictive active quota window, including an exhausted weekly allowance. ([PR #17](https://github.com/TheBeems/CodexUsageDock/pull/17))
+- Local fallback data now uses the newest valid quota event timestamp across active and archived sessions, preserves explicitly inactive windows, skips unreadable files, and shows measurement age in the Dock. ([PR #17](https://github.com/TheBeems/CodexUsageDock/pull/17))
+- Live limits now update before optional token analysis finishes. Token scans are cancellable, cannot overlap, and cannot publish results for a superseded quota snapshot. ([PR #17](https://github.com/TheBeems/CodexUsageDock/pull/17))
+- Text and chart forecasts now use the same most recent continuous measurement segment, pausing after gaps or stale data. ([PR #17](https://github.com/TheBeems/CodexUsageDock/pull/17))
+- Invalid and null history entries no longer prevent startup. Local storage failures are reported, and deleting learned history reports success only after the cleared state is saved. ([PR #17](https://github.com/TheBeems/CodexUsageDock/pull/17))
 
 ### Changed
 
-- Tests now require isolated temporary settings and history storage, preventing synthetic measurements from reaching the user's saved history.
-- Local storage paths and forecast analysis are shared helpers; local session readers consistently honor `CODEX_HOME`.
+- Tests now require isolated temporary settings and history storage, preventing synthetic measurements from reaching the user's saved history. ([PR #17](https://github.com/TheBeems/CodexUsageDock/pull/17))
+- Local storage paths and forecast analysis are shared helpers; local session readers consistently honor `CODEX_HOME`. ([PR #17](https://github.com/TheBeems/CodexUsageDock/pull/17))
 
 ## [0.6.0] - 2026-07-21
 
