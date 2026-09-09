@@ -22,6 +22,9 @@ internal sealed partial class CodexUsageDockSettingsPage : ContentPage
     private const string CodexExecutablePathKey = "codexExecutablePath";
     private const string CodexHomePathKey = "codexHomePath";
     private const int MaximumPathLength = 1024;
+    private const string HistoryRetentionKey = "historyRetentionDays";
+    private const string WorkdayEndKey = "workdayEnd";
+    private const string RemainingWorkdaysKey = "remainingWorkdays";
     private readonly Settings _settings = new();
     private readonly string _path;
     private readonly FormContent _statusContent = new()
@@ -113,6 +116,25 @@ internal sealed partial class CodexUsageDockSettingsPage : ContentPage
             Label = "Refresh interval",
             Description = "How often the extension refreshes local Codex usage data.",
         });
+        _settings.Add(new ChoiceSetSetting(HistoryRetentionKey,
+        [new("Collection paused", "0"), new("7 days", "7"), new("30 days", "30"), new("90 days", "90")])
+        {
+            Label = "Retain usage observations",
+            Description = "Optional local quota history for export. Pausing keeps saved data; use History to delete it.",
+        });
+        _settings.Add(new TextSetting(WorkdayEndKey, "17:00")
+        {
+            Label = "Workday end (HH:mm)",
+            Description = "Local time used by the planner for today. After this time, planning pauses until the next day.",
+            Multiline = false,
+        });
+        _settings.Add(new ChoiceSetSetting(RemainingWorkdaysKey,
+        [new("1 workday", "1"), new("2 workdays", "2"), new("3 workdays", "3"), new("4 workdays", "4"),
+         new("5 workdays", "5"), new("6 workdays", "6"), new("7 workdays", "7")])
+        {
+            Label = "Workdays remaining before weekly reset",
+            Description = "Your planning assumption, including today. The extension does not infer your calendar.",
+        });
         var clearHistory = new ConfirmableCommand(
             new AnonymousCommand(() => ClearAdaptiveHistoryRequested?.Invoke(this, EventArgs.Empty))
             {
@@ -162,6 +184,13 @@ internal sealed partial class CodexUsageDockSettingsPage : ContentPage
     public string CodexHomePath => GetPathSetting(CodexHomePathKey);
 
     public TimeSpan RefreshInterval => ParseRefreshInterval(_settings.GetSetting<string>(RefreshIntervalKey));
+
+    internal int HistoryRetentionDays => _settings.GetSetting<string>(HistoryRetentionKey) switch
+    { "7" => 7, "30" => 30, "90" => 90, _ => 0 };
+    internal TimeOnly WorkdayEnd => TimeOnly.TryParseExact(_settings.GetSetting<string>(WorkdayEndKey), "HH:mm",
+        System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out var time) ? time : new(17, 0);
+    internal int RemainingWorkdays => int.TryParse(_settings.GetSetting<string>(RemainingWorkdaysKey), out var days)
+        && days is >= 1 and <= 7 ? days : 1;
 
     internal string? StatusMessage { get; private set; }
 
@@ -221,6 +250,13 @@ internal sealed partial class CodexUsageDockSettingsPage : ContentPage
 
                 var value = property.Value.GetString();
                 if (property.Name == RefreshIntervalKey && value is "1" or "5" or "15")
+                {
+                    valid[property.Name] = value;
+                }
+                else if (property.Name == HistoryRetentionKey && value is "0" or "7" or "30" or "90"
+                    || property.Name == RemainingWorkdaysKey && value is "1" or "2" or "3" or "4" or "5" or "6" or "7"
+                    || property.Name == WorkdayEndKey && TimeOnly.TryParseExact(value, "HH:mm",
+                        System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out _))
                 {
                     valid[property.Name] = value;
                 }

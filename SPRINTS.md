@@ -5,8 +5,8 @@ This series implements the recommended Codex-first roadmap, followed by a small,
 | Sprint | Feature branch | Scope | Status |
 | --- | --- | --- | --- |
 | 1 | `codex/sprint-1-reliable-usage` | Modern quota categories, consistent freshness, last confirmed data, account-scoped history, safe diagnostics, version communication | [PR #18](https://github.com/TheBeems/CodexUsageDock/pull/18); 186 native ARM64 tests passed; x64/ARM64 Debug builds passed |
-| 2 | `codex/sprint-2-attention-controls` | Quiet alerts, compact and individually pinnable Dock entries, account activity where supported, explicit source configuration | [PR #19](https://github.com/TheBeems/CodexUsageDock/pull/19); x64/ARM64 compilation passed; GitHub test validation pending |
-| 3 | `codex/sprint-3-history-planning` | Retained aggregates and export, workday planning, forecast explanation and validation, supported task analysis, explicit earned-reset action | Planned |
+| 2 | `codex/sprint-2-attention-controls` | Quiet alerts, compact and individually pinnable Dock entries, account activity where supported, explicit source configuration | [PR #19](https://github.com/TheBeems/CodexUsageDock/pull/19); 235 x64 tests, both architecture builds, and package validation passed in CI |
+| 3 | `codex/sprint-3-history-planning` | Retained aggregates and export, workday planning, forecast explanation and validation, supported task analysis, explicit earned-reset action | Implemented; 314 native ARM64 tests and both architecture builds passed |
 | 4 | `codex/sprint-4-provider-pilot` | Optional Claude statusline bridge, explicit local profiles/WSL paths, efficient fallback reads, accessible text alternatives | Planned |
 
 Later sprints build on the previous feature branch so each PR can show only its own increment. Merge in sprint order and retarget dependent PRs to `main` after their base is merged. No merge is performed as part of this implementation request.
@@ -30,4 +30,10 @@ The final sprint 1 head also passed [GitHub Actions](https://github.com/TheBeems
 
 ### Sprint 2 verification
 
-The x64 and ARM64 application code compiles without warnings. Local ARM64 test execution was blocked while loading the assembly by Windows Application Control (`0x800711C7`), including a retry with elevated execution. This is an execution gap, not a passing test result. No Windows security policy was changed. The existing GitHub workflow will run the synthetic tests and both architecture/package checks on the pushed feature branch. Live account activity, notifications, individual pinning, and configuration changes still require Command Palette verification after an authorized installation.
+The x64 and ARM64 application code compiles without warnings. Local ARM64 test execution was blocked while loading the assembly by Windows Application Control (`0x800711C7`), including a retry with elevated execution. No Windows security policy was changed. [GitHub validation](https://github.com/TheBeems/CodexUsageDock/actions/runs/34383095096) passed all 235 tests, both architecture builds, and package checks on head `d067295`. Live account activity, notifications, individual pinning, and configuration changes still require Command Palette verification after an authorized installation.
+
+### Sprint 3 verification
+
+Native ARM64 test execution was available again and passed 314 tests. Both application architecture builds passed without warnings. Tests cover retention/export scope, planner assumptions and held-out observations, optional protocol support, task-request ordering, and persistent reset idempotency across ambiguous results and restarts. No real reset was redeemed. Command Palette forms, confirmations, and real-account compatibility still need live verification after an authorized installation. The GitHub workflow validates the pushed branch separately.
+
+Both integration preflights passed source/generated manifest, identity, asset, and self-contained runtime checks. The registered ARM64 Store package was healthy and discoverable, but its process and registration do not point at the new Debug builds. These expected mismatches leave live verification of the new code open; no registration or installation was changed.
