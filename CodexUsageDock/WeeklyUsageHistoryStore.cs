@@ -13,13 +13,9 @@ internal sealed class WeeklyUsageHistoryStore
         _path = path;
     }
 
-    internal static WeeklyUsageHistoryStore CreateDefault()
-    {
-        var directory = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "CodexUsageDock");
-        return new WeeklyUsageHistoryStore(Path.Combine(directory, FileName));
-    }
+    internal static WeeklyUsageHistoryStore CreateDefault() => new(LocalStorage.GetPath(FileName));
+
+    internal string? StorageError { get; private set; }
 
     internal IReadOnlyList<UsageHistoryEntry> Load(DateTimeOffset now)
     {
@@ -41,43 +37,18 @@ internal sealed class WeeklyUsageHistoryStore
         }
         catch (Exception error) when (error is IOException or UnauthorizedAccessException or JsonException or NotSupportedException)
         {
+            LocalStorage.TraceFailure("load weekly history", error);
+            StorageError = "Saved weekly history could not be read. A new history will be collected.";
             return [];
         }
     }
 
-    internal void Save(IReadOnlyList<UsageHistoryEntry> entries)
+    internal bool Save(IReadOnlyList<UsageHistoryEntry> entries)
     {
-        var temporaryPath = $"{_path}.{Guid.NewGuid():N}.tmp";
-        try
-        {
-            var directory = Path.GetDirectoryName(_path);
-            if (string.IsNullOrWhiteSpace(directory))
-            {
-                return;
-            }
-
-            Directory.CreateDirectory(directory);
-            File.WriteAllText(temporaryPath, JsonSerializer.Serialize(entries, typeof(IReadOnlyList<UsageHistoryEntry>), UsageHistoryJsonContext.Default));
-            File.Move(temporaryPath, _path, overwrite: true);
-        }
-        catch (Exception error) when (error is IOException or UnauthorizedAccessException or JsonException or NotSupportedException)
-        {
-        }
-        finally
-        {
-            try
-            {
-                if (File.Exists(temporaryPath))
-                {
-                    File.Delete(temporaryPath);
-                }
-            }
-            catch (Exception error) when (error is IOException or UnauthorizedAccessException)
-            {
-            }
-        }
+        var saved = LocalStorage.TryWrite(_path, JsonSerializer.Serialize(entries, typeof(IReadOnlyList<UsageHistoryEntry>), UsageHistoryJsonContext.Default));
+        StorageError = saved ? null : "Weekly usage history could not be saved. It may be lost after restarting.";
+        return saved;
     }
-
     private static UsageHistoryEntry[] Normalize(List<UsageHistoryEntry>? entries, DateTimeOffset now)
     {
         if (entries is null)
@@ -87,11 +58,11 @@ internal sealed class WeeklyUsageHistoryStore
 
         var cutoff = now - TimeSpan.FromDays(7);
         return entries
-            .Where(entry => entry.RecordedAt >= cutoff
+            .Where(entry => entry is not null && entry.RecordedAt >= cutoff
                 && entry.RecordedAt <= now
                 && double.IsFinite(entry.RemainingPercent)
                 && entry.RemainingPercent is >= 0 and <= 100)
-            .Select(entry => entry.ResetsAt is not null && entry.WindowMinutes is > 0
+            .Select(entry => entry.ResetsAt is { } reset && entry.WindowMinutes == 10080 && reset >= DateTimeOffset.MinValue.AddDays(7)
                 ? entry
                 : entry with { ResetsAt = null, WindowMinutes = null })
             .OrderBy(entry => entry.RecordedAt)

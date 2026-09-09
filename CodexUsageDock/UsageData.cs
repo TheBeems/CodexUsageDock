@@ -188,9 +188,11 @@ internal static class RateLimitWindowParser
             || !window.TryGetProperty(usedPercentPropertyName, out var usedPercentValue)
             || usedPercentValue.ValueKind != JsonValueKind.Number
             || !usedPercentValue.TryGetDouble(out var usedPercent)
+            || !double.IsFinite(usedPercent)
             || !window.TryGetProperty(durationPropertyName, out var durationValue)
             || durationValue.ValueKind != JsonValueKind.Number
             || !durationValue.TryGetInt32(out var duration)
+            || duration <= 0
             || !window.TryGetProperty(resetsAtPropertyName, out var resetsAtValue)
             || resetsAtValue.ValueKind != JsonValueKind.Number
             || !resetsAtValue.TryGetInt64(out var resetsAt))
@@ -200,7 +202,9 @@ internal static class RateLimitWindowParser
 
         try
         {
-            return new RateLimitWindow(usedPercent, duration, DateTimeOffset.FromUnixTimeSeconds(resetsAt));
+            var reset = DateTimeOffset.FromUnixTimeSeconds(resetsAt);
+            _ = reset.AddMinutes(-duration);
+            return new RateLimitWindow(usedPercent, duration, reset);
         }
         catch (ArgumentOutOfRangeException)
         {

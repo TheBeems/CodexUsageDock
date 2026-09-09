@@ -102,9 +102,8 @@ internal static class WeeklyUsageTrendChartRenderer
         ApplyDailyTokens(dailyUse, tokenUsage);
         var tokenScaleMaximum = GetTokenScaleMaximum(dailyUse);
         var calendarScale = new CalendarDayScale(dailyUse);
-        var forecastSegments = SplitAtGapsOrQuotaIncreases(samples, maximumGap);
         var renderedSegments = DownsampleSegments(SplitAtQuotaIncreases(samples), windowStart, window.ResetsAt);
-        var latestSegment = forecastSegments.LastOrDefault();
+        var latestSegment = UsageTrendHistory.LatestSegment(samples, windowStart, window.ResetsAt, effectiveNow, maximumGap);
         var forecastSegment = latestSegment is { Length: >= 2 } ? latestSegment : null;
         var usableForecast = forecastSegment is not null && forecast is { } candidate && candidate.EndsAt > forecastSegment[^1].RecordedAt
             ? candidate
@@ -234,17 +233,6 @@ internal static class WeeklyUsageTrendChartRenderer
             .DistinctBy(sample => sample.RecordedAt)
             .OrderBy(sample => sample.RecordedAt)
             .ToArray();
-    }
-
-    private static List<UsageHistoryEntry[]> SplitAtGapsOrQuotaIncreases(
-        UsageHistoryEntry[] samples,
-        TimeSpan maximumGap)
-    {
-        var gap = maximumGap > TimeSpan.Zero ? maximumGap : TimeSpan.FromMinutes(5);
-        return SplitAtDiscontinuities(
-            samples,
-            (previous, current) => current.RecordedAt - previous.RecordedAt > gap ||
-                WeeklyAllowanceRestoration.IsIncrease(previous, current));
     }
 
     private static List<UsageHistoryEntry[]> SplitAtQuotaIncreases(UsageHistoryEntry[] samples) =>

@@ -16,9 +16,7 @@ internal sealed class LocalCodexTokenUsageReader
 
     internal LocalCodexTokenUsageReader(string? codexHome = null)
     {
-        _codexHome = codexHome ?? Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-            ".codex");
+        _codexHome = codexHome ?? LocalStorage.GetCodexHome();
     }
 
     internal Task<LocalTokenUsageSnapshot> ReadAsync(

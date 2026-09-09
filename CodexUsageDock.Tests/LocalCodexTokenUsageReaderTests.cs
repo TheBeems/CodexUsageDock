@@ -3,8 +3,12 @@ using Xunit;
 
 namespace CodexUsageDock.Tests;
 
-public sealed class LocalCodexTokenUsageReaderTests
+public sealed class LocalCodexTokenUsageReaderTests : IDisposable
 {
+    private readonly TestEnvironment _environment = new();
+
+    public void Dispose() => _environment.Dispose();
+
     [Fact]
     public async Task ReaderAggregatesActiveAndArchivedLogsAndDeduplicatesCopiedHistory()
     {
@@ -141,12 +145,13 @@ public sealed class LocalCodexTokenUsageReaderTests
             [new DailyTokenUsage(DateOnly.FromDateTime(now.Date), 123_456)],
             now,
             LocalTokenUsageStatus.Complete);
-        using var service = new CodexUsageService(
+        using var service = _environment.CreateService(
             _ => Task.FromResult(snapshot),
             () => snapshot,
             localTokenUsageReader: (_, _, _, _) => Task.FromResult(expected));
 
         await service.RefreshAsync();
+        await service.TokenRefreshTask;
 
         Assert.Equal(UsageDataSource.AppServer, service.Current.Source);
         Assert.Same(expected, service.CurrentTokenUsage);
@@ -163,12 +168,13 @@ public sealed class LocalCodexTokenUsageReaderTests
             Source = UsageDataSource.AppServer,
             Error = null,
         };
-        using var service = new CodexUsageService(
+        using var service = _environment.CreateService(
             _ => Task.FromResult(snapshot),
             () => snapshot,
             localTokenUsageReader: (_, _, _, _) => Task.FromException<LocalTokenUsageSnapshot>(new IOException("test failure")));
 
         await service.RefreshAsync();
+        await service.TokenRefreshTask;
 
         Assert.Equal(UsageDataSource.AppServer, service.Current.Source);
         Assert.Equal(LocalTokenUsageStatus.Unavailable, service.CurrentTokenUsage.Status);

@@ -63,10 +63,24 @@ internal sealed partial class UsageDockItem : ListItem, IDisposable
 
         Title = $"{label} {window.RemainingPercent:0}%";
         Subtitle = _settings?.ShowResetTime == false ? string.Empty : $"reset {FormatReset(window.ResetsAt)}";
+        if (snapshot.Source == UsageDataSource.LocalSession)
+        {
+            Subtitle = FormatFallbackAge(snapshot, DateTimeOffset.Now)
+                + (Subtitle.Length > 0 ? $" · {Subtitle}" : string.Empty);
+        }
         Icon = new IconInfo(window.RemainingPercent <= 10 ? "\uE7BA" : "\uE916");
     }
 
     internal void Refresh() => UpdateText();
+
+    internal static string FormatFallbackAge(CodexUsageSnapshot snapshot, DateTimeOffset now)
+    {
+        var age = now - snapshot.UpdatedAt;
+        return age < TimeSpan.FromMinutes(1) ? "Fallback · less than a minute old"
+            : age < TimeSpan.FromHours(1) ? $"Fallback · {(int)age.TotalMinutes} minutes old"
+            : age < TimeSpan.FromDays(1) ? $"Fallback · {(int)age.TotalHours} hours old"
+            : $"Fallback · {(int)age.TotalDays} days old";
+    }
 
     internal static string FormatResetsAndCredits(CodexUsageSnapshot snapshot)
     {

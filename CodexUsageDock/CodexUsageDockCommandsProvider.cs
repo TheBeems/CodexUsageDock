@@ -11,7 +11,7 @@ public partial class CodexUsageDockCommandsProvider : CommandProvider
     private readonly UsageDockItem _weekly;
     private readonly UsageDockItem _resetsAndCredits;
     private readonly ICommandItem[] _commands;
-    private WrappedDockItem? _dockBand;
+    private readonly CodexUsageDockPage _details;
     private ICommandItem[] _dockBands = [];
 
     public CodexUsageDockCommandsProvider()
@@ -27,7 +27,9 @@ public partial class CodexUsageDockCommandsProvider : CommandProvider
         Id = "nl.mathijs.codexusage";
         Icon = new IconInfo("\uE943");
 
-        var details = new CodexUsageDockPage(_usage, _settings);
+        _usage.SetRefreshInterval(_settings.RefreshInterval);
+        _usage.SetAdaptiveWeeklyForecastEnabled(_settings.UseAdaptiveWeeklyForecast);
+        var details = _details = new CodexUsageDockPage(_usage, _settings);
         _fiveHour = new UsageDockItem(_usage, UsageDockItemKind.FiveHour, details, _settings);
         _weekly = new UsageDockItem(_usage, UsageDockItemKind.Weekly, details, _settings);
         _resetsAndCredits = new UsageDockItem(_usage, UsageDockItemKind.ResetsAndCredits, details);
@@ -50,7 +52,6 @@ public partial class CodexUsageDockCommandsProvider : CommandProvider
         _settings.Changed += OnSettingsChanged;
         _settings.ClearAdaptiveHistoryRequested += OnClearAdaptiveHistoryRequested;
         _usage.Updated += OnUsageUpdated;
-        _usage.SetAdaptiveWeeklyForecastEnabled(_settings.UseAdaptiveWeeklyForecast);
         RebuildDockBands();
 
         _usage.Start();
@@ -66,14 +67,22 @@ public partial class CodexUsageDockCommandsProvider : CommandProvider
         _usage.SetAdaptiveWeeklyForecastEnabled(_settings.UseAdaptiveWeeklyForecast);
         _fiveHour.Refresh();
         _weekly.Refresh();
+        _details.Refresh();
         RebuildDockBands();
         RaiseItemsChanged();
     }
 
     private void OnClearAdaptiveHistoryRequested(object? sender, EventArgs e)
     {
-        _usage.ClearAdaptiveWeeklyHistory();
-        _ = _usage.RefreshAsync();
+        var cleared = _usage.ClearAdaptiveWeeklyHistory();
+        _settings.ShowOperationStatus(cleared
+            ? "Learned forecast history deleted."
+            : "Learned forecast history could not be deleted. Please try again.", cleared);
+        _details.Refresh();
+        if (cleared)
+        {
+            _ = _usage.RefreshAsync();
+        }
     }
 
     private void OnUsageUpdated(object? sender, EventArgs e)
@@ -90,10 +99,10 @@ public partial class CodexUsageDockCommandsProvider : CommandProvider
     private void RebuildDockBands()
     {
         var items = GetVisibleDockItems();
-        _dockBand = items.Length == 0
+        var dockBand = items.Length == 0
             ? null
             : new WrappedDockItem(items, "nl.mathijs.codexusage.dock", DisplayName);
-        _dockBands = _dockBand is null ? [] : [_dockBand];
+        _dockBands = dockBand is null ? [] : [dockBand];
     }
 
     private IListItem[] GetVisibleDockItems()
@@ -125,6 +134,7 @@ public partial class CodexUsageDockCommandsProvider : CommandProvider
         _fiveHour.Dispose();
         _weekly.Dispose();
         _resetsAndCredits.Dispose();
+        _details.Dispose();
         _usage.Dispose();
         base.Dispose();
         GC.SuppressFinalize(this);
