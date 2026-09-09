@@ -10,9 +10,9 @@ Each entry links to the commit or pull request that introduced the change.
 
 ### Added
 
-- Optional account-scoped quota history with 7/30/90-day retention, explicit CSV/JSON exports, and confirmed deletion.
-- A workday planner with per-day and per-hour quota budgets, measurement evidence, and held-out recent-pace checks.
-- Task-level server usage estimates and explicitly confirmed earned resets with account verification and persistent request IDs for safe retries.
+- Optional account-scoped quota history with 7/30/90-day retention, explicit CSV/JSON exports, and confirmed deletion. ([PR #20](https://github.com/TheBeems/CodexUsageDock/pull/20))
+- A workday planner with per-day and per-hour quota budgets, measurement evidence, and held-out recent-pace checks. ([PR #20](https://github.com/TheBeems/CodexUsageDock/pull/20))
+- Task-level server usage estimates and explicitly confirmed earned resets with account verification and persistent request IDs for safe retries. ([PR #20](https://github.com/TheBeems/CodexUsageDock/pull/20))
 - Optional quiet usage alerts from fresh, identified accounts, compact Dock labels, and separate pinnable quota and credit entries with stable identifiers. ([PR #19](https://github.com/TheBeems/CodexUsageDock/pull/19))
 - Account-wide daily token activity on compatible Codex versions, with independent refresh and account-identity verification. ([PR #19](https://github.com/TheBeems/CodexUsageDock/pull/19))
 - Explicit executable and Codex home settings, with invalid-source errors and protection against results from a previous profile. ([PR #19](https://github.com/TheBeems/CodexUsageDock/pull/19))
