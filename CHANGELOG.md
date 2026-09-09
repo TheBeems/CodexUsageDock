@@ -23,6 +23,7 @@ Each entry links to the commit or pull request that introduced the change.
 
 ### Fixed
 
+- Switching Dock modes or hiding a metric no longer restores inactive saved bands. Existing band objects are retained, and usage refreshes update their items without reloading the whole provider. ([PR #22](https://github.com/TheBeems/CodexUsageDock/pull/22))
 - Keep provider updates independent and serialize source-sensitive presentation changes so delayed updates cannot restore old account or Claude values. ([PR #21](https://github.com/TheBeems/CodexUsageDock/pull/21))
 - Keep the last confirmed live measurement during outages, without resetting its age or continuing projections and learning. ([PR #18](https://github.com/TheBeems/CodexUsageDock/pull/18))
 - Apply one freshness policy across the Dock, details, and forecasts, and keep account/category history isolated. Unidentified legacy history is no longer imported into verified accounts. ([PR #18](https://github.com/TheBeems/CodexUsageDock/pull/18))
