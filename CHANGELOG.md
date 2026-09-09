@@ -10,8 +10,8 @@ Each entry links to the commit or pull request that introduced the change.
 
 ### Added
 
-- An opt-in Claude pilot with an independent Dock band and a local statusline capture script that preserves an existing formatter or supplies a standalone quota line.
-- Named local/Windows-accessible WSL source profiles and a text alternative for quota, reset, trend, and local token data.
+- An opt-in Claude pilot with an independent Dock band and a local statusline capture script that preserves an existing formatter or supplies a standalone quota line. ([PR #21](https://github.com/TheBeems/CodexUsageDock/pull/21))
+- Named local/Windows-accessible WSL source profiles and a text alternative for quota, reset, trend, and local token data. ([PR #21](https://github.com/TheBeems/CodexUsageDock/pull/21))
 - Optional account-scoped quota history with 7/30/90-day retention, explicit CSV/JSON exports, and confirmed deletion. ([PR #20](https://github.com/TheBeems/CodexUsageDock/pull/20))
 - A workday planner with per-day and per-hour quota budgets, measurement evidence, and held-out recent-pace checks. ([PR #20](https://github.com/TheBeems/CodexUsageDock/pull/20))
 - Task-level server usage estimates and explicitly confirmed earned resets with account verification and persistent request IDs for safe retries. ([PR #20](https://github.com/TheBeems/CodexUsageDock/pull/20))
@@ -23,13 +23,13 @@ Each entry links to the commit or pull request that introduced the change.
 
 ### Fixed
 
-- Keep provider updates independent and serialize source-sensitive presentation changes so delayed updates cannot restore old account or Claude values.
+- Keep provider updates independent and serialize source-sensitive presentation changes so delayed updates cannot restore old account or Claude values. ([PR #21](https://github.com/TheBeems/CodexUsageDock/pull/21))
 - Keep the last confirmed live measurement during outages, without resetting its age or continuing projections and learning. ([PR #18](https://github.com/TheBeems/CodexUsageDock/pull/18))
 - Apply one freshness policy across the Dock, details, and forecasts, and keep account/category history isolated. Unidentified legacy history is no longer imported into verified accounts. ([PR #18](https://github.com/TheBeems/CodexUsageDock/pull/18))
 
 ### Changed
 
-- Cache local quota fallback read positions with bounded content reads and memory, while reporting incomplete scans and preserving event-time selection.
+- Cache local quota fallback read positions with bounded content reads and memory, while reporting incomplete scans and preserving event-time selection. ([PR #21](https://github.com/TheBeems/CodexUsageDock/pull/21))
 - Expanded the release skill to cover scoped commit/push, Store submission, resumable certification tracking, and verified installation, with a repository-local Codex entry point. ([commit e54709c](https://github.com/TheBeems/CodexUsageDock/commit/e54709ce6e26b9aaa072d6f88625a9a3aa067494))
 - Distinguish source releases, the running extension build, and Microsoft Store rollout in installation guidance. ([PR #18](https://github.com/TheBeems/CodexUsageDock/pull/18))
 
