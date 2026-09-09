@@ -174,10 +174,10 @@ public sealed class ReliabilityTests : IDisposable
         using var other = new TestEnvironment();
         using var first = _environment.CreateService();
         using var second = other.CreateService();
-        first.RecordHistory(Snapshot(80), Now);
+        first.RecordHistory(Snapshot(80) with { AccountKey = "test-account" }, Now);
         Assert.Single(first.WeeklyHistory);
         Assert.Empty(second.WeeklyHistory);
-        Assert.Single(new WeeklyUsageHistoryStore(_environment.PathFor("weekly.json")).Load(Now));
+        Assert.Single(new WeeklyUsageHistoryStore(_environment.PathFor("weekly.json")).ForContext("test-account|codex").Load(Now));
         Assert.False(File.Exists(other.PathFor("weekly.json")));
         Assert.False(File.Exists(other.PathFor("adaptive.json")));
     }
@@ -254,7 +254,8 @@ public sealed class ReliabilityTests : IDisposable
         await service.RefreshAsync().WaitAsync(TestTimeout);
         await started.Task.WaitAsync(TestTimeout);
         Assert.False(service.IsLoading);
-        Assert.Same(snapshot, service.Current);
+        Assert.Equal(snapshot, service.Current with { LastAttemptAt = null });
+        Assert.NotNull(service.Current.LastAttemptAt);
         var originalTokens = service.TokenRefreshTask;
         snapshot = snapshot with { Secondary = snapshot.Secondary! with { ResetsAt = Now.AddDays(6) } };
         await service.RefreshAsync().WaitAsync(TestTimeout);

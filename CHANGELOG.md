@@ -8,9 +8,20 @@ Each entry links to the commit or pull request that introduced the change.
 
 ## [Unreleased]
 
+### Added
+
+- Separate quota categories and arbitrary window durations from modern Codex responses, while preserving legacy five-hour and weekly limits.
+- Safe diagnostics with running-build version, source, freshness, refresh attempts, and reset-field availability.
+
+### Fixed
+
+- Keep the last confirmed live measurement during outages, without resetting its age or continuing projections and learning.
+- Apply one freshness policy across the Dock, details, and forecasts, and keep account/category history isolated. Unidentified legacy history is no longer imported into verified accounts.
+
 ### Changed
 
 - Expanded the release skill to cover scoped commit/push, Store submission, resumable certification tracking, and verified installation, with a repository-local Codex entry point. ([commit e54709c](https://github.com/TheBeems/CodexUsageDock/commit/e54709ce6e26b9aaa072d6f88625a9a3aa067494))
+- Distinguish source releases, the running extension build, and Microsoft Store rollout in installation guidance.
 
 ## [0.6.1] - 2026-09-09
 
