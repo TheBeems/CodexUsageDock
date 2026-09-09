@@ -20,19 +20,21 @@ internal sealed class TestEnvironment : IDisposable
         Func<CancellationToken, CodexUsageSnapshot> localSessionReader,
         WeeklyUsageHistoryStore? weeklyHistoryStore = null,
         AdaptiveWeeklyUsageStore? adaptiveWeeklyUsageStore = null,
-        Func<DateTimeOffset, DateTimeOffset, TimeZoneInfo, CancellationToken, Task<LocalTokenUsageSnapshot>>? localTokenUsageReader = null) =>
+        Func<DateTimeOffset, DateTimeOffset, TimeZoneInfo, CancellationToken, Task<LocalTokenUsageSnapshot>>? localTokenUsageReader = null,
+        Func<DateTimeOffset>? clock = null) =>
         new(appServerReader, localSessionReader,
             weeklyHistoryStore ?? new WeeklyUsageHistoryStore(PathFor("weekly.json")),
             adaptiveWeeklyUsageStore ?? new AdaptiveWeeklyUsageStore(PathFor("adaptive.json")),
-            localTokenUsageReader);
+            localTokenUsageReader, clock);
 
     internal CodexUsageService CreateService(
         Func<CancellationToken, Task<CodexUsageSnapshot>> appServerReader,
         Func<CodexUsageSnapshot> localSessionReader,
         WeeklyUsageHistoryStore? weeklyHistoryStore = null,
         AdaptiveWeeklyUsageStore? adaptiveWeeklyUsageStore = null,
-        Func<DateTimeOffset, DateTimeOffset, TimeZoneInfo, CancellationToken, Task<LocalTokenUsageSnapshot>>? localTokenUsageReader = null) =>
-        CreateService(appServerReader, _ => localSessionReader(), weeklyHistoryStore, adaptiveWeeklyUsageStore, localTokenUsageReader);
+        Func<DateTimeOffset, DateTimeOffset, TimeZoneInfo, CancellationToken, Task<LocalTokenUsageSnapshot>>? localTokenUsageReader = null,
+        Func<DateTimeOffset>? clock = null) =>
+        CreateService(appServerReader, _ => localSessionReader(), weeklyHistoryStore, adaptiveWeeklyUsageStore, localTokenUsageReader, clock);
 
     public void Dispose()
     {

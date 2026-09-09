@@ -12,6 +12,7 @@ public partial class CodexUsageDockCommandsProvider : CommandProvider
     private readonly UsageDockItem _resetsAndCredits;
     private readonly ICommandItem[] _commands;
     private readonly CodexUsageDockPage _details;
+    private readonly CodexUsageDiagnosticsPage _diagnostics;
     private ICommandItem[] _dockBands = [];
 
     public CodexUsageDockCommandsProvider()
@@ -30,6 +31,7 @@ public partial class CodexUsageDockCommandsProvider : CommandProvider
         _usage.SetRefreshInterval(_settings.RefreshInterval);
         _usage.SetAdaptiveWeeklyForecastEnabled(_settings.UseAdaptiveWeeklyForecast);
         var details = _details = new CodexUsageDockPage(_usage, _settings);
+        _diagnostics = new CodexUsageDiagnosticsPage(_usage);
         _fiveHour = new UsageDockItem(_usage, UsageDockItemKind.FiveHour, details, _settings);
         _weekly = new UsageDockItem(_usage, UsageDockItemKind.Weekly, details, _settings);
         _resetsAndCredits = new UsageDockItem(_usage, UsageDockItemKind.ResetsAndCredits, details);
@@ -46,6 +48,11 @@ public partial class CodexUsageDockCommandsProvider : CommandProvider
                 Title = "Codex Usage settings",
                 Subtitle = "Choose what appears in the Dock",
                 Icon = new IconInfo("\uE713"),
+            },
+            new CommandItem(_diagnostics)
+            {
+                Title = "Codex Usage diagnostics",
+                Subtitle = "Source, freshness, supported fields, and safe troubleshooting details",
             },
         ];
 
@@ -135,6 +142,7 @@ public partial class CodexUsageDockCommandsProvider : CommandProvider
         _weekly.Dispose();
         _resetsAndCredits.Dispose();
         _details.Dispose();
+        _diagnostics.Dispose();
         _usage.Dispose();
         base.Dispose();
         GC.SuppressFinalize(this);

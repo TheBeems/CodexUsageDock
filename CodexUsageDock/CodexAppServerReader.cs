@@ -1,5 +1,6 @@
 using System.Buffers;
 using System.Diagnostics;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 
@@ -7,6 +8,8 @@ namespace CodexUsageDock;
 
 internal static class CodexAppServerReader
 {
+    private const int MaximumBucketCount = 32;
+
     internal static async Task<CodexUsageSnapshot> ReadAsync(CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -60,24 +63,7 @@ internal static class CodexAppServerReader
 
             ThrowIfError(rateResponse.RootElement);
             var rateResult = rateResponse.RootElement.GetProperty("result");
-            var limits = rateResult.GetProperty("rateLimits");
-            var windows = RateLimitWindowParser.Classify(
-                RateLimitWindowParser.TryParse(limits, "primary", "usedPercent", "windowDurationMins", "resetsAt"),
-                RateLimitWindowParser.TryParse(limits, "secondary", "usedPercent", "windowDurationMins", "resetsAt"));
-            RateLimitWindowParser.ThrowIfNoKnownWindow(windows);
-            var credits = ParseCredits(rateResult, limits);
-            var resetCredits = ParseResetCredits(rateResult);
-            var plan = ParsePlan(accountResponse.RootElement);
-
-            return new CodexUsageSnapshot(
-                windows.FiveHour,
-                windows.Weekly,
-                plan,
-                credits,
-                resetCredits,
-                DateTimeOffset.Now,
-                UsageDataSource.AppServer,
-                null);
+            return ParseSnapshot(rateResult, accountResponse.RootElement, DateTimeOffset.Now);
         }
         finally
         {
@@ -94,6 +80,133 @@ internal static class CodexAppServerReader
 
             await ObserveProcessExitAsync(process, standardErrorDrain).ConfigureAwait(false);
         }
+    }
+
+    internal static CodexUsageSnapshot ParseSnapshot(JsonElement rateResult, JsonElement accountResponse, DateTimeOffset now)
+    {
+        if (rateResult.ValueKind != JsonValueKind.Object)
+        {
+            throw new InvalidOperationException("Codex app-server did not return a usage result.");
+        }
+
+        TryGetObject(rateResult, "rateLimits", out var legacyLimits);
+        var defaultId = ReadLimitId(legacyLimits, "limitId") ?? "codex";
+        var defaultLimits = legacyLimits;
+        if (TryGetObject(rateResult, "rateLimitsByLimitId", out var limitsById)
+            && TryGetObject(limitsById, defaultId, out var richDefault))
+        {
+            defaultLimits = richDefault;
+        }
+
+        var buckets = new List<RateLimitBucket>();
+        var bucketIds = new HashSet<string>(StringComparer.Ordinal);
+        RateLimitBucket? defaultBucket = null;
+        if (defaultLimits.ValueKind == JsonValueKind.Object)
+        {
+            defaultBucket = ParseBucket(defaultId, defaultLimits);
+            buckets.Add(defaultBucket);
+            bucketIds.Add(defaultId);
+        }
+
+        if (limitsById.ValueKind == JsonValueKind.Object)
+        {
+            foreach (var entry in limitsById.EnumerateObject())
+            {
+                if (buckets.Count >= MaximumBucketCount)
+                {
+                    break;
+                }
+
+                if (entry.Value.ValueKind == JsonValueKind.Object
+                    && IsValidLimitId(entry.Name)
+                    && bucketIds.Add(entry.Name))
+                {
+                    buckets.Add(ParseBucket(entry.Name, entry.Value));
+                }
+            }
+        }
+
+        var windows = RateLimitWindowParser.Classify(defaultBucket?.Primary, defaultBucket?.Secondary);
+        var credits = ParseCredits(rateResult, defaultLimits);
+        var resetCredits = ParseResetCredits(rateResult);
+        var ordinaryUsageAllowed = rateResult.TryGetProperty("ordinaryUsageAllowed", out var allowed)
+            && allowed.ValueKind is JsonValueKind.True or JsonValueKind.False
+            ? allowed.GetBoolean()
+            : (bool?)null;
+        if (buckets.Count == 0 && credits is null && resetCredits is null && ordinaryUsageAllowed is null)
+        {
+            throw new InvalidOperationException("Codex app-server did not return usable usage information.");
+        }
+
+        return new CodexUsageSnapshot(
+            windows.FiveHour,
+            windows.Weekly,
+            ParsePlan(accountResponse) ?? ReadLabel(defaultLimits, "planType", 32),
+            credits,
+            resetCredits,
+            now,
+            UsageDataSource.AppServer,
+            null,
+            buckets.ToArray(),
+            ParseAccountKey(rateResult),
+            ordinaryUsageAllowed,
+            now,
+            defaultBucket?.Id);
+    }
+
+    private static RateLimitBucket ParseBucket(string id, JsonElement limits) => new(
+        id,
+        ReadLabel(limits, "limitName", 80),
+        RateLimitWindowParser.TryParse(limits, "primary", "usedPercent", "windowDurationMins", "resetsAt"),
+        RateLimitWindowParser.TryParse(limits, "secondary", "usedPercent", "windowDurationMins", "resetsAt"));
+
+    private static string? ParseAccountKey(JsonElement result)
+    {
+        if (!result.TryGetProperty("accountId", out var value) || value.ValueKind != JsonValueKind.String)
+        {
+            return null;
+        }
+
+        var accountId = value.GetString();
+        if (string.IsNullOrWhiteSpace(accountId) || accountId.Length > 512
+            || accountId.Any(character => char.IsControl(character) || char.IsWhiteSpace(character)))
+        {
+            return null;
+        }
+
+        var hash = SHA256.HashData(Encoding.UTF8.GetBytes("CodexUsageDock:account:v1:" + accountId));
+        return Convert.ToHexString(hash);
+    }
+
+    private static string? ReadLimitId(JsonElement limits, string propertyName)
+    {
+        if (limits.ValueKind != JsonValueKind.Object
+            || !limits.TryGetProperty(propertyName, out var value)
+            || value.ValueKind != JsonValueKind.String)
+        {
+            return null;
+        }
+
+        var id = value.GetString();
+        return id is not null && IsValidLimitId(id) ? id : null;
+    }
+
+    private static bool IsValidLimitId(string id) => id.Length is > 0 and <= 128
+        && id.All(character => char.IsAsciiLetterOrDigit(character) || character is '-' or '_' or '.' or ':' or '/');
+
+    private static string? ReadLabel(JsonElement element, string propertyName, int maxLength) =>
+        element.ValueKind == JsonValueKind.Object
+        && element.TryGetProperty(propertyName, out var value)
+        && value.ValueKind == JsonValueKind.String
+            ? UsageText.SanitizeExternal(value.GetString(), maxLength)
+            : null;
+
+    private static bool TryGetObject(JsonElement element, string propertyName, out JsonElement value)
+    {
+        value = default;
+        return element.ValueKind == JsonValueKind.Object
+            && element.TryGetProperty(propertyName, out value)
+            && value.ValueKind == JsonValueKind.Object;
     }
 
     internal static string GetSafeWorkingDirectory(string executable)
@@ -155,11 +268,11 @@ internal static class CodexAppServerReader
     internal static CreditBalance? ParseCredits(JsonElement result, JsonElement limits)
     {
         var credits = default(JsonElement);
-        if (limits.TryGetProperty("credits", out var nested) && nested.ValueKind == JsonValueKind.Object)
+        if (TryGetObject(limits, "credits", out var nested))
         {
             credits = nested;
         }
-        else if (!result.TryGetProperty("credits", out credits) || credits.ValueKind != JsonValueKind.Object)
+        else if (!TryGetObject(result, "credits", out credits))
         {
             return null;
         }
@@ -187,7 +300,8 @@ internal static class CodexAppServerReader
 
     internal static RateLimitResetCredits? ParseResetCredits(JsonElement result)
     {
-        if (!result.TryGetProperty("rateLimitResetCredits", out var resets)
+        if (result.ValueKind != JsonValueKind.Object
+            || !result.TryGetProperty("rateLimitResetCredits", out var resets)
             || resets.ValueKind != JsonValueKind.Object
             || !resets.TryGetProperty("availableCount", out var count)
             || count.ValueKind != JsonValueKind.Number
@@ -391,15 +505,12 @@ internal static class CodexAppServerReader
 
     private static string? ParsePlan(JsonElement accountResponse)
     {
-        if (!accountResponse.TryGetProperty("result", out var result)
-            || !result.TryGetProperty("account", out var account)
-            || account.ValueKind == JsonValueKind.Null
-            || !account.TryGetProperty("planType", out var plan)
-            || plan.ValueKind != JsonValueKind.String)
+        if (!TryGetObject(accountResponse, "result", out var result)
+            || !TryGetObject(result, "account", out var account))
         {
             return null;
         }
 
-        return UsageText.SanitizeExternal(plan.GetString(), 32);
+        return ReadLabel(account, "planType", 32);
     }
 }

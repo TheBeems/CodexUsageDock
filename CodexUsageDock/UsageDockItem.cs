@@ -31,6 +31,7 @@ internal sealed partial class UsageDockItem : ListItem, IDisposable
     private void UpdateText()
     {
         var snapshot = _usage.Current;
+        var now = DateTimeOffset.Now;
         var window = _kind == UsageDockItemKind.FiveHour ? snapshot.Primary : snapshot.Secondary;
         if (snapshot.Source == UsageDataSource.Unavailable)
         {
@@ -42,7 +43,9 @@ internal sealed partial class UsageDockItem : ListItem, IDisposable
         if (_kind == UsageDockItemKind.ResetsAndCredits)
         {
             Title = FormatResetsAndCredits(snapshot);
-            Subtitle = FormatResetExpiry(snapshot.ResetCredits, DateTimeOffset.Now);
+            Subtitle = CombineStatusAndDetail(
+                FormatSourceFreshness(snapshot, now, _usage.RefreshInterval),
+                FormatResetExpiry(snapshot.ResetCredits, now));
             Icon = new IconInfo("\uE777");
             return;
         }
@@ -54,20 +57,24 @@ internal sealed partial class UsageDockItem : ListItem, IDisposable
             Title = _kind == UsageDockItemKind.FiveHour && dataWasLoaded ? "5h inactive" : $"{label} --";
             Subtitle = _kind == UsageDockItemKind.FiveHour && dataWasLoaded
                 ? "No five-hour limit currently active"
-                : snapshot.Source == UsageDataSource.Unavailable
-                    ? "Codex usage unavailable"
-                    : "Waiting for Codex";
+                : FormatSourceFreshness(snapshot, now, _usage.RefreshInterval);
+            Icon = new IconInfo("\uE783");
+            return;
+        }
+
+        if (!UsageFreshness.IsValidWindow(window, now))
+        {
+            Title = $"{label} --";
+            Subtitle = CombineStatusAndDetail(
+                FormatSourceFreshness(snapshot, now, _usage.RefreshInterval),
+                "Window data expired or invalid");
             Icon = new IconInfo("\uE783");
             return;
         }
 
         Title = $"{label} {window.RemainingPercent:0}%";
-        Subtitle = _settings?.ShowResetTime == false ? string.Empty : $"reset {FormatReset(window.ResetsAt)}";
-        if (snapshot.Source == UsageDataSource.LocalSession)
-        {
-            Subtitle = FormatFallbackAge(snapshot, DateTimeOffset.Now)
-                + (Subtitle.Length > 0 ? $" · {Subtitle}" : string.Empty);
-        }
+        var reset = _settings?.ShowResetTime == false ? string.Empty : $"reset {FormatReset(window.ResetsAt)}";
+        Subtitle = CombineStatusAndDetail(FormatSourceFreshness(snapshot, now, _usage.RefreshInterval), reset);
         Icon = new IconInfo(window.RemainingPercent <= 10 ? "\uE7BA" : "\uE916");
     }
 
@@ -75,12 +82,100 @@ internal sealed partial class UsageDockItem : ListItem, IDisposable
 
     internal static string FormatFallbackAge(CodexUsageSnapshot snapshot, DateTimeOffset now)
     {
-        var age = now - snapshot.UpdatedAt;
+        TimeSpan age;
+        try
+        {
+            age = now - snapshot.UpdatedAt;
+        }
+        catch (ArgumentOutOfRangeException)
+        {
+            return "Fallback · age unavailable";
+        }
+
+        if (age < TimeSpan.Zero)
+        {
+            return "Fallback · timestamp is in the future";
+        }
+
         return age < TimeSpan.FromMinutes(1) ? "Fallback · less than a minute old"
             : age < TimeSpan.FromHours(1) ? $"Fallback · {(int)age.TotalMinutes} minutes old"
             : age < TimeSpan.FromDays(1) ? $"Fallback · {(int)age.TotalHours} hours old"
             : $"Fallback · {(int)age.TotalDays} days old";
     }
+
+    internal static string FormatSourceFreshness(
+        CodexUsageSnapshot snapshot,
+        DateTimeOffset now,
+        TimeSpan? refreshInterval = null)
+    {
+        if (snapshot.Source == UsageDataSource.Unavailable)
+        {
+            return "Codex usage unavailable";
+        }
+
+        if (snapshot.Source == UsageDataSource.Initializing)
+        {
+            return "Waiting for Codex";
+        }
+
+        if (snapshot.Source == UsageDataSource.LastConfirmed)
+        {
+            return FormatConfirmedAge(snapshot, now);
+        }
+
+        var state = UsageFreshness.Classify(
+            snapshot.UpdatedAt,
+            now,
+            refreshInterval ?? TimeSpan.FromMinutes(1));
+        return state switch
+        {
+            UsageFreshnessState.Fresh when snapshot.Source == UsageDataSource.LocalSession => FormatFallbackAge(snapshot, now),
+            UsageFreshnessState.Fresh => $"Live · just updated at {FormatLocalTime(snapshot.UpdatedAt)}",
+            UsageFreshnessState.Stale => $"Stale · updated {FormatAge(snapshot.UpdatedAt, now)} ago",
+            UsageFreshnessState.Future => $"Timestamp is in the future ({FormatLocalTime(snapshot.UpdatedAt)})",
+            _ => "Usage age unavailable",
+        };
+    }
+
+    private static string FormatConfirmedAge(CodexUsageSnapshot snapshot, DateTimeOffset now)
+    {
+        var age = FormatAge(snapshot.UpdatedAt, now);
+        return age == "in the future"
+            ? "Last confirmed · timestamp is in the future"
+            : $"Last confirmed · {age} old";
+    }
+
+    private static string FormatAge(DateTimeOffset timestamp, DateTimeOffset now)
+    {
+        TimeSpan age;
+        try
+        {
+            age = now - timestamp;
+        }
+        catch (ArgumentOutOfRangeException)
+        {
+            return "age unavailable";
+        }
+
+        if (age < TimeSpan.Zero)
+        {
+            return "in the future";
+        }
+
+        return age < TimeSpan.FromMinutes(1)
+            ? "less than a minute"
+            : age < TimeSpan.FromHours(1)
+                ? $"{(int)age.TotalMinutes} minutes"
+                : age < TimeSpan.FromDays(1)
+                    ? $"{(int)age.TotalHours} hours"
+                    : $"{(int)age.TotalDays} days";
+    }
+
+    private static string FormatLocalTime(DateTimeOffset value) =>
+        value.ToLocalTime().ToString("HH:mm", CultureInfo.CurrentCulture);
+
+    private static string CombineStatusAndDetail(string status, string detail) =>
+        detail.Length == 0 ? status : $"{status} · {detail}";
 
     internal static string FormatResetsAndCredits(CodexUsageSnapshot snapshot)
     {

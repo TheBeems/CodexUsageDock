@@ -77,7 +77,7 @@ internal sealed partial class CodexUsageDockSettingsPage : ContentPage
                 Result = CommandResult.KeepOpen(),
             },
             "Delete learned forecast history?",
-            "This permanently removes local adaptive weekly forecast history from this device.",
+            "This permanently removes learned forecast history for the currently identified account and quota category. Other accounts are kept.",
             () => true)
         {
             Name = "Delete learned forecast history",

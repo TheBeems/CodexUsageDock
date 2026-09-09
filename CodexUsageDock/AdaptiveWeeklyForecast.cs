@@ -44,6 +44,8 @@ internal sealed class AdaptiveWeeklyUsageStore
 
     internal static AdaptiveWeeklyUsageStore CreateDefault() => new(LocalStorage.GetPath(FileName));
 
+    internal AdaptiveWeeklyUsageStore ForContext(string context) => new(LocalStorage.ContextPath(_path, context));
+
     internal string? StorageError { get; private set; }
 
     internal AdaptiveWeeklyUsageHistory Snapshot => new(

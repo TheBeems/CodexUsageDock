@@ -1,0 +1,27 @@
+# Usage assistant implementation
+
+This series implements the recommended Codex-first roadmap, followed by a small, optional Claude pilot. Source work uses separate feature branches and pull requests. Merge, Store publication, and installation are separate steps.
+
+| Sprint | Feature branch | Scope | Status |
+| --- | --- | --- | --- |
+| 1 | `codex/sprint-1-reliable-usage` | Modern quota categories, consistent freshness, last confirmed data, account-scoped history, safe diagnostics, version communication | [PR #18](https://github.com/TheBeems/CodexUsageDock/pull/18); 186 native ARM64 tests passed; x64/ARM64 Debug builds passed |
+| 2 | `codex/sprint-2-attention-controls` | Quiet alerts, compact and individually pinnable Dock entries, account activity where supported, explicit source configuration | Planned |
+| 3 | `codex/sprint-3-history-planning` | Retained aggregates and export, workday planning, forecast explanation and validation, supported task analysis, explicit earned-reset action | Planned |
+| 4 | `codex/sprint-4-provider-pilot` | Optional Claude statusline bridge, explicit local profiles/WSL paths, efficient fallback reads, accessible text alternatives | Planned |
+
+Later sprints build on the previous feature branch so each PR can show only its own increment. Merge in sprint order and retarget dependent PRs to `main` after their base is merged. No merge is performed as part of this implementation request.
+
+## Acceptance and verification
+
+- Preserve old CLI compatibility and optional-field availability. Unknown values must never turn into zero.
+- Keep account, category, provider, source, and timestamp semantics explicit; do not mix quota percentages or treat local tokens as billed cost.
+- Only fresh, attributable measurements can trigger account alerts or train persistent forecasts.
+- Keep local storage bounded and export explicit. Do not modify authentication or a user's existing Claude statusline automatically.
+- Test parsing, state transitions, persistence, cancellation, and unsafe inputs using isolated synthetic fixtures.
+- Run native ARM64 tests and x64/ARM64 builds; use PR CI for its required x64 tests and Store-package checks. Record integration limitations separately from build results.
+
+Gemini/Cursor/Copilot expansion, a standalone tray app, cloud sync, team dashboards, and a full session manager remain deferred as recommended by the research. Forecast quality labels describe available evidence and are not a claim of empirically calibrated confidence.
+
+### Sprint 1 verification
+
+Native ARM64 tests passed (186/186); application builds have no warnings. Existing test-name analyzer warnings remain unchanged. The x64 .NET 10 test runtime is unavailable locally, so x64 test execution belongs to PR CI. The integration preflight passed manifest, COM identity, generated-output freshness, self-contained runtime, and asset checks. Package registration and AppExtension discovery were unavailable in this test context; Command Palette reload, visual behavior, Store installation, and real-account compatibility were not verified. Tests use isolated synthetic data and do not consume actual reset credits.

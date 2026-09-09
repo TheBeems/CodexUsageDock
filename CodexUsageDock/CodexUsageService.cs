@@ -12,9 +12,15 @@ internal sealed partial class CodexUsageService : IDisposable
     private readonly object _refreshStateLock = new();
     private readonly List<UsageHistoryEntry> _primaryHistory = [];
     private readonly List<UsageHistoryEntry> _weeklyHistory = [];
-    private readonly WeeklyUsageHistoryStore _weeklyHistoryStore;
-    private readonly AdaptiveWeeklyUsageStore _adaptiveWeeklyUsageStore;
+    private readonly WeeklyUsageHistoryStore _baseWeeklyHistoryStore;
+    private readonly AdaptiveWeeklyUsageStore _baseAdaptiveWeeklyUsageStore;
+    private WeeklyUsageHistoryStore _weeklyHistoryStore;
+    private AdaptiveWeeklyUsageStore _adaptiveWeeklyUsageStore;
+    private string? _historyContext;
+    private string? _memoryHistoryContext;
+    private CodexUsageSnapshot? _lastConfirmed;
     private readonly CancellationTokenSource _lifetimeCancellation = new();
+    private readonly Func<DateTimeOffset> _clock;
     private readonly Func<CancellationToken, Task<CodexUsageSnapshot>> _appServerReader;
     private readonly Func<CancellationToken, CodexUsageSnapshot> _localSessionReader;
     private readonly Func<DateTimeOffset, DateTimeOffset, TimeZoneInfo, CancellationToken, Task<LocalTokenUsageSnapshot>>? _localTokenUsageReader;
@@ -43,14 +49,16 @@ internal sealed partial class CodexUsageService : IDisposable
         Func<CancellationToken, CodexUsageSnapshot> localSessionReader,
         WeeklyUsageHistoryStore weeklyHistoryStore,
         AdaptiveWeeklyUsageStore adaptiveWeeklyUsageStore,
-        Func<DateTimeOffset, DateTimeOffset, TimeZoneInfo, CancellationToken, Task<LocalTokenUsageSnapshot>>? localTokenUsageReader = null)
+        Func<DateTimeOffset, DateTimeOffset, TimeZoneInfo, CancellationToken, Task<LocalTokenUsageSnapshot>>? localTokenUsageReader = null,
+        Func<DateTimeOffset>? clock = null)
     {
         _appServerReader = appServerReader;
         _localSessionReader = localSessionReader;
         _localTokenUsageReader = localTokenUsageReader;
-        _weeklyHistoryStore = weeklyHistoryStore;
-        _adaptiveWeeklyUsageStore = adaptiveWeeklyUsageStore;
-        _weeklyHistory.AddRange(_weeklyHistoryStore.Load(DateTimeOffset.Now));
+        _clock = clock ?? (() => DateTimeOffset.Now);
+        _weeklyHistoryStore = _baseWeeklyHistoryStore = weeklyHistoryStore;
+        _adaptiveWeeklyUsageStore = _baseAdaptiveWeeklyUsageStore = adaptiveWeeklyUsageStore;
+        // Legacy files have no account identity. They must never seed a verified account.
     }
 
     internal CodexUsageService(
@@ -58,14 +66,28 @@ internal sealed partial class CodexUsageService : IDisposable
         Func<CodexUsageSnapshot> localSessionReader,
         WeeklyUsageHistoryStore weeklyHistoryStore,
         AdaptiveWeeklyUsageStore adaptiveWeeklyUsageStore,
-        Func<DateTimeOffset, DateTimeOffset, TimeZoneInfo, CancellationToken, Task<LocalTokenUsageSnapshot>>? localTokenUsageReader = null)
-        : this(appServerReader, _ => localSessionReader(), weeklyHistoryStore, adaptiveWeeklyUsageStore, localTokenUsageReader)
+        Func<DateTimeOffset, DateTimeOffset, TimeZoneInfo, CancellationToken, Task<LocalTokenUsageSnapshot>>? localTokenUsageReader = null,
+        Func<DateTimeOffset>? clock = null)
+        : this(appServerReader, _ => localSessionReader(), weeklyHistoryStore, adaptiveWeeklyUsageStore, localTokenUsageReader, clock)
     {
     }
 
     public CodexUsageSnapshot Current { get; private set; } = CodexUsageSnapshot.Loading;
 
     public LocalTokenUsageSnapshot CurrentTokenUsage { get; private set; } = LocalTokenUsageSnapshot.Unavailable;
+
+    internal UsagePresentation GetPresentation()
+    {
+        lock (_refreshStateLock)
+        {
+            lock (_historyLock)
+            {
+                return new(Current, _primaryHistory.ToArray(), _weeklyHistory.ToArray(),
+                    _historyContext is null ? new([], null) : _adaptiveWeeklyUsageStore.Snapshot,
+                    CurrentTokenUsage, _isLoading);
+            }
+        }
+    }
 
     internal Task TokenRefreshTask
     {
@@ -119,7 +141,7 @@ internal sealed partial class CodexUsageService : IDisposable
         {
             lock (_historyLock)
             {
-                return _adaptiveWeeklyUsageStore.Snapshot;
+                return _historyContext is null ? new([], null) : _adaptiveWeeklyUsageStore.Snapshot;
             }
         }
     }
@@ -178,7 +200,7 @@ internal sealed partial class CodexUsageService : IDisposable
     {
         lock (_historyLock)
         {
-            return _adaptiveWeeklyUsageStore.Clear();
+            return _historyContext is null || _adaptiveWeeklyUsageStore.Clear();
         }
     }
 
@@ -224,15 +246,43 @@ internal sealed partial class CodexUsageService : IDisposable
     {
         lock (_historyLock)
         {
-            var now = recordedAt ?? DateTimeOffset.Now;
+            var now = recordedAt ?? _clock();
+            if (snapshot.Source is UsageDataSource.LastConfirmed or UsageDataSource.Unavailable or UsageDataSource.Initializing)
+            {
+                _primaryHistory.RemoveAll(entry => entry.RecordedAt < now.AddHours(-5));
+                _weeklyHistory.RemoveAll(entry => entry.RecordedAt < now.AddDays(-7));
+                return;
+            }
+
+            var context = snapshot.AccountKey is { Length: > 0 } account
+                ? $"{account}|{snapshot.DefaultBucketId ?? "codex"}"
+                : null;
+            var memoryContext = context ?? $"unverified|{snapshot.DefaultBucketId ?? "codex"}";
+            if (!string.Equals(memoryContext, _memoryHistoryContext, StringComparison.Ordinal))
+            {
+                _memoryHistoryContext = memoryContext;
+                _historyContext = context;
+                _primaryHistory.Clear();
+                _weeklyHistory.Clear();
+                _weeklyHistoryStore = context is null ? _baseWeeklyHistoryStore : _baseWeeklyHistoryStore.ForContext(context);
+                _adaptiveWeeklyUsageStore = context is null ? _baseAdaptiveWeeklyUsageStore : _baseAdaptiveWeeklyUsageStore.ForContext(context);
+                if (context is not null)
+                {
+                    _weeklyHistory.AddRange(_weeklyHistoryStore.Load(now));
+                }
+                // A returning account may have been observed while learning was paused.
+                // Resume at this measurement rather than replaying another context's gap.
+                _adaptiveWeeklyForecastNeedsBaseline = _adaptiveWeeklyForecastEnabled;
+            }
+
             RecordWindowHistory(_primaryHistory, snapshot.Primary, snapshot.UpdatedAt, now, now - TimeSpan.FromHours(5));
             var weeklyHistoryChanged = RecordWindowHistory(_weeklyHistory, snapshot.Secondary, snapshot.UpdatedAt, now, now - TimeSpan.FromDays(7));
-            if (weeklyHistoryChanged)
+            if (weeklyHistoryChanged && context is not null)
             {
                 _weeklyHistoryStore.Save(_weeklyHistory);
             }
 
-            if (_adaptiveWeeklyForecastEnabled && (weeklyHistoryChanged || _adaptiveWeeklyForecastNeedsBaseline))
+            if (context is not null && _adaptiveWeeklyForecastEnabled && (weeklyHistoryChanged || _adaptiveWeeklyForecastNeedsBaseline))
             {
                 if (_adaptiveWeeklyForecastNeedsBaseline)
                 {
@@ -287,7 +337,6 @@ internal sealed partial class CodexUsageService : IDisposable
             var snapshot = await ReadSnapshotAsync(cancellationToken).ConfigureAwait(false);
             if (!cancellationToken.IsCancellationRequested && TryPublish(snapshot))
             {
-                RecordHistory(snapshot);
                 tokenSnapshot = snapshot;
             }
         }
@@ -297,11 +346,8 @@ internal sealed partial class CodexUsageService : IDisposable
         catch (Exception error)
         {
             TraceFailure("unexpected refresh", error);
-            var unavailable = CreateUnavailableSnapshot();
-            if (TryPublish(unavailable))
-            {
-                RecordHistory(unavailable);
-            }
+            var unavailable = _lastConfirmed is null ? CreateUnavailableSnapshot() : LastConfirmedSnapshot(_clock());
+            _ = TryPublish(unavailable);
         }
         finally
         {
@@ -321,9 +367,15 @@ internal sealed partial class CodexUsageService : IDisposable
 
     private async Task<CodexUsageSnapshot> ReadSnapshotAsync(CancellationToken cancellationToken)
     {
+        var attemptedAt = _clock();
         try
         {
-            return await _appServerReader(cancellationToken).ConfigureAwait(false);
+            var live = await _appServerReader(cancellationToken).ConfigureAwait(false);
+            if (live.Source == UsageDataSource.AppServer)
+            {
+                _lastConfirmed = live;
+            }
+            return live with { LastAttemptAt = attemptedAt };
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -335,7 +387,15 @@ internal sealed partial class CodexUsageService : IDisposable
             try
             {
                 var fallback = await Task.Run(() => _localSessionReader(cancellationToken), cancellationToken).ConfigureAwait(false);
-                return fallback with { Error = LiveDataUnavailableMessage };
+                // Session logs do not normally identify the signed-in account. A newer
+                // unverified log must not replace a confirmed, account-scoped measurement.
+                if (_lastConfirmed is { } confirmed
+                    && (fallback.UpdatedAt <= confirmed.UpdatedAt
+                        || (confirmed.AccountKey is not null && fallback.AccountKey != confirmed.AccountKey)))
+                {
+                    return LastConfirmedSnapshot(attemptedAt);
+                }
+                return fallback with { Error = LiveDataUnavailableMessage, LastAttemptAt = attemptedAt };
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
@@ -344,10 +404,19 @@ internal sealed partial class CodexUsageService : IDisposable
             catch (Exception fallbackError)
             {
                 TraceFailure("local session fallback", fallbackError);
-                return CreateUnavailableSnapshot();
+                return _lastConfirmed is null
+                    ? CreateUnavailableSnapshot() with { LastAttemptAt = attemptedAt }
+                    : LastConfirmedSnapshot(attemptedAt);
             }
         }
     }
+
+    private CodexUsageSnapshot LastConfirmedSnapshot(DateTimeOffset attemptedAt) => _lastConfirmed! with
+    {
+        Source = UsageDataSource.LastConfirmed,
+        LastAttemptAt = attemptedAt,
+        Error = LiveDataUnavailableMessage,
+    };
 
     private async Task<LocalTokenUsageSnapshot> ReadTokenUsageAsync(
         CodexUsageSnapshot snapshot,
@@ -355,11 +424,12 @@ internal sealed partial class CodexUsageService : IDisposable
     {
         if (snapshot.Secondary is not { WindowMinutes: > 0 } weekly)
         {
-            return LocalTokenUsageSnapshot.Unavailable with { UpdatedAt = DateTimeOffset.Now };
+            return LocalTokenUsageSnapshot.Unavailable with { UpdatedAt = _clock() };
         }
 
         var windowStart = weekly.ResetsAt - TimeSpan.FromMinutes(weekly.WindowMinutes);
-        var windowEnd = DateTimeOffset.Now < weekly.ResetsAt ? DateTimeOffset.Now : weekly.ResetsAt;
+        var now = _clock();
+        var windowEnd = now < weekly.ResetsAt ? now : weekly.ResetsAt;
         try
         {
             return await _localTokenUsageReader!(windowStart, windowEnd, TimeZoneInfo.Local, cancellationToken).ConfigureAwait(false);
@@ -371,7 +441,7 @@ internal sealed partial class CodexUsageService : IDisposable
         catch (Exception error)
         {
             TraceFailure("local token usage read", error);
-            return LocalTokenUsageSnapshot.Unavailable with { UpdatedAt = DateTimeOffset.Now };
+            return LocalTokenUsageSnapshot.Unavailable with { UpdatedAt = _clock() };
         }
     }
 
@@ -380,6 +450,7 @@ internal sealed partial class CodexUsageService : IDisposable
         lock (_refreshStateLock)
         {
             if (_disposed || _localTokenUsageReader is null || snapshot.Secondary is null
+                || snapshot.Source is UsageDataSource.LastConfirmed or UsageDataSource.Unavailable or UsageDataSource.Initializing
                 || _tokenReadTask is { IsCompleted: false })
             {
                 return;
@@ -446,7 +517,9 @@ internal sealed partial class CodexUsageService : IDisposable
                 return false;
             }
 
+            RecordHistory(snapshot);
             if (Current.Secondary?.ResetsAt != snapshot.Secondary?.ResetsAt
+                || Current.AccountKey != snapshot.AccountKey || Current.DefaultBucketId != snapshot.DefaultBucketId
                 || snapshot.Source == UsageDataSource.Unavailable)
             {
                 CurrentTokenUsage = LocalTokenUsageSnapshot.Unavailable;
@@ -458,9 +531,9 @@ internal sealed partial class CodexUsageService : IDisposable
         }
     }
 
-    private static CodexUsageSnapshot CreateUnavailableSnapshot() => CodexUsageSnapshot.Loading with
+    private CodexUsageSnapshot CreateUnavailableSnapshot() => CodexUsageSnapshot.Loading with
     {
-        UpdatedAt = DateTimeOffset.Now,
+        UpdatedAt = _clock(),
         Source = UsageDataSource.Unavailable,
         Error = AllDataUnavailableMessage,
     };

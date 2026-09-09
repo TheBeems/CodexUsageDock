@@ -31,7 +31,7 @@ The package includes the required .NET runtime. You do not need the .NET SDK to 
 
 ## Install
 
-Microsoft Store version `0.5.3` is publicly available and is the supported production installer. Install [Codex Usage Dock from the Microsoft Store](https://apps.microsoft.com/detail/9NFCPJXQG9FG).
+Microsoft Store is the supported production installer. Install [Codex Usage Dock from the Microsoft Store](https://apps.microsoft.com/detail/9NFCPJXQG9FG).
 
 GitHub Actions artifacts are inputs for Microsoft Store certification, not public installers. Do not distribute or install them directly.
 
@@ -64,6 +64,7 @@ Remove **Codex Usage Dock** from **Windows Settings > Apps > Installed apps**.
 
 ## Troubleshooting
 
+- Open **Codex Usage diagnostics** for the running build, measurement time, latest refresh attempt, source, and reset-field availability. **Copy diagnostics** copies only the safe report, without account identifiers, paths, or raw service errors. A missing reset count is different from an explicitly reported zero.
 - Confirm that a standalone `codex.exe` or `codex.cmd` is available on `PATH`, or set `CODEX_USAGE_DOCK_CODEX_PATH` to its full path and restart PowerToys. The extension will show local fallback data when no launchable CLI is found.
 - Confirm that Codex is signed in.
 - Confirm that PowerToys Command Palette is enabled and running.
@@ -73,13 +74,21 @@ Remove **Codex Usage Dock** from **Windows Settings > Apps > Installed apps**.
 
 ## Distribution status
 
-Microsoft Store product `9NFCPJXQG9FG` is the only production and update channel. Version `0.5.3` is publicly available in the Store. The GitHub `v0.5.3` release records the corresponding source release and does not contain an unsigned installer.
+Microsoft Store product `9NFCPJXQG9FG` is the only production and update channel. GitHub releases identify source versions; a source release does not establish Store rollout or the version installed on a device. Check Microsoft Store for available updates and Windows Apps settings for the installed package version. Diagnostics reports the running extension build separately.
 
 ## Privacy
 
 The extension runs locally. It talks to the standalone Codex CLI app-server and may read local Codex session metadata for its fallback path and aggregate token counters for the daily chart bars. It does not retain prompts, responses, tool output, thread names, or source paths for token analysis. It keeps a rolling seven-day weekly usage trend and up to eight aggregated local weekly forecast profiles on the device, and does not send usage information to a separate service.
 
 See the full [Privacy Policy](PRIVACY.md).
+
+## Data reliability
+
+Details retains separate quota categories returned by newer Codex versions, including durations other than five hours or one week. The familiar Dock entries and weekly forecast describe only the default category. Percentages from different categories are never added or averaged. Credits remain usable even when there are no percentage windows.
+
+Freshness uses the greater of five minutes and the configured refresh interval throughout the UI and forecasts. After a failed refresh, a previous live measurement can remain visible as **Last confirmed** with its original timestamp; projections and new history learning pause. An unverified session log cannot replace a confirmed account measurement. At first launch, local session fallback is still available if live data cannot be obtained.
+
+When Codex supplies an account identity, weekly history and learned profiles are stored separately for that account and default quota category using opaque hashed directory names. History appears only after the account is identified. Older history files have no identity and are not imported into an account. Without a verified account identity, recent observations remain in memory and adaptive learning is paused.
 
 ## Development
 

@@ -1838,6 +1838,7 @@ public sealed class UsageDataTests : IDisposable
             Secondary = new RateLimitWindow(40, 10080, now.AddDays(6)),
             UpdatedAt = now,
             Source = UsageDataSource.AppServer,
+            AccountKey = "test-account",
         };
         try
         {
@@ -1852,6 +1853,8 @@ public sealed class UsageDataTests : IDisposable
 
             using var restarted = _environment.CreateService(_ => Task.FromResult(snapshot), () => snapshot, new WeeklyUsageHistoryStore(path));
             Assert.Empty(restarted.PrimaryHistory);
+            Assert.Empty(restarted.WeeklyHistory);
+            restarted.RecordHistory(snapshot, now);
             Assert.Single(restarted.WeeklyHistory);
         }
         finally
@@ -2150,7 +2153,7 @@ public sealed class UsageDataTests : IDisposable
             null,
             updatedAt,
             UsageDataSource.AppServer,
-            null);
+            null, AccountKey: "test-account");
 
         var latest = CreateSnapshot(70, now.AddMinutes(-1));
         try
