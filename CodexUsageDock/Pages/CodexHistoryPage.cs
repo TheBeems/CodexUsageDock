@@ -32,23 +32,23 @@ internal sealed partial class CodexHistoryPage : ContentPage, IDisposable
 
     internal void Refresh()
     {
-        var history = _service.GetAggregateHistory();
-        var body = new StringBuilder("# Usage history\n\n");
-        if (_operation is not null) body.Append(UsageText.EscapeMarkdown(_operation)).Append("\n\n");
-        if (!history.Identified) body.Append("Waiting for an identified account. Histories are separated by account and quota category.\n\n");
-        body.Append(history.RetentionDays == 0 ? "Collection paused. Choose 7, 30, or 90 days in settings to retain observations."
-            : $"Retention: {history.RetentionDays} days. Up to one observation per five minutes, with separate reset transitions.")
-            .Append("\n\n").Append(history.Points.Count.ToString(CultureInfo.InvariantCulture)).Append(" retained observations. ")
-            .Append("Exports contain UTC quota percentages and reset times, without account IDs, conversation content, tokens, or costs.\n\n");
-        if (history.Error is not null) body.Append(history.Error).Append("\n\n");
-        body.Append("The most recent 30 observations are shown. The exports include all retained rows for this context.\n\n")
-            .Append("| Observed UTC | Five-hour remaining | Weekly remaining |\n| --- | ---: | ---: |\n");
-        foreach (var point in history.Points.TakeLast(30).Reverse())
-            body.Append("| ").Append(point.RecordedAt.UtcDateTime.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture)).Append(" | ")
-                .Append(Percent(point.PrimaryRemainingPercent)).Append(" | ").Append(Percent(point.WeeklyRemainingPercent)).Append(" |\n");
         lock (_gate)
         {
             if (_disposed) return;
+            var history = _service.GetAggregateHistory();
+            var body = new StringBuilder("# Usage history\n\n");
+            if (_operation is not null) body.Append(UsageText.EscapeMarkdown(_operation)).Append("\n\n");
+            if (!history.Identified) body.Append("Waiting for an identified account. Histories are separated by account and quota category.\n\n");
+            body.Append(history.RetentionDays == 0 ? "Collection paused. Choose 7, 30, or 90 days in settings to retain observations."
+                : $"Retention: {history.RetentionDays} days. Up to one observation per five minutes, with separate reset transitions.")
+                .Append("\n\n").Append(history.Points.Count.ToString(CultureInfo.InvariantCulture)).Append(" retained observations. ")
+                .Append("Exports contain UTC quota percentages and reset times, without account IDs, conversation content, tokens, or costs.\n\n");
+            if (history.Error is not null) body.Append(history.Error).Append("\n\n");
+            body.Append("The most recent 30 observations are shown. The exports include all retained rows for this context.\n\n")
+                .Append("| Observed UTC | Five-hour remaining | Weekly remaining |\n| --- | ---: | ---: |\n");
+            foreach (var point in history.Points.TakeLast(30).Reverse())
+                body.Append("| ").Append(point.RecordedAt.UtcDateTime.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture)).Append(" | ")
+                    .Append(Percent(point.PrimaryRemainingPercent)).Append(" | ").Append(Percent(point.WeeklyRemainingPercent)).Append(" |\n");
             _content = new MarkdownContent(body.ToString());
             Commands = history.Context is not { } context ? [] :
             [
