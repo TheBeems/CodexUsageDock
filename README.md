@@ -50,6 +50,10 @@ The Dock will show entries similar to `5h 47%`, `Week 86%`, and `2 resets · 10.
 
 ## Customize the Dock
 
+**Compact Dock** shortens quota labels to forms such as `5h47%` and `W86%` and hides reset times while retaining stale/source warnings. **Separate Dock items** offers each metric as a separate pinnable band; existing combined-band and individual pin identifiers remain resolvable after changing modes.
+
+**Enable usage alerts** is off by default. When enabled, fresh, identified account data can notify on a downward crossing of 10% remaining, a new projected limit within one hour, or a reset credit entering its last 24 hours. The first measurement establishes a baseline. Duplicate refreshes do not repeat alerts, small reset-time fluctuations stay in the same cycle, and account/category changes start a new baseline. Multiple simultaneous alerts are combined into one host notification. Delivery depends on the Command Palette host.
+
 Open Command Palette and select **Codex Usage settings** to choose which usage entries appear in the Dock. You can independently show or hide the five-hour limit, weekly limit, and resets and credits, choose whether usage entries show their reset time, set the local data refresh interval to 1, 5, or 15 minutes, and enable or pause the adaptive weekly forecast. Pausing the forecast keeps its learned local history and excludes measurements collected while it is paused; **Delete learned forecast history** asks for confirmation before permanently clearing it.
 
 The extension saves these choices in `CodexUsageDock/settings.json` under the current user's Windows local application data directory and restores them before refreshing after a restart. If saving fails, the page explains that the choices apply only to the running session and lets you save again. Deleting learned history confirms success only after the cleared state is saved. History read/write failures also appear in Details. Choices lost by older versions cannot be recovered; set them once again after updating.
@@ -57,6 +61,12 @@ The extension saves these choices in `CodexUsageDock/settings.json` under the cu
 ## Update
 
 Microsoft Store installs updates automatically. You can also check for updates from **Microsoft Store > Library**.
+
+## Sources and account activity
+
+Settings accepts an optional full path to a standalone `codex.exe` or `codex.cmd` and an optional Codex home directory. Empty fields retain environment-based discovery. An explicit directory can be a Windows-accessible WSL path; the extension reads that directory and passes it to the Windows CLI as `CODEX_HOME`, without starting WSL or changing Codex configuration. Inaccessible or invalid explicit paths stop source reads and show a settings error. A profile change clears the displayed context and discards results from the previous in-flight read.
+
+**Codex account activity** shows account-wide token summaries and up to 30 recent server-calendar days when `account/usage/read` is supported. It updates independently after quota data, at most every five minutes automatically; unsupported versions retry after 30 minutes. **Refresh now** on that page requests an immediate retry. Disable **Show account activity** to stop these optional reads. Account identity must match before and after the request. Missing days and fields are not zero usage, and the server's unspecified calendar time zone is kept separate from local calendar-day chart bars. No account activity is written to disk by this feature.
 
 ## Uninstall
 
