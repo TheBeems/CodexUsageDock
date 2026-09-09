@@ -8,6 +8,10 @@ Each entry links to the commit or pull request that introduced the change.
 
 ## [Unreleased]
 
+### Changed
+
+- Expanded the release skill to cover scoped commit/push, Store submission, resumable certification tracking, and verified installation, with a repository-local Codex entry point.
+
 ## [0.6.1] - 2026-09-09
 
 ### Fixed
