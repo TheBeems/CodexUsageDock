@@ -10,7 +10,7 @@ internal enum UsageDockItemKind
     ResetsAndCredits,
 }
 
-internal sealed partial class UsageDockItem : ListItem, IDisposable
+internal sealed partial class UsageDockItem : UsageDockListItem, IDisposable
 {
     private readonly CodexUsageService _usage;
     private readonly UsageDockItemKind _kind;

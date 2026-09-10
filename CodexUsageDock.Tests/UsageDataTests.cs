@@ -445,7 +445,7 @@ public sealed class UsageDataTests : IDisposable
     }
 
     [Fact]
-    public async Task CompletedRefreshRebuildsAndInvalidatesDockBands()
+    public async Task CompletedRefreshUpdatesExistingDockBandWithoutReloadingProvider()
     {
         var now = DateTimeOffset.Now;
         var result = new TaskCompletionSource<CodexUsageSnapshot>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -457,6 +457,10 @@ public sealed class UsageDataTests : IDisposable
         {
             var invalidationCount = 0;
             provider.ItemsChanged += (_, _) => invalidationCount++;
+            var band = Assert.Single(provider.GetDockBands()!);
+            var list = Assert.IsAssignableFrom<IListPage>(band.Command);
+            var bandInvalidations = 0;
+            list.ItemsChanged += (_, _) => bandInvalidations++;
 
             var refresh = service.RefreshAsync();
             result.SetResult(CodexUsageSnapshot.Loading with
@@ -468,9 +472,9 @@ public sealed class UsageDataTests : IDisposable
             });
             await refresh.WaitAsync(AsyncTestTimeout);
 
-            Assert.Equal(1, invalidationCount);
-            var band = Assert.Single(provider.GetDockBands()!);
-            var list = Assert.IsAssignableFrom<IListPage>(band.Command);
+            Assert.Equal(0, invalidationCount);
+            Assert.True(bandInvalidations > 0);
+            Assert.Same(band, Assert.Single(provider.GetDockBands()!));
             Assert.Contains(list.GetItems(), item => item.Title == "5h 75%");
         }
         finally
