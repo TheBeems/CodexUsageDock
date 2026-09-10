@@ -11,7 +11,8 @@ internal static class UsagePlanner
         DateTimeOffset now,
         TimeSpan refreshInterval,
         DateTimeOffset desiredEnd,
-        int? remainingWorkdays = null)
+        int? remainingWorkdays = null,
+        TimeZoneInfo? timeZone = null)
     {
         ArgumentNullException.ThrowIfNull(presentation);
 
@@ -80,7 +81,8 @@ internal static class UsagePlanner
                 remainingWorkdays,
                 maximumSampleAge,
                 adaptiveCycleCount: 0,
-                isPrimary: true);
+                isPrimary: true,
+                timeZone ?? TimeZoneInfo.Local);
             var weekly = CreateWindowPlan(
                 snapshot.Secondary,
                 presentation.WeeklyHistory,
@@ -89,7 +91,8 @@ internal static class UsagePlanner
                 remainingWorkdays,
                 maximumSampleAge,
                 CountAdaptiveCycles(presentation),
-                isPrimary: false);
+                isPrimary: false,
+                timeZone ?? TimeZoneInfo.Local);
 
             if (primary is null && weekly is null)
             {
@@ -130,7 +133,8 @@ internal static class UsagePlanner
         int? requestedWorkdays,
         TimeSpan maximumSampleAge,
         int adaptiveCycleCount,
-        bool isPrimary)
+        bool isPrimary,
+        TimeZoneInfo timeZone)
     {
         if (!UsageFreshness.IsValidWindow(window, now))
         {
@@ -147,7 +151,7 @@ internal static class UsagePlanner
 
         var workdays = isPrimary
             ? 1
-            : Math.Max(1, Math.Min(requestedWorkdays ?? 1, CalendarDaysUntilReset(validWindow.ResetsAt, now)));
+            : Math.Max(1, Math.Min(requestedWorkdays ?? 1, CalendarDaysUntilReset(validWindow.ResetsAt, now, timeZone)));
         var remaining = validWindow.RemainingPercent;
         var pointsPerWorkday = remaining / workdays;
         var pointsPerHour = pointsPerWorkday / horizon.TotalHours;
@@ -413,9 +417,9 @@ internal static class UsagePlanner
         return completed + (history.ActiveCycle is null ? 0 : 1);
     }
 
-    private static int CalendarDaysUntilReset(DateTimeOffset resetsAt, DateTimeOffset now)
+    private static int CalendarDaysUntilReset(DateTimeOffset resetsAt, DateTimeOffset now, TimeZoneInfo timeZone)
     {
-        var days = (resetsAt.Date - now.Date).Days;
+        var days = (TimeZoneInfo.ConvertTime(resetsAt, timeZone).Date - TimeZoneInfo.ConvertTime(now, timeZone).Date).Days;
         if (days <= 1)
         {
             return 1;

@@ -21,6 +21,7 @@ Each entry links to the commit or pull request that introduced the change.
 
 ### Fixed
 
+- Calculate planner workday budgets from reset and current dates in the same local time zone. ([PR #20](https://github.com/TheBeems/CodexUsageDock/pull/20))
 - Keep the last confirmed live measurement during outages, without resetting its age or continuing projections and learning. ([PR #18](https://github.com/TheBeems/CodexUsageDock/pull/18))
 - Apply one freshness policy across the Dock, details, and forecasts, and keep account/category history isolated. Unidentified legacy history is no longer imported into verified accounts. ([PR #18](https://github.com/TheBeems/CodexUsageDock/pull/18))
 

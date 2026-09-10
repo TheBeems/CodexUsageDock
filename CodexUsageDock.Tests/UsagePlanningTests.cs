@@ -64,6 +64,25 @@ public sealed class UsagePlanningTests
         Assert.Equal(10, oneDayPlan.Weekly.AvailablePointsPerHour, precision: 8);
     }
 
+    [Theory]
+    [InlineData(2, 23, 3)]
+    [InlineData(-7, 1, 1)]
+    public void WeeklyBudgetCapsWorkdaysUsingLocalCalendarDates(int offsetHours, int resetHour, int expectedDays)
+    {
+        var timeZone = TimeZoneInfo.CreateCustomTimeZone("Planning test", TimeSpan.FromHours(offsetHours), "Planning test", "Planning test");
+        var reset = new DateTimeOffset(2026, 9, 11, resetHour, 0, 0, TimeSpan.Zero);
+        var presentation = Presentation(primaryRemaining: null, secondaryRemaining: 60, secondaryReset: reset);
+
+        var plan = UsagePlanner.Plan(presentation, Now, RefreshInterval, Now.AddHours(5), 7, timeZone);
+        var equivalentOffsetPlan = UsagePlanner.Plan(
+            presentation, Now.ToOffset(TimeSpan.FromHours(14)), RefreshInterval, Now.AddHours(5), 7, timeZone);
+
+        Assert.Equal(expectedDays, plan.Weekly!.Workdays);
+        Assert.Equal(60d / expectedDays, plan.Weekly.AvailablePointsPerWorkday, precision: 8);
+        Assert.Equal(60d / expectedDays / 5, plan.Weekly.AvailablePointsPerHour, precision: 8);
+        Assert.Equal(plan.Weekly.Workdays, equivalentOffsetPlan.Weekly!.Workdays);
+    }
+
     [Fact]
     public void InvalidEndOrWorkdayCountReturnsAnExplanation()
     {
