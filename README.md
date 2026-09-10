@@ -74,7 +74,7 @@ Settings accepts an optional full path to a standalone `codex.exe` or `codex.cmd
 
 ## Optional Claude usage pilot
 
-The pilot displays separate Claude five-hour and seven-day limits from an explicitly selected local capture file. It is off by default and adds its own Dock band when enabled. It does not verify the Claude account, combine Claude percentages with Codex, or infer costs. Claude reads run independently of a slow Codex refresh.
+The pilot displays separate Claude five-hour and seven-day limits from an explicitly selected local capture file. It is off by default and adds its own Dock band when enabled. It does not verify the Claude account, combine Claude percentages with Codex, or infer costs. Claude reads run independently of a slow Codex refresh. Changing the refresh interval immediately rereads the capture and updates its freshness status.
 
 The bridge uses Claude Code's documented `rate_limits.five_hour` and `rate_limits.seven_day` statusline fields. These may be absent independently, appear only after a session receives an API response, and require an eligible subscription. The pilot does not support gateway spend-limit fields. See the [official statusline field documentation](https://code.claude.com/docs/en/statusline#available-data).
 
@@ -133,7 +133,7 @@ Freshness uses the greater of five minutes and the configured refresh interval t
 
 When Codex supplies an account identity, weekly history and learned profiles are stored separately for that account and default quota category using opaque hashed directory names. History appears only after the account is identified. Older history files have no identity and are not imported into an account. Without a verified account identity, recent observations remain in memory and adaptive learning is paused.
 
-The local quota fallback caches read positions and the latest valid quota event in memory. Unchanged files still in its cache are not reread for content; appended, replaced, truncated, and deleted files are handled on later refreshes. Each scan reads at most 8 MiB of file content, tracks up to 512 files, and bounds partial lines to 128 KiB. It still enumerates session file metadata; these limits do not promise constant scan time for large directories. Incomplete scans are reported, and later refreshes continue discovery. No session payload or read-position cache is saved to disk by this quota fallback.
+The local quota fallback caches read positions and the latest valid quota event in memory. Unchanged files still in its cache are not reread for content; appended, replaced, truncated, and deleted files are handled on later refreshes. Each scan reads at most 8 MiB of file content, tracks up to 512 files, and bounds partial lines to 128 KiB. It still enumerates session file metadata and skips inaccessible subdirectories; these limits do not promise constant scan time for large directories. Incomplete scans are reported, and later refreshes continue discovery. No session payload or read-position cache is saved to disk by this quota fallback.
 
 ## Development
 

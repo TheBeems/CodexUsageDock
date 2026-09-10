@@ -96,7 +96,7 @@ internal sealed class CachedCodexSessionReader
             var options = new EnumerationOptions
             {
                 RecurseSubdirectories = true,
-                IgnoreInaccessible = false,
+                IgnoreInaccessible = true,
                 AttributesToSkip = FileAttributes.ReparsePoint,
             };
             try
