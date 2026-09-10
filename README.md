@@ -46,7 +46,7 @@ Codex Usage Dock is activated inside PowerToys Command Palette and intentionally
 5. Choose **Add command** (`+`) in the section where you want the widget.
 6. Search for **Codex Usage** and select its Dock band.
 
-The Dock will show entries similar to `5h 47%`, `Week 86%`, and `2 resets · 10.00`. The percentages represent the amount remaining. The final entry shows available earned resets, the time until the next reset credit expires in whole hours or days, and, when available, the credits balance. Select an entry to see reset expiry details or refresh the data manually.
+The Dock will show entries similar to `5h 47%`, `Week 86%`, and `2 resets · 10.00`. The percentages represent the amount remaining. Quota subtitles show the next reset, such as `Reset - 15 sept 12:56`. The final entry shows available earned resets, the next credit expiry as `Expires - 4 okt 4:00`, and, when available, the credits balance. Dates use your local time zone and abbreviated month names from your regional settings. Stale or fallback data retains its source warning. Select an entry to see reset expiry details or refresh the data manually.
 
 ## Customize the Dock
 

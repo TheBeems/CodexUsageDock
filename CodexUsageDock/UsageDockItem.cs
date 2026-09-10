@@ -43,8 +43,10 @@ internal sealed partial class UsageDockItem : UsageDockListItem, IDisposable
         if (_kind == UsageDockItemKind.ResetsAndCredits)
         {
             Title = FormatResetsAndCredits(snapshot);
-            Subtitle = CombineStatusAndDetail(
-                FormatSourceFreshness(snapshot, now, _usage.RefreshInterval),
+            Subtitle = FormatLiveDetailOrStatus(
+                snapshot,
+                now,
+                _usage.RefreshInterval,
                 _settings?.CompactDock == true ? string.Empty : FormatResetExpiry(snapshot.ResetCredits, now));
             Icon = new IconInfo("\uE777");
             return;
@@ -74,8 +76,14 @@ internal sealed partial class UsageDockItem : UsageDockListItem, IDisposable
         }
 
         Title = FormatQuotaTitle(_kind, window.RemainingPercent, compact);
-        var reset = compact || _settings?.ShowResetTime == false ? string.Empty : $"reset {FormatReset(window.ResetsAt)}";
-        Subtitle = CombineStatusAndDetail(FormatSourceFreshness(snapshot, now, _usage.RefreshInterval), reset);
+        var reset = compact || _settings?.ShowResetTime == false
+            ? string.Empty
+            : $"Reset - {FormatLocalDateTime(window.ResetsAt.ToLocalTime(), CultureInfo.CurrentCulture)}";
+        Subtitle = FormatLiveDetailOrStatus(
+            snapshot,
+            now,
+            _usage.RefreshInterval,
+            reset);
         Icon = new IconInfo(window.RemainingPercent <= 10 ? "\uE7BA" : "\uE916");
     }
 
@@ -189,6 +197,31 @@ internal sealed partial class UsageDockItem : UsageDockListItem, IDisposable
     private static string FormatLocalTime(DateTimeOffset value) =>
         value.ToLocalTime().ToString("HH:mm", CultureInfo.CurrentCulture);
 
+    internal static string FormatLocalDateTime(DateTimeOffset local, CultureInfo culture)
+    {
+        var month = local.ToString("MMM", culture).TrimEnd('.');
+        // Windows globalization data can abbreviate Dutch September as "sep".
+        if (culture.TwoLetterISOLanguageName == "nl" && local.Month == 9) month = "sept";
+        return $"{local.ToString("%d", culture)} {month} {local.ToString("H:mm", culture)}";
+    }
+
+    internal static string FormatLiveDetailOrStatus(
+        CodexUsageSnapshot snapshot,
+        DateTimeOffset now,
+        TimeSpan refreshInterval,
+        string detail)
+    {
+        var state = UsageFreshness.Classify(
+            snapshot.UpdatedAt,
+            now,
+            refreshInterval);
+        return snapshot.Source == UsageDataSource.AppServer
+            && state == UsageFreshnessState.Fresh
+            && detail.Length > 0
+            ? detail
+            : CombineStatusAndDetail(FormatSourceFreshness(snapshot, now, refreshInterval), detail);
+    }
+
     private static string CombineStatusAndDetail(string status, string detail) =>
         detail.Length == 0 ? status : $"{status} · {detail}";
 
@@ -220,13 +253,10 @@ internal sealed partial class UsageDockItem : UsageDockListItem, IDisposable
 
         if (nextExpiry is not { } expiry)
         {
-            return "expiration unavailable";
+            return "Expires - unavailable";
         }
 
-        var remaining = expiry - now;
-        return remaining < TimeSpan.FromHours(24)
-            ? $"expires in {(int)Math.Ceiling(remaining.TotalHours)} hours"
-            : $"expires in {(int)Math.Ceiling(remaining.TotalDays)} days";
+        return $"Expires - {FormatLocalDateTime(expiry.ToLocalTime(), CultureInfo.CurrentCulture)}";
     }
 
     internal static (string Title, string Subtitle) FormatUnavailable(UsageDockItemKind kind, bool compact = false) =>
@@ -236,14 +266,6 @@ internal sealed partial class UsageDockItem : UsageDockListItem, IDisposable
             UsageDockItemKind.Weekly => compact ? "W --" : "Week --",
             _ => "-- resets",
         }, "Codex usage unavailable");
-
-    private static string FormatReset(DateTimeOffset reset)
-    {
-        var local = reset.ToLocalTime();
-        return local.Date == DateTime.Today
-            ? local.ToString("HH:mm", CultureInfo.CurrentCulture)
-            : local.ToString("ddd HH:mm", CultureInfo.CurrentCulture);
-    }
 
     public void Dispose()
     {
