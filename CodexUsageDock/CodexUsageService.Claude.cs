@@ -4,6 +4,7 @@ internal sealed partial class CodexUsageService
 {
     private bool _claudeEnabled;
     private string _claudePath = string.Empty;
+    private TimeSpan _claudeRefreshInterval;
     private long _claudeGeneration;
     private Task? _claudeReadTask;
     private ClaudeUsageSnapshot _claudeUsage = ClaudeUsageSnapshot.Unavailable("The Claude pilot is disabled.");
@@ -16,9 +17,11 @@ internal sealed partial class CodexUsageService
     {
         lock (_refreshStateLock)
         {
-            if (_disposed || _claudeEnabled == enabled && _claudePath == path) return;
+            var interval = RefreshInterval;
+            if (_disposed || _claudeEnabled == enabled && _claudePath == path && _claudeRefreshInterval == interval) return;
             _claudeEnabled = enabled;
             _claudePath = path;
+            _claudeRefreshInterval = interval;
             _claudeGeneration++;
             _claudeUsage = ClaudeUsageSnapshot.Unavailable(enabled ? "Waiting for a local Claude usage capture." : "The Claude pilot is disabled.");
         }
