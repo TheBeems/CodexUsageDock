@@ -14,6 +14,9 @@ public partial class CodexUsageDockCommandsProvider : CommandProvider
     private readonly CodexUsageDockPage _details;
     private readonly CodexUsageDiagnosticsPage _diagnostics;
     private readonly CodexAccountActivityPage _accountActivity;
+    private readonly CodexPlanningPage _planner;
+    private readonly CodexHistoryPage _history;
+    private readonly CodexActionsPage _actions;
     private readonly UsageAlertEvaluator _alerts = new();
     private readonly Action<string> _notify;
     private readonly Func<DateTimeOffset> _clock;
@@ -45,10 +48,14 @@ public partial class CodexUsageDockCommandsProvider : CommandProvider
         _usage.SetAdaptiveWeeklyForecastEnabled(_settings.UseAdaptiveWeeklyForecast);
         ApplySourceSettings();
         _usage.SetAccountActivityEnabled(_settings.ShowAccountActivity);
+        _usage.SetAggregateRetentionDays(_settings.HistoryRetentionDays);
         var details = _details = new CodexUsageDockPage(_usage, _settings);
         _diagnostics = new CodexUsageDiagnosticsPage(_usage);
         _diagnostics.Id = "nl.mathijs.codexusage.diagnostics";
         _accountActivity = new CodexAccountActivityPage(_usage);
+        _planner = new CodexPlanningPage(_usage, _settings, _clock);
+        _history = new CodexHistoryPage(_usage);
+        _actions = new CodexActionsPage(_usage);
         _fiveHour = new UsageDockItem(_usage, UsageDockItemKind.FiveHour, details, _settings);
         _weekly = new UsageDockItem(_usage, UsageDockItemKind.Weekly, details, _settings);
         _resetsAndCredits = new UsageDockItem(_usage, UsageDockItemKind.ResetsAndCredits, details);
@@ -76,6 +83,9 @@ public partial class CodexUsageDockCommandsProvider : CommandProvider
                 Title = "Codex account activity",
                 Subtitle = "Account-wide daily tokens reported by Codex",
             },
+            new CommandItem(_planner) { Title = "Codex workday planner", Subtitle = "Daily quota budget, recent pace, and forecast evidence" },
+            new CommandItem(_history) { Title = "Codex usage history", Subtitle = "Retained quota observations, CSV/JSON export, and deletion" },
+            new CommandItem(_actions) { Title = "Codex task usage and earned resets", Subtitle = "Request a task estimate or explicitly use an earned reset" },
         ];
 
         _settings.Changed += OnSettingsChanged;
@@ -116,9 +126,12 @@ public partial class CodexUsageDockCommandsProvider : CommandProvider
         _usage.SetAdaptiveWeeklyForecastEnabled(_settings.UseAdaptiveWeeklyForecast);
         var sourceChanged = ApplySourceSettings();
         _usage.SetAccountActivityEnabled(_settings.ShowAccountActivity);
+        _usage.SetAggregateRetentionDays(_settings.HistoryRetentionDays);
         _fiveHour.Refresh();
         _weekly.Refresh();
         _details.Refresh();
+        _planner.Refresh();
+        _history.Refresh();
         RebuildDockBands();
         RaiseItemsChanged();
         if (sourceChanged) _ = _usage.RefreshAsync();
@@ -212,6 +225,9 @@ public partial class CodexUsageDockCommandsProvider : CommandProvider
         _details.Dispose();
         _diagnostics.Dispose();
         _accountActivity.Dispose();
+        _planner.Dispose();
+        _history.Dispose();
+        _actions.Dispose();
         _usage.Dispose();
         base.Dispose();
         GC.SuppressFinalize(this);

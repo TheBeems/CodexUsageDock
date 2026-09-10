@@ -47,6 +47,7 @@ internal sealed partial class CodexUsageService : IDisposable
             localTokenUsageReader: new LocalCodexTokenUsageReader().ReadAsync)
     {
         _usesConfiguredSources = true;
+        InitializeOptionalFeatures(LocalStorage.GetPath("aggregates.json"), LocalStorage.GetPath("reset-attempt.json"));
     }
 
     internal CodexUsageService(
@@ -169,6 +170,7 @@ internal sealed partial class CodexUsageService : IDisposable
             Current = CodexUsageSnapshot.Loading;
             CurrentTokenUsage = LocalTokenUsageSnapshot.Unavailable;
             CurrentAccountUsage = AccountUsageSnapshot.Unavailable;
+            ClearActionPresentation();
             _accountReadAfter = DateTimeOffset.MinValue;
             if (_usesConfiguredSources)
             {
@@ -180,6 +182,7 @@ internal sealed partial class CodexUsageService : IDisposable
                 _historyContext = null;
                 _primaryHistory.Clear();
                 _weeklyHistory.Clear();
+                _aggregateStore = null;
             }
         }
         RaiseUpdated();
@@ -315,7 +318,10 @@ internal sealed partial class CodexUsageService : IDisposable
                 // A returning account may have been observed while learning was paused.
                 // Resume at this measurement rather than replaying another context's gap.
                 _adaptiveWeeklyForecastNeedsBaseline = _adaptiveWeeklyForecastEnabled;
+                OpenAggregateStore();
             }
+
+            RecordAggregate(snapshot, now);
 
             RecordWindowHistory(_primaryHistory, snapshot.Primary, snapshot.UpdatedAt, now, now - TimeSpan.FromHours(5));
             var weeklyHistoryChanged = RecordWindowHistory(_weeklyHistory, snapshot.Secondary, snapshot.UpdatedAt, now, now - TimeSpan.FromDays(7));
@@ -594,6 +600,7 @@ internal sealed partial class CodexUsageService : IDisposable
                 CurrentTokenUsage = LocalTokenUsageSnapshot.Unavailable;
                 if (Current.AccountKey != snapshot.AccountKey)
                 {
+                    ClearActionPresentation();
                     CurrentAccountUsage = AccountUsageSnapshot.Unavailable;
                     _accountReadAfter = DateTimeOffset.MinValue;
                 }
@@ -664,7 +671,8 @@ internal sealed partial class CodexUsageService : IDisposable
             }
 
             _disposed = true;
-            refreshTask = Task.WhenAll(_refreshTask ?? Task.CompletedTask, _tokenRefreshTask, _accountRefreshTask);
+            refreshTask = Task.WhenAll(_refreshTask ?? Task.CompletedTask, _tokenRefreshTask, _accountRefreshTask,
+                (Task?)_resetActionTask ?? Task.CompletedTask, _threadActionTask ?? Task.CompletedTask);
         }
 
         _timer.Stop();

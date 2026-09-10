@@ -92,6 +92,140 @@ internal static class CodexAppServerReader
             : AccountUsageSnapshot.Unavailable with { UpdatedAt = DateTimeOffset.Now };
     }
 
+    internal static async Task<ThreadUsageSnapshot> ReadThreadUsageAsync(
+        CodexSourceOptions options, string threadId, string expectedAccountKey, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (!ThreadUsageParser.IsValidThreadId(threadId)) return EmptyThreadUsage(ThreadUsageStatus.Unavailable);
+        if (!IsValidAccountKey(expectedAccountKey)) return EmptyThreadUsage(ThreadUsageStatus.AccountMismatch);
+        try
+        {
+            return await WithAppServerAsync(options, (process, token) =>
+                ReadThreadUsageSequenceAsync((method, id, parameters, requestToken) =>
+                    RequestAsync(process, method, id, parameters, requestToken), threadId, expectedAccountKey, token),
+                cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception error) when (error is IOException or InvalidOperationException or JsonException
+            or OperationCanceledException or System.ComponentModel.Win32Exception or UnauthorizedAccessException)
+        {
+            return EmptyThreadUsage(ThreadUsageStatus.Unavailable);
+        }
+    }
+
+    internal static async Task<ThreadUsageSnapshot> ReadThreadUsageSequenceAsync(
+        Func<string, int, Action<Utf8JsonWriter>?, CancellationToken, Task<JsonDocument>> request,
+        string threadId, string expectedAccountKey, CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (!ThreadUsageParser.IsValidThreadId(threadId)) return EmptyThreadUsage(ThreadUsageStatus.Unavailable);
+        if (!IsValidAccountKey(expectedAccountKey)) return EmptyThreadUsage(ThreadUsageStatus.AccountMismatch);
+
+        using var before = await request("account/rateLimits/read", 2, null, cancellationToken).ConfigureAwait(false);
+        if (IsMethodNotFound(before.RootElement)) return EmptyThreadUsage(ThreadUsageStatus.Unsupported);
+        if (HasError(before.RootElement)) return EmptyThreadUsage(ThreadUsageStatus.Unavailable);
+        var beforeKey = GetResponseAccountKey(before.RootElement);
+        if (!string.Equals(expectedAccountKey, beforeKey, StringComparison.OrdinalIgnoreCase))
+            return EmptyThreadUsage(ThreadUsageStatus.AccountMismatch);
+
+        using var usage = await request("account/usage/read", 3,
+            writer => WriteStringParameter(writer, "threadId", threadId), cancellationToken).ConfigureAwait(false);
+        if (IsMethodNotFound(usage.RootElement)) return EmptyThreadUsage(ThreadUsageStatus.Unsupported);
+        if (HasError(usage.RootElement)) return EmptyThreadUsage(ThreadUsageStatus.Unavailable);
+
+        using var after = await request("account/rateLimits/read", 4, null, cancellationToken).ConfigureAwait(false);
+        if (HasError(after.RootElement)) return EmptyThreadUsage(ThreadUsageStatus.Unavailable);
+        if (!string.Equals(beforeKey, GetResponseAccountKey(after.RootElement), StringComparison.Ordinal))
+            return EmptyThreadUsage(ThreadUsageStatus.AccountMismatch);
+
+        return TryGetObject(usage.RootElement, "result", out var result)
+            ? ThreadUsageParser.Parse(result, threadId, beforeKey!, DateTimeOffset.Now)
+            : EmptyThreadUsage(ThreadUsageStatus.Unavailable);
+    }
+
+    internal static async Task<ResetCreditResult> ConsumeResetCreditAsync(
+        CodexSourceOptions options, string expectedAccountKey, string idempotencyKey, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        ValidateIdempotencyKey(idempotencyKey);
+        if (!IsValidAccountKey(expectedAccountKey)) return new(ResetCreditOutcome.AccountMismatch, DateTimeOffset.Now);
+
+        var consumeStarted = false;
+        ResetCreditResult? completed = null;
+        try
+        {
+            return await WithAppServerAsync(options, async (process, token) =>
+            {
+                var result = await ConsumeResetCreditSequenceAsync((method, id, parameters, requestToken) =>
+                {
+                    if (method == "account/rateLimitResetCredit/consume") consumeStarted = true;
+                    return RequestAsync(process, method, id, parameters, requestToken);
+                }, expectedAccountKey, idempotencyKey, token).ConfigureAwait(false);
+                completed = result;
+                return result;
+            }, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception)
+        {
+            // Cleanup can fail after the server has replied. Keep a known result;
+            // otherwise never describe a possibly dispatched reset as safe to replace.
+            return completed ?? new(consumeStarted ? ResetCreditOutcome.Ambiguous : ResetCreditOutcome.Unavailable, DateTimeOffset.Now);
+        }
+    }
+
+    internal static async Task<ResetCreditResult> ConsumeResetCreditSequenceAsync(
+        Func<string, int, Action<Utf8JsonWriter>?, CancellationToken, Task<JsonDocument>> request,
+        string expectedAccountKey, string idempotencyKey, CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        ValidateIdempotencyKey(idempotencyKey);
+        var attemptedAt = DateTimeOffset.Now;
+        if (!IsValidAccountKey(expectedAccountKey)) return new(ResetCreditOutcome.AccountMismatch, attemptedAt);
+
+        var consumeStarted = false;
+        try
+        {
+            using var before = await request("account/rateLimits/read", 2, null, cancellationToken).ConfigureAwait(false);
+            if (IsMethodNotFound(before.RootElement)) return new(ResetCreditOutcome.Unsupported, attemptedAt);
+            if (HasError(before.RootElement)) return new(ResetCreditOutcome.Unavailable, attemptedAt);
+            if (!string.Equals(expectedAccountKey, GetResponseAccountKey(before.RootElement), StringComparison.OrdinalIgnoreCase))
+                return new(ResetCreditOutcome.AccountMismatch, attemptedAt);
+
+            cancellationToken.ThrowIfCancellationRequested();
+            attemptedAt = DateTimeOffset.Now;
+            consumeStarted = true;
+            using var response = await request("account/rateLimitResetCredit/consume", 3,
+                writer => WriteStringParameter(writer, "idempotencyKey", idempotencyKey), cancellationToken).ConfigureAwait(false);
+            return ResetCreditParser.Parse(response.RootElement, attemptedAt);
+        }
+        catch (Exception)
+        {
+            return new(consumeStarted ? ResetCreditOutcome.Ambiguous : ResetCreditOutcome.Unavailable, attemptedAt);
+        }
+    }
+
+    private static ThreadUsageSnapshot EmptyThreadUsage(ThreadUsageStatus status) =>
+        ThreadUsageSnapshot.Unavailable with { Status = status, UpdatedAt = DateTimeOffset.Now };
+
+    private static bool IsValidAccountKey(string? value) => value is { Length: 64 } && value.All(char.IsAsciiHexDigit);
+
+    private static void ValidateIdempotencyKey(string value)
+    {
+        if (!ResetCreditParser.IsValidIdempotencyKey(value))
+            throw new ArgumentException("A bounded, nonempty idempotency key is required.", nameof(value));
+    }
+
+    private static void WriteStringParameter(Utf8JsonWriter writer, string name, string value)
+    {
+        writer.WritePropertyName("params");
+        writer.WriteStartObject();
+        writer.WriteString(name, value);
+        writer.WriteEndObject();
+    }
+
     private static string? GetResponseAccountKey(JsonElement response) =>
         !HasError(response) && TryGetObject(response, "result", out var result) ? ParseAccountKey(result) : null;
 
@@ -102,14 +236,18 @@ internal static class CodexAppServerReader
         && code.TryGetInt32(out var number)
         && number == -32601;
 
-    private static async Task<JsonDocument> RequestAsync(Process process, string method, int id, CancellationToken cancellationToken)
-    {
-        await SendAsync(process, method, id, method == "account/usage/read" ? static writer =>
+    private static Task<JsonDocument> RequestAsync(Process process, string method, int id, CancellationToken cancellationToken) =>
+        RequestAsync(process, method, id, method == "account/usage/read" ? static writer =>
         {
             writer.WritePropertyName("params");
             writer.WriteStartObject();
             writer.WriteEndObject();
-        } : null, cancellationToken).ConfigureAwait(false);
+        } : null, cancellationToken);
+
+    private static async Task<JsonDocument> RequestAsync(Process process, string method, int id,
+        Action<Utf8JsonWriter>? parameters, CancellationToken cancellationToken)
+    {
+        await SendAsync(process, method, id, parameters, cancellationToken).ConfigureAwait(false);
         var responses = await ReadResponsesAsync(process.StandardOutput, cancellationToken, id).ConfigureAwait(false);
         return responses[id];
     }

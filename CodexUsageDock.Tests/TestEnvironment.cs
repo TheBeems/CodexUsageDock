@@ -22,11 +22,15 @@ internal sealed class TestEnvironment : IDisposable
         AdaptiveWeeklyUsageStore? adaptiveWeeklyUsageStore = null,
         Func<DateTimeOffset, DateTimeOffset, TimeZoneInfo, CancellationToken, Task<LocalTokenUsageSnapshot>>? localTokenUsageReader = null,
         Func<DateTimeOffset>? clock = null,
-        Func<CancellationToken, Task<AccountUsageSnapshot>>? accountUsageReader = null) =>
-        new(appServerReader, localSessionReader,
+        Func<CancellationToken, Task<AccountUsageSnapshot>>? accountUsageReader = null)
+    {
+        var service = new CodexUsageService(appServerReader, localSessionReader,
             weeklyHistoryStore ?? new WeeklyUsageHistoryStore(PathFor("weekly.json")),
             adaptiveWeeklyUsageStore ?? new AdaptiveWeeklyUsageStore(PathFor("adaptive.json")),
             localTokenUsageReader, clock, accountUsageReader);
+        service.InitializeOptionalFeatures(PathFor("aggregates.json"), PathFor("reset-attempt.json"));
+        return service;
+    }
 
     internal CodexUsageService CreateService(
         Func<CancellationToken, Task<CodexUsageSnapshot>> appServerReader,
