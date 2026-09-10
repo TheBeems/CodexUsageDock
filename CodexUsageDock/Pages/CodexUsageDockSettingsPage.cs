@@ -25,6 +25,9 @@ internal sealed partial class CodexUsageDockSettingsPage : ContentPage
     private const string HistoryRetentionKey = "historyRetentionDays";
     private const string WorkdayEndKey = "workdayEnd";
     private const string RemainingWorkdaysKey = "remainingWorkdays";
+    private const string SourceLabelKey = "sourceLabel";
+    private const string EnableClaudeKey = "enableClaude";
+    private const string ClaudeBridgePathKey = "claudeBridgePath";
     private readonly Settings _settings = new();
     private readonly string _path;
     private readonly FormContent _statusContent = new()
@@ -105,6 +108,23 @@ internal sealed partial class CodexUsageDockSettingsPage : ContentPage
             Placeholder = @"C:\Users\you\.codex",
             Multiline = false,
         });
+        _settings.Add(new TextSetting(SourceLabelKey, "Default")
+        {
+            Label = "Source label",
+            Description = "An optional name for these source paths. A label does not verify the signed-in account.",
+            Multiline = false,
+        });
+        _settings.Add(new ToggleSetting(EnableClaudeKey, false)
+        {
+            Label = "Enable Claude usage pilot",
+            Description = "Read only the local quota snapshot produced by your optional Claude statusline bridge.",
+        });
+        _settings.Add(new TextSetting(ClaudeBridgePathKey, string.Empty)
+        {
+            Label = "Claude bridge file",
+            Description = "The full path to your bridge JSON file. Configure the optional statusline bridge before enabling this pilot.",
+            Multiline = false,
+        });
         _settings.Add(new ChoiceSetSetting(
             RefreshIntervalKey,
             [
@@ -183,6 +203,22 @@ internal sealed partial class CodexUsageDockSettingsPage : ContentPage
 
     public string CodexHomePath => GetPathSetting(CodexHomePathKey);
 
+    internal string SourceLabel => UsageText.SanitizeExternal(_settings.GetSetting<string>(SourceLabelKey), 40) ?? "Default";
+    internal bool EnableClaude => _settings.GetSetting<bool>(EnableClaudeKey);
+    internal string ClaudeBridgePath => GetPathSetting(ClaudeBridgePathKey);
+    internal string ProfileStoragePath => Path.Combine(Path.GetDirectoryName(_path)!, "profiles.json");
+
+    internal void ApplySourceProfile(string label, CodexSourceOptions options)
+    {
+        _settings.Update(new JsonObject
+        {
+            [SourceLabelKey] = UsageText.SanitizeExternal(label, 40) ?? "Custom",
+            [CodexExecutablePathKey] = options.ExecutablePath ?? string.Empty,
+            [CodexHomePathKey] = options.HomePath ?? string.Empty,
+        }.ToJsonString());
+        OnSettingsChanged(_settings, _settings);
+    }
+
     public TimeSpan RefreshInterval => ParseRefreshInterval(_settings.GetSetting<string>(RefreshIntervalKey));
 
     internal int HistoryRetentionDays => _settings.GetSetting<string>(HistoryRetentionKey) switch
@@ -230,7 +266,7 @@ internal sealed partial class CodexUsageDockSettingsPage : ContentPage
             var valid = new JsonObject();
             foreach (var property in document.RootElement.EnumerateObject())
             {
-                if (property.Name is CodexExecutablePathKey or CodexHomePathKey)
+                if (property.Name is CodexExecutablePathKey or CodexHomePathKey or ClaudeBridgePathKey)
                 {
                     valid[property.Name] = property.Value.ValueKind == JsonValueKind.String && IsValidPathSetting(property.Value.GetString())
                         ? property.Value.GetString() : InvalidSourcePath;
@@ -249,7 +285,11 @@ internal sealed partial class CodexUsageDockSettingsPage : ContentPage
                 }
 
                 var value = property.Value.GetString();
-                if (property.Name == RefreshIntervalKey && value is "1" or "5" or "15")
+                if (property.Name == SourceLabelKey)
+                {
+                    valid[property.Name] = UsageText.SanitizeExternal(value, 40) ?? "Default";
+                }
+                else if (property.Name == RefreshIntervalKey && value is "1" or "5" or "15")
                 {
                     valid[property.Name] = value;
                 }
@@ -278,7 +318,7 @@ internal sealed partial class CodexUsageDockSettingsPage : ContentPage
     private static bool IsBooleanSetting(string name) => name is
         ShowFiveHourLimitKey or ShowWeeklyLimitKey or ShowResetsAndCreditsKey or ShowResetTimeKey or
         UseAdaptiveWeeklyForecastKey or EnableUsageAlertsKey or CompactDockKey or SeparateDockItemsKey or
-        ShowAccountActivityKey;
+        ShowAccountActivityKey or EnableClaudeKey;
 
     private static bool IsValidPathSetting(string? value)
     {

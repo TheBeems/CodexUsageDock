@@ -68,6 +68,29 @@ Settings accepts an optional full path to a standalone `codex.exe` or `codex.cmd
 
 **Codex account activity** shows account-wide token summaries and up to 30 recent server-calendar days when `account/usage/read` is supported. It updates independently after quota data, at most every five minutes automatically; unsupported versions retry after 30 minutes. **Refresh now** on that page requests an immediate retry. Disable **Show account activity** to stop these optional reads. Account identity must match before and after the request. Missing days and fields are not zero usage, and the server's unspecified calendar time zone is kept separate from local calendar-day chart bars. No account activity is written to disk by this feature.
 
+**Codex source profiles** saves up to eight named sets of executable and home paths. Add a profile, then choose **Use profile** to apply it and persist it for the next start. Reusing a name replaces that preset. Profiles contain no copied credentials; a name does not verify the signed-in account. Saved WSL or network directories can remain listed while offline, but paths must be accessible before use. Deleting a preset asks for confirmation and leaves the active source settings unchanged. Only one Codex source is active at a time.
+
+**Codex usage in text**, also available from Details, provides quota tables, reset times, recent measured weekly points, and local daily token totals without relying on charts or color. Missing values, reported zero, expired windows, and last-confirmed observations have distinct text labels.
+
+## Optional Claude usage pilot
+
+The pilot displays separate Claude five-hour and seven-day limits from an explicitly selected local capture file. It is off by default and adds its own Dock band when enabled. It does not verify the Claude account, combine Claude percentages with Codex, or infer costs. Claude reads run independently of a slow Codex refresh. Changing the refresh interval immediately rereads the capture and updates its freshness status.
+
+The bridge uses Claude Code's documented `rate_limits.five_hour` and `rate_limits.seven_day` statusline fields. These may be absent independently, appear only after a session receives an API response, and require an eligible subscription. The pilot does not support gateway spend-limit fields. See the [official statusline field documentation](https://code.claude.com/docs/en/statusline#available-data).
+
+1. Copy [capture-claude-usage.ps1](scripts/capture-claude-usage.ps1) from this repository to a permanent location you control. The companion script is not bundled into the MSIX application.
+2. Configure the command in your Claude statusline settings using the official instructions. If you have no existing formatter, use the script's **standalone** mode; replace both example paths with your own absolute paths:
+
+   ```text
+   powershell.exe -NoProfile -NonInteractive -File "C:/Tools/capture-claude-usage.ps1" -OutputPath "C:/UsageCaptures/claude-usage.json" -Standalone
+   ```
+
+   Standalone mode displays a compact remaining-quota line. To retain an existing formatter, omit `-Standalone`, launch the capture script as a separate PowerShell process, and pipe that process's stdout into your existing formatter command. Default mode forwards the original stdin bytes unchanged, including when the capture destination fails. Calling the script inside the same PowerShell process is not a supported pipeline arrangement. The extension does not edit your Claude settings or replace a statusline automatically.
+3. In **Codex Usage settings**, set **Claude bridge file** to the same absolute JSON file path and turn on **Enable Claude usage pilot**. The script creates the output directory when needed.
+4. Open **Claude usage pilot** to inspect capture status, observation time, and each independent window. Add its Claude Dock band through Dock customization.
+
+The bridge retains at most 256 KiB of input for parsing and writes only the schema, provider, UTC capture time, validated quota windows, and generic availability messages. Writes replace the snapshot atomically. Missing, malformed, or oversized input writes an unavailable snapshot; it never refreshes the timestamp on old quota values. The extension reads at most 64 KiB per capture. Stale, future-dated, missing, and expired data do not appear as available Dock quota. **Refresh captures** rereads the file; it does not make Claude emit new data. After a quiet session, wait for a new Claude statusline update.
+
 ## History, planning, and optional account actions
 
 **Codex usage history** retains quota observations only when **Retain usage observations** is set to 7, 30, or 90 days. Observations are scoped to the identified account and default quota category, sampled in five-minute buckets, and capped at 27,000 rows. Reset changes within a bucket remain separate observations. Pausing collection keeps retained data; the history page offers confirmed deletion for the selected context. CSV and JSON export actions write files to the extension's local application data `exports` folder and show the resulting path. Exports contain quota percentages and UTC observation/reset times, without account IDs or conversation content. Exported copies are not deleted when retained history is cleared.
@@ -109,6 +132,8 @@ Details retains separate quota categories returned by newer Codex versions, incl
 Freshness uses the greater of five minutes and the configured refresh interval throughout the UI and forecasts. After a failed refresh, a previous live measurement can remain visible as **Last confirmed** with its original timestamp; projections and new history learning pause. An unverified session log cannot replace a confirmed account measurement. At first launch, local session fallback is still available if live data cannot be obtained.
 
 When Codex supplies an account identity, weekly history and learned profiles are stored separately for that account and default quota category using opaque hashed directory names. History appears only after the account is identified. Older history files have no identity and are not imported into an account. Without a verified account identity, recent observations remain in memory and adaptive learning is paused.
+
+The local quota fallback caches read positions and the latest valid quota event in memory. Unchanged files still in its cache are not reread for content; appended, replaced, truncated, and deleted files are handled on later refreshes. Each scan reads at most 8 MiB of file content, tracks up to 512 files, and bounds partial lines to 128 KiB. It still enumerates session file metadata and skips inaccessible subdirectories; these limits do not promise constant scan time for large directories. Incomplete scans are reported, and later refreshes continue discovery. No session payload or read-position cache is saved to disk by this quota fallback.
 
 ## Development
 

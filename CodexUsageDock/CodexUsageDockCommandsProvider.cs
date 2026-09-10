@@ -17,6 +17,12 @@ public partial class CodexUsageDockCommandsProvider : CommandProvider
     private readonly CodexPlanningPage _planner;
     private readonly CodexHistoryPage _history;
     private readonly CodexActionsPage _actions;
+    private readonly CodexUsageTablePage _textUsage;
+    private readonly CodexProfilesPage _profiles;
+    private readonly ClaudeUsagePage _claude;
+    private readonly ListItem _claudeFiveHour;
+    private readonly ListItem _claudeWeekly;
+    private readonly object _claudePresentationLock = new();
     private readonly UsageAlertEvaluator _alerts = new();
     private readonly Action<string> _notify;
     private readonly Func<DateTimeOffset> _clock;
@@ -24,6 +30,7 @@ public partial class CodexUsageDockCommandsProvider : CommandProvider
     private const string FiveHourDockId = "nl.mathijs.codexusage.dock.five-hour";
     private const string WeeklyDockId = "nl.mathijs.codexusage.dock.weekly";
     private const string CreditsDockId = "nl.mathijs.codexusage.dock.credits";
+    private const string ClaudeDockId = "nl.mathijs.codexusage.dock.claude";
     private ICommandItem[] _dockBands = [];
 
     public CodexUsageDockCommandsProvider()
@@ -49,6 +56,7 @@ public partial class CodexUsageDockCommandsProvider : CommandProvider
         ApplySourceSettings();
         _usage.SetAccountActivityEnabled(_settings.ShowAccountActivity);
         _usage.SetAggregateRetentionDays(_settings.HistoryRetentionDays);
+        _usage.ConfigureClaude(_settings.EnableClaude, _settings.ClaudeBridgePath);
         var details = _details = new CodexUsageDockPage(_usage, _settings);
         _diagnostics = new CodexUsageDiagnosticsPage(_usage);
         _diagnostics.Id = "nl.mathijs.codexusage.diagnostics";
@@ -56,6 +64,13 @@ public partial class CodexUsageDockCommandsProvider : CommandProvider
         _planner = new CodexPlanningPage(_usage, _settings, _clock);
         _history = new CodexHistoryPage(_usage);
         _actions = new CodexActionsPage(_usage);
+        _textUsage = new CodexUsageTablePage(_usage, _clock);
+        _profiles = new CodexProfilesPage(new CodexProfileStore(_settings.ProfileStoragePath));
+        _profiles.ProfileSelected += OnProfileSelected;
+        _claude = new ClaudeUsagePage(_usage);
+        _claudeFiveHour = new ListItem(_claude);
+        _claudeWeekly = new ListItem(_claude);
+        _details.Commands = [.. _details.Commands, new CommandContextItem(_textUsage) { Title = "Read usage in text" }];
         _fiveHour = new UsageDockItem(_usage, UsageDockItemKind.FiveHour, details, _settings);
         _weekly = new UsageDockItem(_usage, UsageDockItemKind.Weekly, details, _settings);
         _resetsAndCredits = new UsageDockItem(_usage, UsageDockItemKind.ResetsAndCredits, details);
@@ -86,11 +101,16 @@ public partial class CodexUsageDockCommandsProvider : CommandProvider
             new CommandItem(_planner) { Title = "Codex workday planner", Subtitle = "Daily quota budget, recent pace, and forecast evidence" },
             new CommandItem(_history) { Title = "Codex usage history", Subtitle = "Retained quota observations, CSV/JSON export, and deletion" },
             new CommandItem(_actions) { Title = "Codex task usage and earned resets", Subtitle = "Request a task estimate or explicitly use an earned reset" },
+            new CommandItem(_textUsage) { Title = "Codex usage in text", Subtitle = "Quota tables and measured values without charts or color cues" },
+            new CommandItem(_profiles) { Title = "Codex source profiles", Subtitle = "Save and select named local or Windows-accessible WSL sources" },
+            new CommandItem(_claude) { Title = "Claude usage pilot", Subtitle = "Optional local statusline capture; independent Claude quotas" },
         ];
 
         _settings.Changed += OnSettingsChanged;
         _settings.ClearAdaptiveHistoryRequested += OnClearAdaptiveHistoryRequested;
         _usage.Updated += OnUsageUpdated;
+        _usage.ClaudeUpdated += OnClaudeUpdated;
+        RefreshClaudeItems();
         RebuildDockBands();
 
         _usage.Start();
@@ -111,6 +131,7 @@ public partial class CodexUsageDockCommandsProvider : CommandProvider
             FiveHourDockId => new WrappedDockItem([_fiveHour], FiveHourDockId, "Codex five-hour usage"),
             WeeklyDockId => new WrappedDockItem([_weekly], WeeklyDockId, "Codex weekly usage"),
             CreditsDockId => new WrappedDockItem([_resetsAndCredits], CreditsDockId, "Codex resets and credits"),
+            ClaudeDockId => new WrappedDockItem(_settings.EnableClaude ? [_claudeFiveHour, _claudeWeekly] : [], ClaudeDockId, "Claude usage"),
             _ => null,
         };
     }
@@ -127,6 +148,7 @@ public partial class CodexUsageDockCommandsProvider : CommandProvider
         var sourceChanged = ApplySourceSettings();
         _usage.SetAccountActivityEnabled(_settings.ShowAccountActivity);
         _usage.SetAggregateRetentionDays(_settings.HistoryRetentionDays);
+        _usage.ConfigureClaude(_settings.EnableClaude, _settings.ClaudeBridgePath);
         _fiveHour.Refresh();
         _weekly.Refresh();
         _details.Refresh();
@@ -143,6 +165,32 @@ public partial class CodexUsageDockCommandsProvider : CommandProvider
         if (error is not null) _settings.ShowOperationStatus(error);
         return _usage.ConfigureSource(options, error);
     }
+
+    private void OnProfileSelected(object? sender, CodexProfileSelectedEventArgs args) => _settings.ApplySourceProfile(args.Name, args.Options);
+
+    private void OnClaudeUpdated(object? sender, EventArgs args)
+    {
+        RefreshClaudeItems();
+        RebuildDockBands();
+        RaiseItemsChanged();
+    }
+
+    private void RefreshClaudeItems()
+    {
+        lock (_claudePresentationLock)
+        {
+            var snapshot = _usage.GetClaudeUsage();
+            var now = _clock();
+            var fresh = snapshot.IsAvailable && UsageFreshness.IsFresh(snapshot.ObservedAt, now, _usage.RefreshInterval);
+            _claudeFiveHour.Title = "Claude 5h " + FormatClaudeRemaining(snapshot.Primary, fresh, now);
+            _claudeWeekly.Title = "Claude week " + FormatClaudeRemaining(snapshot.Weekly, fresh, now);
+            _claudeFiveHour.Subtitle = snapshot.Message;
+            _claudeWeekly.Subtitle = snapshot.Message;
+        }
+    }
+
+    private static string FormatClaudeRemaining(ClaudeUsageWindow? window, bool fresh, DateTimeOffset now) => fresh && window is not null && window.ResetsAt > now
+        ? window.RemainingPercent.ToString("0", System.Globalization.CultureInfo.InvariantCulture) + "%" : "--";
 
     private void OnClearAdaptiveHistoryRequested(object? sender, EventArgs e)
     {
@@ -179,18 +227,22 @@ public partial class CodexUsageDockCommandsProvider : CommandProvider
     private void RebuildDockBands()
     {
         var items = GetVisibleDockItems();
+        ICommandItem[] bands;
         if (_settings.SeparateDockItems)
         {
-            _dockBands = items.Select(item => new WrappedDockItem([item],
+            bands = items.Select(item => new WrappedDockItem([item],
                 ReferenceEquals(item, _fiveHour) ? FiveHourDockId : ReferenceEquals(item, _weekly) ? WeeklyDockId : CreditsDockId,
                 ReferenceEquals(item, _fiveHour) ? "Codex five-hour usage" : ReferenceEquals(item, _weekly) ? "Codex weekly usage" : "Codex resets and credits"))
                 .Cast<ICommandItem>().ToArray();
-            return;
         }
-        var dockBand = items.Length == 0
-            ? null
-            : new WrappedDockItem(items, "nl.mathijs.codexusage.dock", DisplayName);
-        _dockBands = dockBand is null ? [] : [dockBand];
+        else
+        {
+            var dockBand = items.Length == 0 ? null : new WrappedDockItem(items, "nl.mathijs.codexusage.dock", DisplayName);
+            bands = dockBand is null ? [] : [dockBand];
+        }
+        if (_settings.EnableClaude)
+            bands = [.. bands, new WrappedDockItem([_claudeFiveHour, _claudeWeekly], ClaudeDockId, "Claude usage")];
+        _dockBands = bands;
     }
 
     private IListItem[] GetVisibleDockItems()
@@ -219,6 +271,8 @@ public partial class CodexUsageDockCommandsProvider : CommandProvider
         _settings.Changed -= OnSettingsChanged;
         _settings.ClearAdaptiveHistoryRequested -= OnClearAdaptiveHistoryRequested;
         _usage.Updated -= OnUsageUpdated;
+        _usage.ClaudeUpdated -= OnClaudeUpdated;
+        _profiles.ProfileSelected -= OnProfileSelected;
         _fiveHour.Dispose();
         _weekly.Dispose();
         _resetsAndCredits.Dispose();
@@ -228,6 +282,9 @@ public partial class CodexUsageDockCommandsProvider : CommandProvider
         _planner.Dispose();
         _history.Dispose();
         _actions.Dispose();
+        _textUsage.Dispose();
+        _profiles.Dispose();
+        _claude.Dispose();
         _usage.Dispose();
         base.Dispose();
         GC.SuppressFinalize(this);

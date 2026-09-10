@@ -31,15 +31,15 @@ internal sealed partial class CodexPlanningPage : ContentPage, IDisposable
 
     internal void Refresh()
     {
-        var now = _clock();
-        var localEnd = now.LocalDateTime.Date.Add(_settings.WorkdayEnd.ToTimeSpan());
-        var body = TimeZoneInfo.Local.IsInvalidTime(localEnd)
-            ? "The selected workday end does not exist in today's local time zone. Choose another time in settings."
-            : FormatPlan(UsagePlanner.Plan(_service.GetPresentation(), now, _service.RefreshInterval,
-                new DateTimeOffset(localEnd, TimeZoneInfo.Local.GetUtcOffset(localEnd)), _settings.RemainingWorkdays));
         lock (_gate)
         {
             if (_disposed) return;
+            var now = _clock();
+            var localEnd = now.LocalDateTime.Date.Add(_settings.WorkdayEnd.ToTimeSpan());
+            var body = TimeZoneInfo.Local.IsInvalidTime(localEnd)
+                ? "The selected workday end does not exist in today's local time zone. Choose another time in settings."
+                : FormatPlan(UsagePlanner.Plan(_service.GetPresentation(), now, _service.RefreshInterval,
+                    new DateTimeOffset(localEnd, TimeZoneInfo.Local.GetUtcOffset(localEnd)), _settings.RemainingWorkdays));
             _content = new MarkdownContent(body);
             Commands = [new CommandContextItem(new RefreshUsageCommand(_service)) { Title = "Refresh usage" },
                 new CommandContextItem(_settings) { Title = "Change planning assumptions" },

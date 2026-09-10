@@ -62,32 +62,10 @@ internal static class LocalCodexSessionReader
                 try
                 {
                     using var document = JsonDocument.Parse(line);
-                    var root = document.RootElement;
-                    if (root.ValueKind != JsonValueKind.Object
-                        || !root.TryGetProperty("timestamp", out var timestamp)
-                        || timestamp.ValueKind != JsonValueKind.String
-                        || !DateTimeOffset.TryParse(timestamp.GetString(), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var recordedAt)
-                        || recordedAt > now
-                        || !root.TryGetProperty("payload", out var payload) || payload.ValueKind != JsonValueKind.Object
-                        || !payload.TryGetProperty("rate_limits", out var limits) || limits.ValueKind != JsonValueKind.Object
-                        || !TryReadWindow(limits, "primary", out var primary)
-                        || !TryReadWindow(limits, "secondary", out var secondary)
-                        || (!limits.TryGetProperty("primary", out _) && !limits.TryGetProperty("secondary", out _)))
+                    var snapshot = ParseSnapshot(document.RootElement, now);
+                    if (snapshot is not null && (latest is null || snapshot.UpdatedAt >= latest.UpdatedAt))
                     {
-                        continue;
-                    }
-
-                    var windows = RateLimitWindowParser.Classify(primary, secondary);
-                    if ((primary is not null || secondary is not null) && windows.FiveHour is null && windows.Weekly is null)
-                    {
-                        continue;
-                    }
-
-                    var plan = limits.TryGetProperty("plan_type", out var planType) && planType.ValueKind == JsonValueKind.String
-                        ? UsageText.SanitizeExternal(planType.GetString(), 32) : null;
-                    if (latest is null || recordedAt >= latest.UpdatedAt)
-                    {
-                        latest = new CodexUsageSnapshot(windows.FiveHour, windows.Weekly, plan, null, null, recordedAt, UsageDataSource.LocalSession, null);
+                        latest = snapshot;
                     }
                 }
                 catch (JsonException)
@@ -102,6 +80,33 @@ internal static class LocalCodexSessionReader
         }
 
         return latest;
+    }
+
+    internal static CodexUsageSnapshot? ParseSnapshot(JsonElement root, DateTimeOffset now)
+    {
+        if (root.ValueKind != JsonValueKind.Object
+            || !root.TryGetProperty("timestamp", out var timestamp)
+            || timestamp.ValueKind != JsonValueKind.String
+            || !DateTimeOffset.TryParse(timestamp.GetString(), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var recordedAt)
+            || recordedAt > now
+            || !root.TryGetProperty("payload", out var payload) || payload.ValueKind != JsonValueKind.Object
+            || !payload.TryGetProperty("rate_limits", out var limits) || limits.ValueKind != JsonValueKind.Object
+            || !TryReadWindow(limits, "primary", out var primary)
+            || !TryReadWindow(limits, "secondary", out var secondary)
+            || (!limits.TryGetProperty("primary", out _) && !limits.TryGetProperty("secondary", out _)))
+        {
+            return null;
+        }
+
+        var windows = RateLimitWindowParser.Classify(primary, secondary);
+        if ((primary is not null || secondary is not null) && windows.FiveHour is null && windows.Weekly is null)
+        {
+            return null;
+        }
+
+        var plan = limits.TryGetProperty("plan_type", out var planType) && planType.ValueKind == JsonValueKind.String
+            ? UsageText.SanitizeExternal(planType.GetString(), 32) : null;
+        return new CodexUsageSnapshot(windows.FiveHour, windows.Weekly, plan, null, null, recordedAt, UsageDataSource.LocalSession, null);
     }
 
     private static bool TryReadWindow(JsonElement limits, string name, out RateLimitWindow? window)
