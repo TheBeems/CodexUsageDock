@@ -11,6 +11,34 @@ public sealed class ProviderPilotIntegrationTests : IDisposable
     private static readonly DateTimeOffset Now = new(2026, 9, 9, 12, 0, 0, TimeSpan.Zero);
     public void Dispose() => _environment.Dispose();
 
+    [Theory]
+    [InlineData(1, 15, "Stale", "Available")]
+    [InlineData(15, 1, "Available", "Stale")]
+    public async Task ChangingOnlyTheRefreshIntervalReclassifiesClaudeAndNotifiesPresentation(
+        int previousMinutes, int nextMinutes, string before, string after)
+    {
+        var capture = WriteCapture();
+        using var service = _environment.CreateService(
+            _ => Task.FromResult(CodexUsageSnapshot.Loading), () => CodexUsageSnapshot.Loading,
+            clock: () => Now.AddMinutes(6));
+        service.SetRefreshInterval(TimeSpan.FromMinutes(previousMinutes));
+        service.ConfigureClaude(true, capture);
+        await service.ClaudeRefreshTask.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Equal(before, service.GetClaudeUsage().Status.ToString());
+        var updated = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        service.ClaudeUpdated += (_, _) =>
+        {
+            if (service.GetClaudeUsage().Status.ToString() == after) updated.TrySetResult();
+        };
+
+        service.SetRefreshInterval(TimeSpan.FromMinutes(nextMinutes));
+        service.ConfigureClaude(true, capture);
+        await service.ClaudeRefreshTask.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.Equal(after, service.GetClaudeUsage().Status.ToString());
+        await updated.Task.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
     [Fact]
     public void ApplyingAProfilePersistsPathsAndLabelBeforeTheNextStart()
     {

@@ -1,3 +1,5 @@
+using System.Security.AccessControl;
+using System.Security.Principal;
 using System.Text;
 using System.Text.Json;
 using Xunit;
@@ -12,6 +14,36 @@ public sealed class CachedSessionReaderTests : IDisposable
     private string HomePath => _environment.PathFor("cached-codex-home");
 
     public void Dispose() => _environment.Dispose();
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void InaccessibleSubdirectoryDoesNotHideLaterReadableSessions(bool archived)
+    {
+        var root = Path.Combine(HomePath, archived ? "archived_sessions" : "sessions");
+        var blocked = Directory.CreateDirectory(Path.Combine(root, "000-blocked"));
+        var readable = Directory.CreateDirectory(Path.Combine(root, "zzz-readable"));
+        File.WriteAllText(Path.Combine(readable.FullName, "rollout-valid.jsonl"), QuotaLine(Now, 25));
+        var originalAccess = blocked.GetAccessControl();
+        var deniedAccess = blocked.GetAccessControl();
+        using var identity = WindowsIdentity.GetCurrent();
+        deniedAccess.AddAccessRule(new FileSystemAccessRule(identity.User!, FileSystemRights.ListDirectory, AccessControlType.Deny));
+        try
+        {
+            blocked.SetAccessControl(deniedAccess);
+            Assert.Throws<UnauthorizedAccessException>(() => Directory.GetFiles(blocked.FullName));
+            var reader = CreateReader();
+
+            Assert.Equal(25, reader.ReadLatest().Primary!.UsedPercent);
+            Assert.Equal(25, reader.ReadLatest().Primary!.UsedPercent);
+            Assert.Equal(0, reader.BytesReadLastScan);
+        }
+        finally
+        {
+            deniedAccess.SetSecurityDescriptorBinaryForm(originalAccess.GetSecurityDescriptorBinaryForm(), AccessControlSections.Access);
+            blocked.SetAccessControl(deniedAccess);
+        }
+    }
 
     [Fact]
     public void SelectionUsesEventTimeAcrossActiveAndArchivedFilesAndClearsInactiveWindows()

@@ -23,6 +23,7 @@ Each entry links to the commit or pull request that introduced the change.
 
 ### Fixed
 
+- Skip inaccessible session subdirectories during local fallback discovery and recheck Claude capture freshness when the refresh interval changes. ([PR #21](https://github.com/TheBeems/CodexUsageDock/pull/21))
 - Keep provider updates independent and serialize source-sensitive presentation changes so delayed updates cannot restore old account or Claude values. ([PR #21](https://github.com/TheBeems/CodexUsageDock/pull/21))
 - Calculate planner workday budgets from reset and current dates in the same local time zone. ([PR #20](https://github.com/TheBeems/CodexUsageDock/pull/20))
 - Keep the last confirmed live measurement during outages, without resetting its age or continuing projections and learning. ([PR #18](https://github.com/TheBeems/CodexUsageDock/pull/18))
