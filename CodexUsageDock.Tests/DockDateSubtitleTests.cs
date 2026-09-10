@@ -6,6 +6,20 @@ namespace CodexUsageDock.Tests;
 public sealed class DockDateSubtitleTests
 {
     [Theory]
+    [InlineData("ar-SA")]
+    [InlineData("fa-IR")]
+    public void DatesUseTheRegionalCalendarForBothDayAndMonth(string cultureName)
+    {
+        var culture = CultureInfo.GetCultureInfo(cultureName);
+        var local = new DateTimeOffset(2026, 9, 15, 12, 56, 0, TimeSpan.FromHours(2));
+        var calendarDay = culture.DateTimeFormat.Calendar.GetDayOfMonth(local.DateTime);
+        Assert.NotEqual(local.Day, calendarDay);
+        var expected = $"{calendarDay.ToString(culture)} {local.ToString("MMM", culture).TrimEnd('.')} 12:56";
+
+        Assert.Equal(expected, UsageDockItem.FormatLocalDateTime(local, culture));
+    }
+
+    [Theory]
     [InlineData(9, 15, 12, 56, "15 sept 12:56")]
     [InlineData(10, 4, 4, 0, "4 okt 4:00")]
     [InlineData(1, 1, 0, 5, "1 jan 0:05")]

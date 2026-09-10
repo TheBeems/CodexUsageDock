@@ -23,6 +23,7 @@ Each entry links to the commit or pull request that introduced the change.
 
 ### Fixed
 
+- Use the regional calendar consistently for the day and month in Dock reset and expiry dates. ([PR #23](https://github.com/TheBeems/CodexUsageDock/pull/23))
 - Switching Dock modes or hiding a metric no longer restores inactive saved bands. Existing band objects are retained, and usage refreshes update their items without reloading the whole provider. ([PR #22](https://github.com/TheBeems/CodexUsageDock/pull/22))
 - Skip inaccessible session subdirectories during local fallback discovery and recheck Claude capture freshness when the refresh interval changes. ([PR #21](https://github.com/TheBeems/CodexUsageDock/pull/21))
 - Keep provider updates independent and serialize source-sensitive presentation changes so delayed updates cannot restore old account or Claude values. ([PR #21](https://github.com/TheBeems/CodexUsageDock/pull/21))

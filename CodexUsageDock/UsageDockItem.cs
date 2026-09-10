@@ -202,7 +202,7 @@ internal sealed partial class UsageDockItem : UsageDockListItem, IDisposable
         var month = local.ToString("MMM", culture).TrimEnd('.');
         // Windows globalization data can abbreviate Dutch September as "sep".
         if (culture.TwoLetterISOLanguageName == "nl" && local.Month == 9) month = "sept";
-        return $"{local.Day.ToString(culture)} {month} {local.ToString("H:mm", culture)}";
+        return $"{local.ToString("%d", culture)} {month} {local.ToString("H:mm", culture)}";
     }
 
     internal static string FormatLiveDetailOrStatus(
