@@ -445,7 +445,7 @@ public sealed class UsageDataTests : IDisposable
     }
 
     [Fact]
-    public async Task CompletedRefreshRebuildsAndInvalidatesDockBands()
+    public async Task CompletedRefreshUpdatesExistingDockBandWithoutReloadingProvider()
     {
         var now = DateTimeOffset.Now;
         var result = new TaskCompletionSource<CodexUsageSnapshot>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -457,6 +457,10 @@ public sealed class UsageDataTests : IDisposable
         {
             var invalidationCount = 0;
             provider.ItemsChanged += (_, _) => invalidationCount++;
+            var band = Assert.Single(provider.GetDockBands()!);
+            var list = Assert.IsAssignableFrom<IListPage>(band.Command);
+            var bandInvalidations = 0;
+            list.ItemsChanged += (_, _) => bandInvalidations++;
 
             var refresh = service.RefreshAsync();
             result.SetResult(CodexUsageSnapshot.Loading with
@@ -468,9 +472,9 @@ public sealed class UsageDataTests : IDisposable
             });
             await refresh.WaitAsync(AsyncTestTimeout);
 
-            Assert.Equal(1, invalidationCount);
-            var band = Assert.Single(provider.GetDockBands()!);
-            var list = Assert.IsAssignableFrom<IListPage>(band.Command);
+            Assert.Equal(0, invalidationCount);
+            Assert.True(bandInvalidations > 0);
+            Assert.Same(band, Assert.Single(provider.GetDockBands()!));
             Assert.Contains(list.GetItems(), item => item.Title == "5h 75%");
         }
         finally
@@ -1366,7 +1370,7 @@ public sealed class UsageDataTests : IDisposable
     }
 
     [Fact]
-    public void ResetExpiryUsesTheNextFutureExpiryRoundedUpToWholeDays()
+    public void ResetExpiryUsesTheNextFutureExpiryDate()
     {
         var now = new DateTimeOffset(2026, 7, 16, 12, 0, 0, TimeSpan.Zero);
         var resets = new RateLimitResetCredits(
@@ -1377,24 +1381,24 @@ public sealed class UsageDataTests : IDisposable
                 new RateLimitResetCredit("Expired reset", "available", now.AddDays(-1)),
             ]);
 
-        Assert.Equal("expires in 13 days", UsageDockItem.FormatResetExpiry(resets, now));
+        Assert.Equal($"Expires - {UsageDockItem.FormatLocalDateTime(now.AddDays(12).AddHours(1).ToLocalTime(), System.Globalization.CultureInfo.CurrentCulture)}", UsageDockItem.FormatResetExpiry(resets, now));
     }
 
     [Fact]
     public void ResetExpiryReportsUnavailableWhenNoFutureExpiryIsKnown()
     {
-        Assert.Equal("expiration unavailable", UsageDockItem.FormatResetExpiry(null, DateTimeOffset.Now));
+        Assert.Equal("Expires - unavailable", UsageDockItem.FormatResetExpiry(null, DateTimeOffset.UnixEpoch));
     }
 
     [Fact]
-    public void ResetExpiryUsesWholeHoursWhenLessThanOneDayRemains()
+    public void ResetExpiryIncludesDateAndMinutesForSameDayExpiry()
     {
         var now = new DateTimeOffset(2026, 7, 16, 12, 0, 0, TimeSpan.Zero);
         var resets = new RateLimitResetCredits(
             1,
             [new RateLimitResetCredit("Next reset", "available", now.AddHours(12).AddMinutes(1))]);
 
-        Assert.Equal("expires in 13 hours", UsageDockItem.FormatResetExpiry(resets, now));
+        Assert.Equal($"Expires - {UsageDockItem.FormatLocalDateTime(now.AddHours(12).AddMinutes(1).ToLocalTime(), System.Globalization.CultureInfo.CurrentCulture)}", UsageDockItem.FormatResetExpiry(resets, now));
     }
 
     [Fact]

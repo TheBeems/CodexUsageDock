@@ -99,6 +99,8 @@ Store install, update, and uninstall behavior must be tested with a Store-signed
 
 For settings and storage changes, also restart Command Palette and Windows in the isolated test environment and verify all saved choices, including the first refresh interval. Make the test settings/history file unwritable, verify a visible failure, restore write access, and retry. A failed learned-history deletion must preserve the saved history; a successful deletion must remain cleared after restart. With a large synthetic session directory, verify that limits appear before token analysis completes and that text and chart projections both pause after a measurement gap.
 
+When upgrading from a development build with manual source paths or the Claude pilot, verify that those fields and the source-profile and Claude commands are absent. Old saved values must not prevent automatic Codex detection, and saved Claude Dock pins must not restore a band. Saving another preference must preserve the remaining Codex choices and omit the obsolete settings fields. Existing profile files and external capture scripts or files are not removed by this upgrade.
+
 ## Build the Microsoft Store package
 
 The package artwork is generated from one canonical visual mark. Treat `scripts/generate-assets.ps1` as its source instead of editing individual PNG files. The release builder compares decoded artwork with a small rendering tolerance, because PNG encoding and anti-aliasing can differ between supported build hosts without changing the design:

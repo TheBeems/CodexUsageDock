@@ -261,7 +261,6 @@ internal sealed partial class CodexUsageService : IDisposable
 
     public Task RefreshAsync()
     {
-        StartClaudeRefresh();
         TaskCompletionSource completion;
         CancellationToken cancellationToken;
         CodexSourceOptions options;
@@ -684,8 +683,7 @@ internal sealed partial class CodexUsageService : IDisposable
 
             _disposed = true;
             refreshTask = Task.WhenAll(_refreshTask ?? Task.CompletedTask, _tokenRefreshTask, _accountRefreshTask,
-                (Task?)_resetActionTask ?? Task.CompletedTask, _threadActionTask ?? Task.CompletedTask,
-                _claudeReadTask ?? Task.CompletedTask);
+                (Task?)_resetActionTask ?? Task.CompletedTask, _threadActionTask ?? Task.CompletedTask);
         }
 
         _timer.Stop();
