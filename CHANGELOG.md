@@ -10,25 +10,34 @@ Each entry links to the commit or pull request that introduced the change.
 
 ### Added
 
+- A text alternative for Codex quota, reset, trend, and local token data. ([PR #21](https://github.com/TheBeems/CodexUsageDock/pull/21))
 - Optional account-scoped quota history with 7/30/90-day retention, explicit CSV/JSON exports, and confirmed deletion. ([PR #20](https://github.com/TheBeems/CodexUsageDock/pull/20))
-- A workday planner with per-day and per-hour quota budgets, measurement evidence, and held-out recent-pace checks. ([PR #20](https://github.com/TheBeems/CodexUsageDock/pull/20))
 - Task-level server usage estimates and explicitly confirmed earned resets with account verification and persistent request IDs for safe retries. ([PR #20](https://github.com/TheBeems/CodexUsageDock/pull/20))
 - Optional quiet usage alerts from fresh, identified accounts, compact Dock labels, and separate pinnable quota and credit entries with stable identifiers. ([PR #19](https://github.com/TheBeems/CodexUsageDock/pull/19))
 - Account-wide daily token activity on compatible Codex versions, with independent refresh and account-identity verification. ([PR #19](https://github.com/TheBeems/CodexUsageDock/pull/19))
-- Explicit executable and Codex home settings, with invalid-source errors and protection against results from a previous profile. ([PR #19](https://github.com/TheBeems/CodexUsageDock/pull/19))
 - Separate quota categories and arbitrary window durations from modern Codex responses, while preserving legacy five-hour and weekly limits. ([PR #18](https://github.com/TheBeems/CodexUsageDock/pull/18))
 - Safe diagnostics with running-build version, source, freshness, refresh attempts, and reset-field availability. ([PR #18](https://github.com/TheBeems/CodexUsageDock/pull/18))
 
 ### Fixed
 
-- Calculate planner workday budgets from reset and current dates in the same local time zone. ([PR #20](https://github.com/TheBeems/CodexUsageDock/pull/20))
+- Use the regional calendar consistently for the day and month in Dock reset and expiry dates. ([PR #23](https://github.com/TheBeems/CodexUsageDock/pull/23))
+- Switching Dock modes or hiding a metric no longer restores inactive saved bands. Existing band objects are retained, and usage refreshes update their items without reloading the whole provider. ([PR #22](https://github.com/TheBeems/CodexUsageDock/pull/22))
+- Skip inaccessible session subdirectories during local fallback discovery. ([PR #21](https://github.com/TheBeems/CodexUsageDock/pull/21))
+- Serialize source-sensitive presentation changes so delayed updates cannot restore old account values. ([PR #21](https://github.com/TheBeems/CodexUsageDock/pull/21))
 - Keep the last confirmed live measurement during outages, without resetting its age or continuing projections and learning. ([PR #18](https://github.com/TheBeems/CodexUsageDock/pull/18))
 - Apply one freshness policy across the Dock, details, and forecasts, and keep account/category history isolated. Unidentified legacy history is no longer imported into verified accounts. ([PR #18](https://github.com/TheBeems/CodexUsageDock/pull/18))
 
 ### Changed
 
+- Show the local reset date and next earned-reset expiry directly in fresh Dock subtitles, with short regional month names and minute-precise times. ([PR #23](https://github.com/TheBeems/CodexUsageDock/pull/23))
+- Cache local quota fallback read positions with bounded content reads and memory, while reporting incomplete scans and preserving event-time selection. ([PR #21](https://github.com/TheBeems/CodexUsageDock/pull/21))
 - Expanded the release skill to cover scoped commit/push, Store submission, resumable certification tracking, and verified installation, with a repository-local Codex entry point. ([commit e54709c](https://github.com/TheBeems/CodexUsageDock/commit/e54709ce6e26b9aaa072d6f88625a9a3aa067494))
 - Distinguish source releases, the running extension build, and Microsoft Store rollout in installation guidance. ([PR #18](https://github.com/TheBeems/CodexUsageDock/pull/18))
+
+### Removed
+
+- Remove the workday planner and its workday-end and remaining-workdays settings. Existing planner preferences are ignored and dropped on the next settings save; usage displays, reset times, forecasts, and history remain available. ([commit 263c22a](https://github.com/TheBeems/CodexUsageDock/commit/263c22a650f2b7062515f94e983023e337dc7610))
+- Remove the experimental Claude integration and capture script, manual Codex path settings, and source profiles to keep the extension focused on automatically detected Codex usage. Older source preferences are ignored while other saved Codex choices are preserved. ([commit 39bf74c](https://github.com/TheBeems/CodexUsageDock/commit/39bf74cd476920441146f37737ad1216a9c0b8ad))
 
 ## [0.6.1] - 2026-09-09
 

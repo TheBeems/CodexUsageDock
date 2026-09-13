@@ -31,30 +31,30 @@ internal sealed partial class CodexActionsPage : ContentPage, IDisposable
 
     private void Refresh()
     {
-        var presentation = _service.GetActionPresentation();
-        var body = new StringBuilder("# Task usage\n\n").Append(presentation.TaskStatus).Append("\n\n");
-        if (presentation.Task is { } task) body.Append(FormatTask(task));
-        body.Append("\n# Earned resets\n\nReported available: ")
-            .Append(presentation.Usage.ResetCredits?.AvailableCount.ToString(CultureInfo.InvariantCulture) ?? "Unknown")
-            .Append(".\n\n").Append(presentation.ResetStatus)
-            .Append("\n\nUse the confirmed reset action only when you want to redeem one existing earned reset. ")
-            .Append("After an unknown outcome, retrying uses the same saved request ID. The backend decides eligibility.\n");
-        var expectedAccount = presentation.Usage.AccountKey;
-        var commands = new List<ICommandContextItem>
-        {
-            new CommandContextItem(new RefreshUsageCommand(_service)) { Title = "Refresh usage" },
-        };
-        if (expectedAccount is not null)
-        {
-            commands.Add(new CommandContextItem(new ConfirmableCommand(
-                new AnonymousCommand(() => { _ = _service.ConsumeEarnedResetAsync(expectedAccount); }) { Result = CommandResult.KeepOpen() },
-                "Use or retry an earned reset?",
-                "Redeem one existing earned reset for the currently identified Codex account. A retry of an uncertain request reuses its saved ID. No reset is purchased.",
-                () => true) { Name = "Use or retry an earned reset" }) { Title = "Use or retry an earned reset" });
-        }
         lock (_gate)
         {
             if (_disposed) return;
+            var presentation = _service.GetActionPresentation();
+            var body = new StringBuilder("# Task usage\n\n").Append(presentation.TaskStatus).Append("\n\n");
+            if (presentation.Task is { } task) body.Append(FormatTask(task));
+            body.Append("\n# Earned resets\n\nReported available: ")
+                .Append(presentation.Usage.ResetCredits?.AvailableCount.ToString(CultureInfo.InvariantCulture) ?? "Unknown")
+                .Append(".\n\n").Append(presentation.ResetStatus)
+                .Append("\n\nUse the confirmed reset action only when you want to redeem one existing earned reset. ")
+                .Append("After an unknown outcome, retrying uses the same saved request ID. The backend decides eligibility.\n");
+            var expectedAccount = presentation.Usage.AccountKey;
+            var commands = new List<ICommandContextItem>
+            {
+                new CommandContextItem(new RefreshUsageCommand(_service)) { Title = "Refresh usage" },
+            };
+            if (expectedAccount is not null)
+            {
+                commands.Add(new CommandContextItem(new ConfirmableCommand(
+                    new AnonymousCommand(() => { _ = _service.ConsumeEarnedResetAsync(expectedAccount); }) { Result = CommandResult.KeepOpen() },
+                    "Use or retry an earned reset?",
+                    "Redeem one existing earned reset for the currently identified Codex account. A retry of an uncertain request reuses its saved ID. No reset is purchased.",
+                    () => true) { Name = "Use or retry an earned reset" }) { Title = "Use or retry an earned reset" });
+            }
             _content = new MarkdownContent(body.ToString());
             Commands = commands.ToArray();
         }
