@@ -14,6 +14,11 @@ internal sealed partial class CodexUsageDockSettingsPage : ContentPage
     private const string ShowResetTimeKey = "showResetTime";
     private const string RefreshIntervalKey = "refreshInterval";
     private const string UseAdaptiveWeeklyForecastKey = "useAdaptiveWeeklyForecast";
+    private const string EnableUsageAlertsKey = "enableUsageAlerts";
+    private const string CompactDockKey = "compactDock";
+    private const string SeparateDockItemsKey = "separateDockItems";
+    private const string ShowAccountActivityKey = "showAccountActivity";
+    private const string HistoryRetentionKey = "historyRetentionDays";
     private readonly Settings _settings = new();
     private readonly string _path;
     private readonly FormContent _statusContent = new()
@@ -60,6 +65,26 @@ internal sealed partial class CodexUsageDockSettingsPage : ContentPage
             Label = "Use adaptive weekly forecast",
             Description = "Blend the current pace with up to eight local weekly cycles. Turning this off pauses learning and keeps saved history.",
         });
+        _settings.Add(new ToggleSetting(EnableUsageAlertsKey, false)
+        {
+            Label = "Enable usage alerts",
+            Description = "Show a quiet notification when the usage status changes.",
+        });
+        _settings.Add(new ToggleSetting(CompactDockKey, false)
+        {
+            Label = "Compact Dock",
+            Description = "Use shorter usage labels and hide reset times in the Dock.",
+        });
+        _settings.Add(new ToggleSetting(SeparateDockItemsKey, false)
+        {
+            Label = "Separate Dock items",
+            Description = "Offer separate metric bands instead of the combined band. Other-mode pins are hidden. After switching, add the desired bands through Dock customization if needed.",
+        });
+        _settings.Add(new ToggleSetting(ShowAccountActivityKey, true)
+        {
+            Label = "Show account activity",
+            Description = "Read account-wide daily tokens from the Codex service after quotas load. Older CLI versions may not support this.",
+        });
         _settings.Add(new ChoiceSetSetting(
             RefreshIntervalKey,
             [
@@ -70,6 +95,12 @@ internal sealed partial class CodexUsageDockSettingsPage : ContentPage
         {
             Label = "Refresh interval",
             Description = "How often the extension refreshes local Codex usage data.",
+        });
+        _settings.Add(new ChoiceSetSetting(HistoryRetentionKey,
+        [new("Collection paused", "0"), new("7 days", "7"), new("30 days", "30"), new("90 days", "90")])
+        {
+            Label = "Retain usage observations",
+            Description = "Optional local quota history for export. Pausing keeps saved data; use History to delete it.",
         });
         var clearHistory = new ConfirmableCommand(
             new AnonymousCommand(() => ClearAdaptiveHistoryRequested?.Invoke(this, EventArgs.Empty))
@@ -107,7 +138,18 @@ internal sealed partial class CodexUsageDockSettingsPage : ContentPage
 
     public bool UseAdaptiveWeeklyForecast => _settings.GetSetting<bool>(UseAdaptiveWeeklyForecastKey);
 
+    public bool EnableUsageAlerts => _settings.GetSetting<bool>(EnableUsageAlertsKey);
+
+    public bool CompactDock => _settings.GetSetting<bool>(CompactDockKey);
+
+    public bool SeparateDockItems => _settings.GetSetting<bool>(SeparateDockItemsKey);
+
+    public bool ShowAccountActivity => _settings.GetSetting<bool>(ShowAccountActivityKey);
+
     public TimeSpan RefreshInterval => ParseRefreshInterval(_settings.GetSetting<string>(RefreshIntervalKey));
+
+    internal int HistoryRetentionDays => _settings.GetSetting<string>(HistoryRetentionKey) switch
+    { "7" => 7, "30" => 30, "90" => 90, _ => 0 };
 
     internal string? StatusMessage { get; private set; }
 
@@ -147,6 +189,13 @@ internal sealed partial class CodexUsageDockSettingsPage : ContentPage
             var valid = new JsonObject();
             foreach (var property in document.RootElement.EnumerateObject())
             {
+                if (property.Value.ValueKind is JsonValueKind.True or JsonValueKind.False
+                    && IsBooleanSetting(property.Name))
+                {
+                    valid[property.Name] = property.Value.GetBoolean() ? "true" : "false";
+                    continue;
+                }
+
                 if (property.Value.ValueKind != JsonValueKind.String)
                 {
                     continue;
@@ -157,8 +206,11 @@ internal sealed partial class CodexUsageDockSettingsPage : ContentPage
                 {
                     valid[property.Name] = value;
                 }
-                else if (property.Name is ShowFiveHourLimitKey or ShowWeeklyLimitKey or ShowResetsAndCreditsKey or ShowResetTimeKey or UseAdaptiveWeeklyForecastKey
-                    && bool.TryParse(value, out var enabled))
+                else if (property.Name == HistoryRetentionKey && value is "0" or "7" or "30" or "90")
+                {
+                    valid[property.Name] = value;
+                }
+                else if (IsBooleanSetting(property.Name) && bool.TryParse(value, out var enabled))
                 {
                     valid[property.Name] = enabled ? "true" : "false";
                 }
@@ -172,6 +224,11 @@ internal sealed partial class CodexUsageDockSettingsPage : ContentPage
             ShowOperationStatus("Saved settings could not be read. Default settings are being used.");
         }
     }
+
+    private static bool IsBooleanSetting(string name) => name is
+        ShowFiveHourLimitKey or ShowWeeklyLimitKey or ShowResetsAndCreditsKey or ShowResetTimeKey or
+        UseAdaptiveWeeklyForecastKey or EnableUsageAlertsKey or CompactDockKey or SeparateDockItemsKey or
+        ShowAccountActivityKey;
 
     private void OnSettingsChanged(object sender, Settings args)
     {

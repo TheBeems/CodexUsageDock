@@ -23,7 +23,12 @@ internal sealed partial class CodexUsageService : IDisposable
     private readonly Func<DateTimeOffset> _clock;
     private readonly Func<CancellationToken, Task<CodexUsageSnapshot>> _appServerReader;
     private readonly Func<CancellationToken, CodexUsageSnapshot> _localSessionReader;
-    private readonly Func<DateTimeOffset, DateTimeOffset, TimeZoneInfo, CancellationToken, Task<LocalTokenUsageSnapshot>>? _localTokenUsageReader;
+    private Func<DateTimeOffset, DateTimeOffset, TimeZoneInfo, CancellationToken, Task<LocalTokenUsageSnapshot>>? _localTokenUsageReader;
+    private readonly bool _usesConfiguredSources;
+    private CachedCodexSessionReader? _configuredSessionReader;
+    private CodexSourceOptions _sourceOptions = CodexSourceOptions.Default;
+    private long _sourceGeneration;
+    private string? _sourceConfigurationError;
     private Task? _refreshTask;
     private Task<LocalTokenUsageSnapshot>? _tokenReadTask;
     private Task _tokenRefreshTask = Task.CompletedTask;
@@ -42,6 +47,9 @@ internal sealed partial class CodexUsageService : IDisposable
             AdaptiveWeeklyUsageStore.CreateDefault(),
             localTokenUsageReader: new LocalCodexTokenUsageReader().ReadAsync)
     {
+        _usesConfiguredSources = true;
+        _configuredSessionReader = new CachedCodexSessionReader();
+        InitializeOptionalFeatures(LocalStorage.GetPath("aggregates.json"), LocalStorage.GetPath("reset-attempt.json"));
     }
 
     internal CodexUsageService(
@@ -50,12 +58,14 @@ internal sealed partial class CodexUsageService : IDisposable
         WeeklyUsageHistoryStore weeklyHistoryStore,
         AdaptiveWeeklyUsageStore adaptiveWeeklyUsageStore,
         Func<DateTimeOffset, DateTimeOffset, TimeZoneInfo, CancellationToken, Task<LocalTokenUsageSnapshot>>? localTokenUsageReader = null,
-        Func<DateTimeOffset>? clock = null)
+        Func<DateTimeOffset>? clock = null,
+        Func<CancellationToken, Task<AccountUsageSnapshot>>? accountUsageReader = null)
     {
         _appServerReader = appServerReader;
         _localSessionReader = localSessionReader;
         _localTokenUsageReader = localTokenUsageReader;
         _clock = clock ?? (() => DateTimeOffset.Now);
+        _accountUsageReader = accountUsageReader;
         _weeklyHistoryStore = _baseWeeklyHistoryStore = weeklyHistoryStore;
         _adaptiveWeeklyUsageStore = _baseAdaptiveWeeklyUsageStore = adaptiveWeeklyUsageStore;
         // Legacy files have no account identity. They must never seed a verified account.
@@ -67,8 +77,9 @@ internal sealed partial class CodexUsageService : IDisposable
         WeeklyUsageHistoryStore weeklyHistoryStore,
         AdaptiveWeeklyUsageStore adaptiveWeeklyUsageStore,
         Func<DateTimeOffset, DateTimeOffset, TimeZoneInfo, CancellationToken, Task<LocalTokenUsageSnapshot>>? localTokenUsageReader = null,
-        Func<DateTimeOffset>? clock = null)
-        : this(appServerReader, _ => localSessionReader(), weeklyHistoryStore, adaptiveWeeklyUsageStore, localTokenUsageReader, clock)
+        Func<DateTimeOffset>? clock = null,
+        Func<CancellationToken, Task<AccountUsageSnapshot>>? accountUsageReader = null)
+        : this(appServerReader, _ => localSessionReader(), weeklyHistoryStore, adaptiveWeeklyUsageStore, localTokenUsageReader, clock, accountUsageReader)
     {
     }
 
@@ -148,6 +159,39 @@ internal sealed partial class CodexUsageService : IDisposable
 
     public event EventHandler? Updated;
 
+    internal bool ConfigureSource(CodexSourceOptions options, string? error = null)
+    {
+        lock (_refreshStateLock)
+        {
+            if (_sourceOptions == options && _sourceConfigurationError == error) return false;
+            _sourceOptions = options;
+            _sourceConfigurationError = error;
+            _sourceGeneration++;
+            _tokenGeneration++;
+            _lastConfirmed = null;
+            Current = CodexUsageSnapshot.Loading;
+            CurrentTokenUsage = LocalTokenUsageSnapshot.Unavailable;
+            CurrentAccountUsage = AccountUsageSnapshot.Unavailable;
+            ClearActionPresentation();
+            _accountReadAfter = DateTimeOffset.MinValue;
+            if (_usesConfiguredSources)
+            {
+                _localTokenUsageReader = new LocalCodexTokenUsageReader(options.HomePath).ReadAsync;
+                _configuredSessionReader = new CachedCodexSessionReader(options.HomePath);
+            }
+            lock (_historyLock)
+            {
+                _memoryHistoryContext = null;
+                _historyContext = null;
+                _primaryHistory.Clear();
+                _weeklyHistory.Clear();
+                _aggregateStore = null;
+            }
+        }
+        RaiseUpdated();
+        return true;
+    }
+
     public void Start()
     {
         lock (_refreshStateLock)
@@ -219,6 +263,8 @@ internal sealed partial class CodexUsageService : IDisposable
     {
         TaskCompletionSource completion;
         CancellationToken cancellationToken;
+        CodexSourceOptions options;
+        long generation;
         lock (_refreshStateLock)
         {
             if (_disposed)
@@ -235,10 +281,12 @@ internal sealed partial class CodexUsageService : IDisposable
             completion = new(TaskCreationOptions.RunContinuationsAsynchronously);
             _refreshTask = completion.Task;
             cancellationToken = _lifetimeCancellation.Token;
+            options = _sourceOptions;
+            generation = _sourceGeneration;
         }
 
         RaiseUpdated();
-        _ = ExecuteRefreshAsync(completion, cancellationToken);
+        _ = ExecuteRefreshAsync(completion, options, generation, cancellationToken);
         return completion.Task;
     }
 
@@ -273,7 +321,10 @@ internal sealed partial class CodexUsageService : IDisposable
                 // A returning account may have been observed while learning was paused.
                 // Resume at this measurement rather than replaying another context's gap.
                 _adaptiveWeeklyForecastNeedsBaseline = _adaptiveWeeklyForecastEnabled;
+                OpenAggregateStore();
             }
+
+            RecordAggregate(snapshot, now);
 
             RecordWindowHistory(_primaryHistory, snapshot.Primary, snapshot.UpdatedAt, now, now - TimeSpan.FromHours(5));
             var weeklyHistoryChanged = RecordWindowHistory(_weeklyHistory, snapshot.Secondary, snapshot.UpdatedAt, now, now - TimeSpan.FromDays(7));
@@ -329,13 +380,13 @@ internal sealed partial class CodexUsageService : IDisposable
     private TimeSpan GetAdaptiveMaximumGap() =>
         UsageTrendHistory.MaximumGap(RefreshInterval);
 
-    private async Task ExecuteRefreshAsync(TaskCompletionSource completion, CancellationToken cancellationToken)
+    private async Task ExecuteRefreshAsync(TaskCompletionSource completion, CodexSourceOptions options, long generation, CancellationToken cancellationToken)
     {
         CodexUsageSnapshot? tokenSnapshot = null;
         try
         {
-            var snapshot = await ReadSnapshotAsync(cancellationToken).ConfigureAwait(false);
-            if (!cancellationToken.IsCancellationRequested && TryPublish(snapshot))
+            var snapshot = await ReadSnapshotAsync(options, generation, cancellationToken).ConfigureAwait(false);
+            if (!cancellationToken.IsCancellationRequested && TryPublish(snapshot, generation))
             {
                 tokenSnapshot = snapshot;
             }
@@ -346,8 +397,8 @@ internal sealed partial class CodexUsageService : IDisposable
         catch (Exception error)
         {
             TraceFailure("unexpected refresh", error);
-            var unavailable = _lastConfirmed is null ? CreateUnavailableSnapshot() : LastConfirmedSnapshot(_clock());
-            _ = TryPublish(unavailable);
+            var unavailable = FailureSnapshot(_clock());
+            _ = TryPublish(unavailable, generation);
         }
         finally
         {
@@ -360,20 +411,37 @@ internal sealed partial class CodexUsageService : IDisposable
             if (tokenSnapshot is not null)
             {
                 StartTokenRefresh(tokenSnapshot);
+                StartAccountUsageRefresh(tokenSnapshot);
             }
             completion.TrySetResult();
+            if (generation != _sourceGeneration && !cancellationToken.IsCancellationRequested)
+            {
+                _ = RefreshAsync();
+            }
         }
     }
 
-    private async Task<CodexUsageSnapshot> ReadSnapshotAsync(CancellationToken cancellationToken)
+    private async Task<CodexUsageSnapshot> ReadSnapshotAsync(CodexSourceOptions options, long generation, CancellationToken cancellationToken)
     {
         var attemptedAt = _clock();
+        CachedCodexSessionReader? localCache;
+        lock (_refreshStateLock)
+        {
+            if (_sourceConfigurationError is not null || generation != _sourceGeneration)
+                return CreateUnavailableSnapshot() with { LastAttemptAt = attemptedAt };
+            localCache = _configuredSessionReader;
+        }
         try
         {
-            var live = await _appServerReader(cancellationToken).ConfigureAwait(false);
-            if (live.Source == UsageDataSource.AppServer)
+            var live = await (_usesConfiguredSources
+                ? CodexAppServerReader.ReadAsync(options, cancellationToken)
+                : _appServerReader(cancellationToken)).ConfigureAwait(false);
+            lock (_refreshStateLock)
             {
-                _lastConfirmed = live;
+                if (live.Source == UsageDataSource.AppServer && generation == _sourceGeneration)
+                {
+                    _lastConfirmed = live;
+                }
             }
             return live with { LastAttemptAt = attemptedAt };
         }
@@ -386,16 +454,24 @@ internal sealed partial class CodexUsageService : IDisposable
             TraceFailure("live usage read", error);
             try
             {
-                var fallback = await Task.Run(() => _localSessionReader(cancellationToken), cancellationToken).ConfigureAwait(false);
+                var fallback = await Task.Run(() => _usesConfiguredSources
+                    ? localCache!.ReadLatest(cancellationToken)
+                    : _localSessionReader(cancellationToken), cancellationToken).ConfigureAwait(false);
                 // Session logs do not normally identify the signed-in account. A newer
                 // unverified log must not replace a confirmed, account-scoped measurement.
                 if (_lastConfirmed is { } confirmed
                     && (fallback.UpdatedAt <= confirmed.UpdatedAt
                         || (confirmed.AccountKey is not null && fallback.AccountKey != confirmed.AccountKey)))
                 {
-                    return LastConfirmedSnapshot(attemptedAt);
+                    return LastConfirmedSnapshot(confirmed, attemptedAt);
                 }
-                return fallback with { Error = LiveDataUnavailableMessage, LastAttemptAt = attemptedAt };
+                return fallback with
+                {
+                    Error = localCache is { LastScanComplete: false }
+                        ? LiveDataUnavailableMessage + " The local session scan is incomplete; more data will be checked on the next refresh."
+                        : LiveDataUnavailableMessage,
+                    LastAttemptAt = attemptedAt,
+                };
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
@@ -404,14 +480,22 @@ internal sealed partial class CodexUsageService : IDisposable
             catch (Exception fallbackError)
             {
                 TraceFailure("local session fallback", fallbackError);
-                return _lastConfirmed is null
-                    ? CreateUnavailableSnapshot() with { LastAttemptAt = attemptedAt }
-                    : LastConfirmedSnapshot(attemptedAt);
+                return FailureSnapshot(attemptedAt);
             }
         }
     }
 
-    private CodexUsageSnapshot LastConfirmedSnapshot(DateTimeOffset attemptedAt) => _lastConfirmed! with
+    private CodexUsageSnapshot FailureSnapshot(DateTimeOffset attemptedAt)
+    {
+        lock (_refreshStateLock)
+        {
+            return _lastConfirmed is { } confirmed
+                ? LastConfirmedSnapshot(confirmed, attemptedAt)
+                : CreateUnavailableSnapshot() with { LastAttemptAt = attemptedAt };
+        }
+    }
+
+    private static CodexUsageSnapshot LastConfirmedSnapshot(CodexUsageSnapshot confirmed, DateTimeOffset attemptedAt) => confirmed with
     {
         Source = UsageDataSource.LastConfirmed,
         LastAttemptAt = attemptedAt,
@@ -420,6 +504,7 @@ internal sealed partial class CodexUsageService : IDisposable
 
     private async Task<LocalTokenUsageSnapshot> ReadTokenUsageAsync(
         CodexUsageSnapshot snapshot,
+        Func<DateTimeOffset, DateTimeOffset, TimeZoneInfo, CancellationToken, Task<LocalTokenUsageSnapshot>> reader,
         CancellationToken cancellationToken)
     {
         if (snapshot.Secondary is not { WindowMinutes: > 0 } weekly)
@@ -432,7 +517,7 @@ internal sealed partial class CodexUsageService : IDisposable
         var windowEnd = now < weekly.ResetsAt ? now : weekly.ResetsAt;
         try
         {
-            return await _localTokenUsageReader!(windowStart, windowEnd, TimeZoneInfo.Local, cancellationToken).ConfigureAwait(false);
+            return await reader(windowStart, windowEnd, TimeZoneInfo.Local, cancellationToken).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -449,7 +534,7 @@ internal sealed partial class CodexUsageService : IDisposable
     {
         lock (_refreshStateLock)
         {
-            if (_disposed || _localTokenUsageReader is null || snapshot.Secondary is null
+            if (_disposed || !ReferenceEquals(Current, snapshot) || _localTokenUsageReader is null || snapshot.Secondary is null
                 || snapshot.Source is UsageDataSource.LastConfirmed or UsageDataSource.Unavailable or UsageDataSource.Initializing
                 || _tokenReadTask is { IsCompleted: false })
             {
@@ -461,7 +546,8 @@ internal sealed partial class CodexUsageService : IDisposable
             // Keep the actual read task, even after a timeout, so a non-cooperative
             // file read cannot cause overlapping scans of the reader's mutable cache.
             var generation = _tokenGeneration;
-            var read = _tokenReadTask = Task.Run(() => ReadTokenUsageAsync(snapshot, cancellation.Token));
+            var reader = _localTokenUsageReader;
+            var read = _tokenReadTask = Task.Run(() => ReadTokenUsageAsync(snapshot, reader, cancellation.Token));
             // Notifications must run outside the state lock, even if the read finishes immediately.
             _tokenRefreshTask = Task.Run(() => ObserveTokenRefreshAsync(read, cancellation, generation));
         }
@@ -508,11 +594,11 @@ internal sealed partial class CodexUsageService : IDisposable
         }
     }
 
-    private bool TryPublish(CodexUsageSnapshot snapshot)
+    private bool TryPublish(CodexUsageSnapshot snapshot, long generation)
     {
         lock (_refreshStateLock)
         {
-            if (_disposed)
+            if (_disposed || generation != _sourceGeneration)
             {
                 return false;
             }
@@ -523,6 +609,12 @@ internal sealed partial class CodexUsageService : IDisposable
                 || snapshot.Source == UsageDataSource.Unavailable)
             {
                 CurrentTokenUsage = LocalTokenUsageSnapshot.Unavailable;
+                if (Current.AccountKey != snapshot.AccountKey)
+                {
+                    ClearActionPresentation();
+                    CurrentAccountUsage = AccountUsageSnapshot.Unavailable;
+                    _accountReadAfter = DateTimeOffset.MinValue;
+                }
             }
 
             Current = snapshot;
@@ -590,7 +682,8 @@ internal sealed partial class CodexUsageService : IDisposable
             }
 
             _disposed = true;
-            refreshTask = Task.WhenAll(_refreshTask ?? Task.CompletedTask, _tokenRefreshTask);
+            refreshTask = Task.WhenAll(_refreshTask ?? Task.CompletedTask, _tokenRefreshTask, _accountRefreshTask,
+                (Task?)_resetActionTask ?? Task.CompletedTask, _threadActionTask ?? Task.CompletedTask);
         }
 
         _timer.Stop();

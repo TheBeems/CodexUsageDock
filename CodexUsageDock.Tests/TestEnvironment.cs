@@ -21,11 +21,16 @@ internal sealed class TestEnvironment : IDisposable
         WeeklyUsageHistoryStore? weeklyHistoryStore = null,
         AdaptiveWeeklyUsageStore? adaptiveWeeklyUsageStore = null,
         Func<DateTimeOffset, DateTimeOffset, TimeZoneInfo, CancellationToken, Task<LocalTokenUsageSnapshot>>? localTokenUsageReader = null,
-        Func<DateTimeOffset>? clock = null) =>
-        new(appServerReader, localSessionReader,
+        Func<DateTimeOffset>? clock = null,
+        Func<CancellationToken, Task<AccountUsageSnapshot>>? accountUsageReader = null)
+    {
+        var service = new CodexUsageService(appServerReader, localSessionReader,
             weeklyHistoryStore ?? new WeeklyUsageHistoryStore(PathFor("weekly.json")),
             adaptiveWeeklyUsageStore ?? new AdaptiveWeeklyUsageStore(PathFor("adaptive.json")),
-            localTokenUsageReader, clock);
+            localTokenUsageReader, clock, accountUsageReader);
+        service.InitializeOptionalFeatures(PathFor("aggregates.json"), PathFor("reset-attempt.json"));
+        return service;
+    }
 
     internal CodexUsageService CreateService(
         Func<CancellationToken, Task<CodexUsageSnapshot>> appServerReader,
@@ -33,8 +38,9 @@ internal sealed class TestEnvironment : IDisposable
         WeeklyUsageHistoryStore? weeklyHistoryStore = null,
         AdaptiveWeeklyUsageStore? adaptiveWeeklyUsageStore = null,
         Func<DateTimeOffset, DateTimeOffset, TimeZoneInfo, CancellationToken, Task<LocalTokenUsageSnapshot>>? localTokenUsageReader = null,
-        Func<DateTimeOffset>? clock = null) =>
-        CreateService(appServerReader, _ => localSessionReader(), weeklyHistoryStore, adaptiveWeeklyUsageStore, localTokenUsageReader, clock);
+        Func<DateTimeOffset>? clock = null,
+        Func<CancellationToken, Task<AccountUsageSnapshot>>? accountUsageReader = null) =>
+        CreateService(appServerReader, _ => localSessionReader(), weeklyHistoryStore, adaptiveWeeklyUsageStore, localTokenUsageReader, clock, accountUsageReader);
 
     public void Dispose()
     {

@@ -10,7 +10,7 @@ internal enum UsageDockItemKind
     ResetsAndCredits,
 }
 
-internal sealed partial class UsageDockItem : ListItem, IDisposable
+internal sealed partial class UsageDockItem : UsageDockListItem, IDisposable
 {
     private readonly CodexUsageService _usage;
     private readonly UsageDockItemKind _kind;
@@ -35,7 +35,7 @@ internal sealed partial class UsageDockItem : ListItem, IDisposable
         var window = _kind == UsageDockItemKind.FiveHour ? snapshot.Primary : snapshot.Secondary;
         if (snapshot.Source == UsageDataSource.Unavailable)
         {
-            (Title, Subtitle) = FormatUnavailable(_kind);
+            (Title, Subtitle) = FormatUnavailable(_kind, _settings?.CompactDock == true);
             Icon = new IconInfo("\uE783");
             return;
         }
@@ -43,14 +43,17 @@ internal sealed partial class UsageDockItem : ListItem, IDisposable
         if (_kind == UsageDockItemKind.ResetsAndCredits)
         {
             Title = FormatResetsAndCredits(snapshot);
-            Subtitle = CombineStatusAndDetail(
-                FormatSourceFreshness(snapshot, now, _usage.RefreshInterval),
-                FormatResetExpiry(snapshot.ResetCredits, now));
+            Subtitle = FormatLiveDetailOrStatus(
+                snapshot,
+                now,
+                _usage.RefreshInterval,
+                _settings?.CompactDock == true ? string.Empty : FormatResetExpiry(snapshot.ResetCredits, now));
             Icon = new IconInfo("\uE777");
             return;
         }
 
-        var label = _kind == UsageDockItemKind.FiveHour ? "5h" : "Week";
+        var compact = _settings?.CompactDock == true;
+        var label = _kind == UsageDockItemKind.FiveHour ? "5h" : compact ? "W" : "Week";
         if (window is null)
         {
             var dataWasLoaded = snapshot.Primary is not null || snapshot.Secondary is not null;
@@ -72,9 +75,15 @@ internal sealed partial class UsageDockItem : ListItem, IDisposable
             return;
         }
 
-        Title = $"{label} {window.RemainingPercent:0}%";
-        var reset = _settings?.ShowResetTime == false ? string.Empty : $"reset {FormatReset(window.ResetsAt)}";
-        Subtitle = CombineStatusAndDetail(FormatSourceFreshness(snapshot, now, _usage.RefreshInterval), reset);
+        Title = FormatQuotaTitle(_kind, window.RemainingPercent, compact);
+        var reset = compact || _settings?.ShowResetTime == false
+            ? string.Empty
+            : $"Reset - {FormatLocalDateTime(window.ResetsAt.ToLocalTime(), CultureInfo.CurrentCulture)}";
+        Subtitle = FormatLiveDetailOrStatus(
+            snapshot,
+            now,
+            _usage.RefreshInterval,
+            reset);
         Icon = new IconInfo(window.RemainingPercent <= 10 ? "\uE7BA" : "\uE916");
     }
 
@@ -101,6 +110,20 @@ internal sealed partial class UsageDockItem : ListItem, IDisposable
             : age < TimeSpan.FromHours(1) ? $"Fallback · {(int)age.TotalMinutes} minutes old"
             : age < TimeSpan.FromDays(1) ? $"Fallback · {(int)age.TotalHours} hours old"
             : $"Fallback · {(int)age.TotalDays} days old";
+    }
+
+    internal static string FormatQuotaTitle(UsageDockItemKind kind, double remainingPercent, bool compact)
+    {
+        var label = kind switch
+        {
+            UsageDockItemKind.FiveHour => "5h",
+            UsageDockItemKind.Weekly => compact ? "W" : "Week",
+            _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, "The resets and credits item has no quota percentage."),
+        };
+
+        return compact
+            ? $"{label}{remainingPercent:0}%"
+            : $"{label} {remainingPercent:0}%";
     }
 
     internal static string FormatSourceFreshness(
@@ -174,6 +197,31 @@ internal sealed partial class UsageDockItem : ListItem, IDisposable
     private static string FormatLocalTime(DateTimeOffset value) =>
         value.ToLocalTime().ToString("HH:mm", CultureInfo.CurrentCulture);
 
+    internal static string FormatLocalDateTime(DateTimeOffset local, CultureInfo culture)
+    {
+        var month = local.ToString("MMM", culture).TrimEnd('.');
+        // Windows globalization data can abbreviate Dutch September as "sep".
+        if (culture.TwoLetterISOLanguageName == "nl" && local.Month == 9) month = "sept";
+        return $"{local.ToString("%d", culture)} {month} {local.ToString("H:mm", culture)}";
+    }
+
+    internal static string FormatLiveDetailOrStatus(
+        CodexUsageSnapshot snapshot,
+        DateTimeOffset now,
+        TimeSpan refreshInterval,
+        string detail)
+    {
+        var state = UsageFreshness.Classify(
+            snapshot.UpdatedAt,
+            now,
+            refreshInterval);
+        return snapshot.Source == UsageDataSource.AppServer
+            && state == UsageFreshnessState.Fresh
+            && detail.Length > 0
+            ? detail
+            : CombineStatusAndDetail(FormatSourceFreshness(snapshot, now, refreshInterval), detail);
+    }
+
     private static string CombineStatusAndDetail(string status, string detail) =>
         detail.Length == 0 ? status : $"{status} · {detail}";
 
@@ -205,30 +253,19 @@ internal sealed partial class UsageDockItem : ListItem, IDisposable
 
         if (nextExpiry is not { } expiry)
         {
-            return "expiration unavailable";
+            return "Expires - unavailable";
         }
 
-        var remaining = expiry - now;
-        return remaining < TimeSpan.FromHours(24)
-            ? $"expires in {(int)Math.Ceiling(remaining.TotalHours)} hours"
-            : $"expires in {(int)Math.Ceiling(remaining.TotalDays)} days";
+        return $"Expires - {FormatLocalDateTime(expiry.ToLocalTime(), CultureInfo.CurrentCulture)}";
     }
 
-    internal static (string Title, string Subtitle) FormatUnavailable(UsageDockItemKind kind) =>
+    internal static (string Title, string Subtitle) FormatUnavailable(UsageDockItemKind kind, bool compact = false) =>
         (kind switch
         {
             UsageDockItemKind.FiveHour => "5h --",
-            UsageDockItemKind.Weekly => "Week --",
+            UsageDockItemKind.Weekly => compact ? "W --" : "Week --",
             _ => "-- resets",
         }, "Codex usage unavailable");
-
-    private static string FormatReset(DateTimeOffset reset)
-    {
-        var local = reset.ToLocalTime();
-        return local.Date == DateTime.Today
-            ? local.ToString("HH:mm", CultureInfo.CurrentCulture)
-            : local.ToString("ddd HH:mm", CultureInfo.CurrentCulture);
-    }
 
     public void Dispose()
     {
