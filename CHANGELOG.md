@@ -38,7 +38,7 @@ Each entry links to the commit or pull request that introduced the change.
 
 ### Removed
 
-- Remove the experimental Claude integration and capture script, manual Codex path settings, and source profiles to keep the extension focused on automatically detected Codex usage. Older source preferences are ignored while other saved Codex choices are preserved. ([implementation](https://github.com/TheBeems/CodexUsageDock/commit/codex%2Fcodex-only-settings))
+- Remove the experimental Claude integration and capture script, manual Codex path settings, and source profiles to keep the extension focused on automatically detected Codex usage. Older source preferences are ignored while other saved Codex choices are preserved. ([commit 39bf74c](https://github.com/TheBeems/CodexUsageDock/commit/39bf74cd476920441146f37737ad1216a9c0b8ad))
 
 ## [0.6.1] - 2026-09-09
 
