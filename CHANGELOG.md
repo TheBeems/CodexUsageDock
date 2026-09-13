@@ -8,6 +8,8 @@ Each entry links to the commit or pull request that introduced the change.
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-09-13
+
 ### Added
 
 - A text alternative for Codex quota, reset, trend, and local token data. ([PR #21](https://github.com/TheBeems/CodexUsageDock/pull/21))
@@ -29,6 +31,7 @@ Each entry links to the commit or pull request that introduced the change.
 
 ### Changed
 
+- Release version 0.7.0 with matching version information in the details page. ([PR #25](https://github.com/TheBeems/CodexUsageDock/pull/25))
 - Show the local reset date and next earned-reset expiry directly in fresh Dock subtitles, with short regional month names and minute-precise times. ([PR #23](https://github.com/TheBeems/CodexUsageDock/pull/23))
 - Cache local quota fallback read positions with bounded content reads and memory, while reporting incomplete scans and preserving event-time selection. ([PR #21](https://github.com/TheBeems/CodexUsageDock/pull/21))
 - Expanded the release skill to cover scoped commit/push, Store submission, resumable certification tracking, and verified installation, with a repository-local Codex entry point. ([commit e54709c](https://github.com/TheBeems/CodexUsageDock/commit/e54709ce6e26b9aaa072d6f88625a9a3aa067494))
@@ -181,7 +184,8 @@ Each entry links to the commit or pull request that introduced the change.
 - Initial release of the Windows Command Palette extension for viewing local Codex usage. [commit ac72fe5](https://github.com/TheBeems/CodexUsageDock/commit/ac72fe50fcd1af36f41cda896f1d792899573351)
 - Automated release installer creation and smoke-test handling. [commit 64a3305](https://github.com/TheBeems/CodexUsageDock/commit/64a33058b7486dea12f026561c545b362eb2d622), [commit 21790a1](https://github.com/TheBeems/CodexUsageDock/commit/21790a1ea60a9bfec14ec578d77356c5576472fb)
 
-[Unreleased]: https://github.com/TheBeems/CodexUsageDock/compare/v0.6.1...main
+[Unreleased]: https://github.com/TheBeems/CodexUsageDock/compare/v0.7.0...main
+[0.7.0]: https://github.com/TheBeems/CodexUsageDock/compare/v0.6.1...v0.7.0
 [0.6.1]: https://github.com/TheBeems/CodexUsageDock/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/TheBeems/CodexUsageDock/commit/eed6505c5fef9a4a6a5c39d6bd5bff619aa13f07
 [0.5.3]: https://github.com/TheBeems/CodexUsageDock/commit/312dc394ff51648f1b063cd39afdfabaf33d8a3e
