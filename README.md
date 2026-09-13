@@ -72,11 +72,11 @@ Saved source paths, source labels, and Claude preferences from earlier developme
 
 **Codex usage in text**, also available from Details, provides quota tables, reset times, recent measured weekly points, and local daily token totals without relying on charts or color. Missing values, reported zero, expired windows, and last-confirmed observations have distinct text labels.
 
-## History, planning, and optional account actions
+## History and optional account actions
 
 **Codex usage history** retains quota observations only when **Retain usage observations** is set to 7, 30, or 90 days. Observations are scoped to the identified account and default quota category, sampled in five-minute buckets, and capped at 27,000 rows. Reset changes within a bucket remain separate observations. Pausing collection keeps retained data; the history page offers confirmed deletion for the selected context. CSV and JSON export actions write files to the extension's local application data `exports` folder and show the resulting path. Exports contain quota percentages and UTC observation/reset times, without account IDs or conversation content. Exported copies are not deleted when retained history is cleared.
 
-**Codex workday planner** uses today's local **Workday end** and your chosen **Workdays remaining before weekly reset**. It divides remaining weekly allowance across those days and today's remaining hours; the five-hour allowance is budgeted independently. Planning stops at an earlier reset and pauses after today's chosen end. It requires fresh, identified live data. The page explains the measurement span, continuous segment, learned-cycle count, and a held-out latest-observation check where sufficient data exists. This is descriptive evidence, not a calibrated confidence percentage or a guarantee. Its recent-pace estimate is separate from the dashboard's optional adaptive weekly forecast.
+The workday planner and its end-time and remaining-workdays settings have been removed. Forecasts use observed usage without requiring a work schedule. Saved planner preferences from earlier development builds are ignored and omitted the next time settings are saved; other preferences and usage history are preserved.
 
 **Codex task usage and earned resets** accepts an explicit task ID for `account/usage/read` on compatible CLI versions. It shows server-estimated credits and optional USD, plus model/effort/speed and available input/cached/output token groups. These estimates are not invoices or conversions of quota percentages. Task reads verify account identity before and after, keep the most recently requested task, and retain results only in memory.
 

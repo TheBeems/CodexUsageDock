@@ -14,7 +14,6 @@ public partial class CodexUsageDockCommandsProvider : CommandProvider
     private readonly CodexUsageDockPage _details;
     private readonly CodexUsageDiagnosticsPage _diagnostics;
     private readonly CodexAccountActivityPage _accountActivity;
-    private readonly CodexPlanningPage _planner;
     private readonly CodexHistoryPage _history;
     private readonly CodexActionsPage _actions;
     private readonly CodexUsageTablePage _textUsage;
@@ -59,7 +58,6 @@ public partial class CodexUsageDockCommandsProvider : CommandProvider
         _diagnostics = new CodexUsageDiagnosticsPage(_usage);
         _diagnostics.Id = "nl.mathijs.codexusage.diagnostics";
         _accountActivity = new CodexAccountActivityPage(_usage);
-        _planner = new CodexPlanningPage(_usage, _settings, _clock);
         _history = new CodexHistoryPage(_usage);
         _actions = new CodexActionsPage(_usage);
         _textUsage = new CodexUsageTablePage(_usage, _clock);
@@ -96,7 +94,6 @@ public partial class CodexUsageDockCommandsProvider : CommandProvider
                 Title = "Codex account activity",
                 Subtitle = "Account-wide daily tokens reported by Codex",
             },
-            new CommandItem(_planner) { Title = "Codex workday planner", Subtitle = "Daily quota budget, recent pace, and forecast evidence" },
             new CommandItem(_history) { Title = "Codex usage history", Subtitle = "Retained quota observations, CSV/JSON export, and deletion" },
             new CommandItem(_actions) { Title = "Codex task usage and earned resets", Subtitle = "Request a task estimate or explicitly use an earned reset" },
             new CommandItem(_textUsage) { Title = "Codex usage in text", Subtitle = "Quota tables and measured values without charts or color cues" },
@@ -134,7 +131,6 @@ public partial class CodexUsageDockCommandsProvider : CommandProvider
         _fiveHour.Refresh();
         _weekly.Refresh();
         _details.Refresh();
-        _planner.Refresh();
         _history.Refresh();
         UpdateDockLayout();
     }
@@ -231,7 +227,6 @@ public partial class CodexUsageDockCommandsProvider : CommandProvider
         _details.Dispose();
         _diagnostics.Dispose();
         _accountActivity.Dispose();
-        _planner.Dispose();
         _history.Dispose();
         _actions.Dispose();
         _textUsage.Dispose();

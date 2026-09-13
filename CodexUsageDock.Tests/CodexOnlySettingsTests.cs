@@ -17,7 +17,9 @@ public sealed class CodexOnlySettingsTests : IDisposable
     [InlineData("sourceLabel")]
     [InlineData("enableClaude")]
     [InlineData("claudeBridgePath")]
-    public void SettingsDoNotOfferRemovedSourceControls(string key)
+    [InlineData("workdayEnd")]
+    [InlineData("remainingWorkdays")]
+    public void SettingsDoNotOfferRemovedControls(string key)
     {
         var settings = _environment.CreateSettings();
         var content = string.Join("\n", settings.GetContent().OfType<FormContent>()
@@ -42,7 +44,7 @@ public sealed class CodexOnlySettingsTests : IDisposable
         settings.GetContent().OfType<FormContent>().Last().SubmitForm(JsonSerializer.Serialize(legacy), "{}");
 
         using var saved = JsonDocument.Parse(File.ReadAllText(_environment.PathFor("settings.json")));
-        foreach (var key in new[] { "codexExecutablePath", "codexHomePath", "sourceLabel", "enableClaude", "claudeBridgePath" })
+        foreach (var key in new[] { "codexExecutablePath", "codexHomePath", "sourceLabel", "enableClaude", "claudeBridgePath", "workdayEnd", "remainingWorkdays" })
         {
             Assert.False(saved.RootElement.TryGetProperty(key, out _), key);
         }
@@ -57,7 +59,7 @@ public sealed class CodexOnlySettingsTests : IDisposable
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public async Task LegacySourcePreferencesDoNotBlockCodexOrRestoreRemovedCommands(bool separate)
+    public async Task LegacyPreferencesDoNotBlockCodexOrRestoreRemovedCommands(bool separate)
     {
         var legacy = LegacySettings();
         legacy["separateDockItems"] = separate ? "true" : "false";
@@ -77,7 +79,7 @@ public sealed class CodexOnlySettingsTests : IDisposable
         Assert.Equal(quota.Primary, service.Current.Primary);
         Assert.Equal(quota.Secondary, service.Current.Secondary);
         Assert.Null(settings.StatusMessage);
-        var removedIds = new[] { "nl.mathijs.codexusage.dock.claude", "nl.mathijs.codexusage.claude", "nl.mathijs.codexusage.profiles" };
+        var removedIds = new[] { "nl.mathijs.codexusage.dock.claude", "nl.mathijs.codexusage.claude", "nl.mathijs.codexusage.profiles", "nl.mathijs.codexusage.planner" };
         foreach (var id in removedIds)
         {
             Assert.Null(provider.GetCommandItem(id));
@@ -102,5 +104,7 @@ public sealed class CodexOnlySettingsTests : IDisposable
         ["sourceLabel"] = "Old source",
         ["enableClaude"] = "true",
         ["claudeBridgePath"] = "removed-invalid-capture-path",
+        ["workdayEnd"] = "18:30",
+        ["remainingWorkdays"] = "5",
     };
 }
