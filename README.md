@@ -50,7 +50,7 @@ The Dock will show entries similar to `5h 47%`, `Week 86%`, and `2 resets · 10.
 
 ## Customize the Dock
 
-**Compact Dock** shortens quota labels to forms such as `5h47%` and `W86%` and hides reset times while retaining stale/source warnings. **Separate Dock items** offers each visible metric as a separate pinnable band. Turning it off offers the combined band. Pins belonging to the inactive mode, hidden metrics, and the disabled Claude pilot stop displaying items and are not restored as active bands after a reload. Command Palette keeps its saved pins: switching modes does not move or convert them. Add the desired bands through Dock customization if they were not already pinned; switching back makes matching saved pins available again.
+**Compact Dock** shortens quota labels to forms such as `5h47%` and `W86%` and hides reset times while retaining stale/source warnings. **Separate Dock items** offers each visible metric as a separate pinnable band. Turning it off offers the combined band. Pins belonging to the inactive mode and hidden metrics stop displaying items and are not restored as active bands after a reload. Command Palette keeps its saved pins: switching modes does not move or convert them. Add the desired bands through Dock customization if they were not already pinned; switching back makes matching saved pins available again.
 
 **Enable usage alerts** is off by default. When enabled, fresh, identified account data can notify on a downward crossing of 10% remaining, a new projected limit within one hour, or a reset credit entering its last 24 hours. The first measurement establishes a baseline. Duplicate refreshes do not repeat alerts, small reset-time fluctuations stay in the same cycle, and account/category changes start a new baseline. Multiple simultaneous alerts are combined into one host notification. Delivery depends on the Command Palette host.
 
@@ -64,38 +64,19 @@ Microsoft Store installs updates automatically. You can also check for updates f
 
 ## Sources and account activity
 
-Settings accepts an optional full path to a standalone `codex.exe` or `codex.cmd` and an optional Codex home directory. Empty fields retain environment-based discovery. An explicit directory can be a Windows-accessible WSL path; the extension reads that directory and passes it to the Windows CLI as `CODEX_HOME`, without starting WSL or changing Codex configuration. Inaccessible or invalid explicit paths stop source reads and show a settings error. A profile change clears the displayed context and discards results from the previous in-flight read.
+Codex is detected automatically using the existing environment configuration described in [Requirements](#requirements). Local session readers use `CODEX_HOME` when set, otherwise the current user's `.codex` directory. The extension has no path fields or source-profile selection in its settings.
+
+Saved source paths, source labels, and Claude preferences from earlier development builds are ignored. Other Codex preferences are preserved, and obsolete fields are omitted the next time settings are saved. Old source-profile files and externally configured capture scripts or files are not deleted or modified by the extension.
 
 **Codex account activity** shows account-wide token summaries and up to 30 recent server-calendar days when `account/usage/read` is supported. It updates independently after quota data, at most every five minutes automatically; unsupported versions retry after 30 minutes. **Refresh now** on that page requests an immediate retry. Disable **Show account activity** to stop these optional reads. Account identity must match before and after the request. Missing days and fields are not zero usage, and the server's unspecified calendar time zone is kept separate from local calendar-day chart bars. No account activity is written to disk by this feature.
 
-**Codex source profiles** saves up to eight named sets of executable and home paths. Add a profile, then choose **Use profile** to apply it and persist it for the next start. Reusing a name replaces that preset. Profiles contain no copied credentials; a name does not verify the signed-in account. Saved WSL or network directories can remain listed while offline, but paths must be accessible before use. Deleting a preset asks for confirmation and leaves the active source settings unchanged. Only one Codex source is active at a time.
-
 **Codex usage in text**, also available from Details, provides quota tables, reset times, recent measured weekly points, and local daily token totals without relying on charts or color. Missing values, reported zero, expired windows, and last-confirmed observations have distinct text labels.
 
-## Optional Claude usage pilot
-
-The pilot displays separate Claude five-hour and seven-day limits from an explicitly selected local capture file. It is off by default and adds its own Dock band when enabled. It does not verify the Claude account, combine Claude percentages with Codex, or infer costs. Claude reads run independently of a slow Codex refresh. Changing the refresh interval immediately rereads the capture and updates its freshness status.
-
-The bridge uses Claude Code's documented `rate_limits.five_hour` and `rate_limits.seven_day` statusline fields. These may be absent independently, appear only after a session receives an API response, and require an eligible subscription. The pilot does not support gateway spend-limit fields. See the [official statusline field documentation](https://code.claude.com/docs/en/statusline#available-data).
-
-1. Copy [capture-claude-usage.ps1](scripts/capture-claude-usage.ps1) from this repository to a permanent location you control. The companion script is not bundled into the MSIX application.
-2. Configure the command in your Claude statusline settings using the official instructions. If you have no existing formatter, use the script's **standalone** mode; replace both example paths with your own absolute paths:
-
-   ```text
-   powershell.exe -NoProfile -NonInteractive -File "C:/Tools/capture-claude-usage.ps1" -OutputPath "C:/UsageCaptures/claude-usage.json" -Standalone
-   ```
-
-   Standalone mode displays a compact remaining-quota line. To retain an existing formatter, omit `-Standalone`, launch the capture script as a separate PowerShell process, and pipe that process's stdout into your existing formatter command. Default mode forwards the original stdin bytes unchanged, including when the capture destination fails. Calling the script inside the same PowerShell process is not a supported pipeline arrangement. The extension does not edit your Claude settings or replace a statusline automatically.
-3. In **Codex Usage settings**, set **Claude bridge file** to the same absolute JSON file path and turn on **Enable Claude usage pilot**. The script creates the output directory when needed.
-4. Open **Claude usage pilot** to inspect capture status, observation time, and each independent window. Add its Claude Dock band through Dock customization.
-
-The bridge retains at most 256 KiB of input for parsing and writes only the schema, provider, UTC capture time, validated quota windows, and generic availability messages. Writes replace the snapshot atomically. Missing, malformed, or oversized input writes an unavailable snapshot; it never refreshes the timestamp on old quota values. The extension reads at most 64 KiB per capture. Stale, future-dated, missing, and expired data do not appear as available Dock quota. **Refresh captures** rereads the file; it does not make Claude emit new data. After a quiet session, wait for a new Claude statusline update.
-
-## History, planning, and optional account actions
+## History and optional account actions
 
 **Codex usage history** retains quota observations only when **Retain usage observations** is set to 7, 30, or 90 days. Observations are scoped to the identified account and default quota category, sampled in five-minute buckets, and capped at 27,000 rows. Reset changes within a bucket remain separate observations. Pausing collection keeps retained data; the history page offers confirmed deletion for the selected context. CSV and JSON export actions write files to the extension's local application data `exports` folder and show the resulting path. Exports contain quota percentages and UTC observation/reset times, without account IDs or conversation content. Exported copies are not deleted when retained history is cleared.
 
-**Codex workday planner** uses today's local **Workday end** and your chosen **Workdays remaining before weekly reset**. It divides remaining weekly allowance across those days and today's remaining hours; the five-hour allowance is budgeted independently. Planning stops at an earlier reset and pauses after today's chosen end. It requires fresh, identified live data. The page explains the measurement span, continuous segment, learned-cycle count, and a held-out latest-observation check where sufficient data exists. This is descriptive evidence, not a calibrated confidence percentage or a guarantee. Its recent-pace estimate is separate from the dashboard's optional adaptive weekly forecast.
+The workday planner and its end-time and remaining-workdays settings have been removed. Forecasts use observed usage without requiring a work schedule. Saved planner preferences from earlier development builds are ignored and omitted the next time settings are saved; other preferences and usage history are preserved.
 
 **Codex task usage and earned resets** accepts an explicit task ID for `account/usage/read` on compatible CLI versions. It shows server-estimated credits and optional USD, plus model/effort/speed and available input/cached/output token groups. These estimates are not invoices or conversions of quota percentages. Task reads verify account identity before and after, keep the most recently requested task, and retain results only in memory.
 

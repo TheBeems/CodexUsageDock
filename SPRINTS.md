@@ -1,6 +1,8 @@
 # Usage assistant implementation
 
-This series implements the recommended Codex-first roadmap, followed by a small, optional Claude pilot. Source work uses separate feature branches and pull requests. Merge, Store publication, and installation are separate steps.
+This series implements a Codex-only usage roadmap. Source work uses separate feature branches and pull requests. Merge, Store publication, and installation are separate steps.
+
+The sprint records below describe the original PRs and their historical verification. The current implementation removes the Claude pilot, manual source-path settings, named source profiles, and workday planner, while retaining automatic Codex detection, bounded fallback reads, accessible text views, and usage-based forecasts. See [CHANGELOG.md](CHANGELOG.md) for the current scope.
 
 | Sprint | Feature branch | Scope | Status |
 | --- | --- | --- | --- |
