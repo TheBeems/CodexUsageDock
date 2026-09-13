@@ -1,4 +1,3 @@
-using System.Globalization;
 using System.Text.Json;
 using Microsoft.CommandPalette.Extensions;
 using Microsoft.CommandPalette.Extensions.Toolkit;
@@ -262,43 +261,6 @@ public sealed class ProviderDockTests : IDisposable
     }
 
     [Fact]
-    public void RetainedClaudeBandPageClearsAndNotifiesWhenClaudeIsDisabled()
-    {
-        var now = new DateTimeOffset(2026, 9, 9, 12, 0, 0, TimeSpan.Zero);
-        var capture = WriteClaudeCapture(now, 25);
-        File.WriteAllText(_environment.PathFor("settings.json"), JsonSerializer.Serialize(
-            new Dictionary<string, string>
-            {
-                [EnableClaudeKey] = "true",
-                [ClaudeBridgePathKey] = capture,
-            }));
-        using var service = _environment.CreateService(
-            _ => Task.FromResult(CodexUsageSnapshot.Loading),
-            () => CodexUsageSnapshot.Loading,
-            clock: () => now);
-        var settings = _environment.CreateSettings();
-        using var provider = new CodexUsageDockCommandsProvider(service, settings, _ => { }, () => now);
-
-        var band = FindBand(provider, ClaudeDockId);
-        var page = Assert.IsAssignableFrom<IListPage>(band.Command);
-        Assert.Equal(2, page.GetItems().Length);
-        var emptyNotifications = 0;
-        page.ItemsChanged += (_, _) =>
-        {
-            if (page.GetItems().Length == 0)
-            {
-                emptyNotifications++;
-            }
-        };
-
-        SubmitSettings(settings, (EnableClaudeKey, "false"));
-
-        Assert.Empty(page.GetItems());
-        Assert.True(emptyNotifications > 0);
-        Assert.Null(provider.GetCommandItem(ClaudeDockId));
-    }
-
-    [Fact]
     public async Task QuotaRefreshKeepsBandIdentityAndNotifiesOnlyItsBandList()
     {
         var now = new DateTimeOffset(2026, 9, 9, 12, 0, 0, TimeSpan.Zero);
@@ -390,51 +352,6 @@ public sealed class ProviderDockTests : IDisposable
         Assert.Equal(item.Title, cachedTitle);
     }
 
-    [Fact]
-    public async Task ClaudeRefreshKeepsBandIdentityAndNotifiesOnlyItsBandList()
-    {
-        var now = new DateTimeOffset(2026, 9, 9, 12, 0, 0, TimeSpan.Zero);
-        var firstCapture = WriteClaudeCapture(now, 25);
-        var secondCapture = WriteClaudeCapture(now, 35);
-        File.WriteAllText(_environment.PathFor("settings.json"), JsonSerializer.Serialize(
-            new Dictionary<string, string>
-            {
-                [EnableClaudeKey] = "true",
-                [ClaudeBridgePathKey] = firstCapture,
-            }));
-        var pending = new TaskCompletionSource<CodexUsageSnapshot>(TaskCreationOptions.RunContinuationsAsynchronously);
-        using var service = _environment.CreateService(
-            _ => pending.Task,
-            () => CodexUsageSnapshot.Loading,
-            clock: () => now);
-        using var provider = new CodexUsageDockCommandsProvider(
-            service,
-            _environment.CreateSettings(),
-            _ => { },
-            () => now);
-        await service.ClaudeRefreshTask.WaitAsync(TimeSpan.FromSeconds(5));
-
-        var codexBand = FindBand(provider, CombinedDockId);
-        var claudeBand = FindBand(provider, ClaudeDockId);
-        var claudeList = Assert.IsAssignableFrom<IListPage>(claudeBand.Command);
-        var providerInvalidations = 0;
-        var claudeInvalidations = 0;
-        provider.ItemsChanged += (_, _) => providerInvalidations++;
-        claudeList.ItemsChanged += (_, _) => claudeInvalidations++;
-
-        service.ConfigureClaude(false, firstCapture);
-        service.ConfigureClaude(true, secondCapture);
-        await service.ClaudeRefreshTask.WaitAsync(TimeSpan.FromSeconds(5));
-
-        Assert.Same(codexBand, FindBand(provider, CombinedDockId));
-        Assert.Same(claudeBand, FindBand(provider, ClaudeDockId));
-        Assert.Same(claudeBand, provider.GetCommandItem(ClaudeDockId));
-        Assert.Equal(0, providerInvalidations);
-        Assert.True(claudeInvalidations > 0);
-
-        pending.TrySetResult(CodexUsageSnapshot.Loading);
-    }
-
     private const string CombinedDockId = "nl.mathijs.codexusage.dock";
     private const string FiveHourDockId = "nl.mathijs.codexusage.dock.five-hour";
     private const string WeeklyDockId = "nl.mathijs.codexusage.dock.weekly";
@@ -444,8 +361,6 @@ public sealed class ProviderDockTests : IDisposable
     private const string ShowFiveHourLimitKey = "showFiveHourLimit";
     private const string ShowWeeklyLimitKey = "showWeeklyLimit";
     private const string ShowResetsAndCreditsKey = "showResetsAndCredits";
-    private const string EnableClaudeKey = "enableClaude";
-    private const string ClaudeBridgePathKey = "claudeBridgePath";
     private static readonly string[] AllDockIds = [
         CombinedDockId,
         FiveHourDockId,
@@ -463,30 +378,5 @@ public sealed class ProviderDockTests : IDisposable
     {
         var payload = values.ToDictionary(pair => pair.Key, pair => pair.Value);
         page.GetContent().OfType<FormContent>().Last().SubmitForm(JsonSerializer.Serialize(payload), "{}");
-    }
-
-    private string WriteClaudeCapture(DateTimeOffset now, int fiveHourUsed)
-    {
-        var path = _environment.PathFor($"claude-{Guid.NewGuid():N}.json");
-        File.WriteAllText(path, JsonSerializer.Serialize(new
-        {
-            schemaVersion = 1,
-            provider = "claude",
-            observedAtUTC = now.ToString("O", CultureInfo.InvariantCulture),
-            rate_limits = new
-            {
-                five_hour = new
-                {
-                    used_percentage = fiveHourUsed,
-                    resets_at = now.AddHours(4).ToUnixTimeSeconds(),
-                },
-                seven_day = new
-                {
-                    used_percentage = 40,
-                    resets_at = now.AddDays(4).ToUnixTimeSeconds(),
-                },
-            },
-        }));
-        return path;
     }
 }

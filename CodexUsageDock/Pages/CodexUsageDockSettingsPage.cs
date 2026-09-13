@@ -8,7 +8,6 @@ namespace CodexUsageDock;
 
 internal sealed partial class CodexUsageDockSettingsPage : ContentPage
 {
-    private const string InvalidSourcePath = "Invalid source path: re-enter or clear this field";
     private const string ShowFiveHourLimitKey = "showFiveHourLimit";
     private const string ShowWeeklyLimitKey = "showWeeklyLimit";
     private const string ShowResetsAndCreditsKey = "showResetsAndCredits";
@@ -19,15 +18,7 @@ internal sealed partial class CodexUsageDockSettingsPage : ContentPage
     private const string CompactDockKey = "compactDock";
     private const string SeparateDockItemsKey = "separateDockItems";
     private const string ShowAccountActivityKey = "showAccountActivity";
-    private const string CodexExecutablePathKey = "codexExecutablePath";
-    private const string CodexHomePathKey = "codexHomePath";
-    private const int MaximumPathLength = 1024;
     private const string HistoryRetentionKey = "historyRetentionDays";
-    private const string WorkdayEndKey = "workdayEnd";
-    private const string RemainingWorkdaysKey = "remainingWorkdays";
-    private const string SourceLabelKey = "sourceLabel";
-    private const string EnableClaudeKey = "enableClaude";
-    private const string ClaudeBridgePathKey = "claudeBridgePath";
     private readonly Settings _settings = new();
     private readonly string _path;
     private readonly FormContent _statusContent = new()
@@ -94,37 +85,6 @@ internal sealed partial class CodexUsageDockSettingsPage : ContentPage
             Label = "Show account activity",
             Description = "Read account-wide daily tokens from the Codex service after quotas load. Older CLI versions may not support this.",
         });
-        _settings.Add(new TextSetting(CodexExecutablePathKey, string.Empty)
-        {
-            Label = "Codex executable path",
-            Description = "Optional explicit path to codex.exe or codex.cmd.",
-            Placeholder = @"C:\Path\to\codex.exe",
-            Multiline = false,
-        });
-        _settings.Add(new TextSetting(CodexHomePathKey, string.Empty)
-        {
-            Label = "Codex home path",
-            Description = "Optional Codex home directory. It may be a Windows-accessible WSL directory; this extension does not launch WSL or modify Codex configuration.",
-            Placeholder = @"C:\Users\you\.codex",
-            Multiline = false,
-        });
-        _settings.Add(new TextSetting(SourceLabelKey, "Default")
-        {
-            Label = "Source label",
-            Description = "An optional name for these source paths. A label does not verify the signed-in account.",
-            Multiline = false,
-        });
-        _settings.Add(new ToggleSetting(EnableClaudeKey, false)
-        {
-            Label = "Enable Claude usage pilot",
-            Description = "Read only the local quota snapshot produced by your optional Claude statusline bridge.",
-        });
-        _settings.Add(new TextSetting(ClaudeBridgePathKey, string.Empty)
-        {
-            Label = "Claude bridge file",
-            Description = "The full path to your bridge JSON file. Configure the optional statusline bridge before enabling this pilot.",
-            Multiline = false,
-        });
         _settings.Add(new ChoiceSetSetting(
             RefreshIntervalKey,
             [
@@ -141,19 +101,6 @@ internal sealed partial class CodexUsageDockSettingsPage : ContentPage
         {
             Label = "Retain usage observations",
             Description = "Optional local quota history for export. Pausing keeps saved data; use History to delete it.",
-        });
-        _settings.Add(new TextSetting(WorkdayEndKey, "17:00")
-        {
-            Label = "Workday end (HH:mm)",
-            Description = "Local time used by the planner for today. After this time, planning pauses until the next day.",
-            Multiline = false,
-        });
-        _settings.Add(new ChoiceSetSetting(RemainingWorkdaysKey,
-        [new("1 workday", "1"), new("2 workdays", "2"), new("3 workdays", "3"), new("4 workdays", "4"),
-         new("5 workdays", "5"), new("6 workdays", "6"), new("7 workdays", "7")])
-        {
-            Label = "Workdays remaining before weekly reset",
-            Description = "Your planning assumption, including today. The extension does not infer your calendar.",
         });
         var clearHistory = new ConfirmableCommand(
             new AnonymousCommand(() => ClearAdaptiveHistoryRequested?.Invoke(this, EventArgs.Empty))
@@ -199,34 +146,10 @@ internal sealed partial class CodexUsageDockSettingsPage : ContentPage
 
     public bool ShowAccountActivity => _settings.GetSetting<bool>(ShowAccountActivityKey);
 
-    public string CodexExecutablePath => GetPathSetting(CodexExecutablePathKey);
-
-    public string CodexHomePath => GetPathSetting(CodexHomePathKey);
-
-    internal string SourceLabel => UsageText.SanitizeExternal(_settings.GetSetting<string>(SourceLabelKey), 40) ?? "Default";
-    internal bool EnableClaude => _settings.GetSetting<bool>(EnableClaudeKey);
-    internal string ClaudeBridgePath => GetPathSetting(ClaudeBridgePathKey);
-    internal string ProfileStoragePath => Path.Combine(Path.GetDirectoryName(_path)!, "profiles.json");
-
-    internal void ApplySourceProfile(string label, CodexSourceOptions options)
-    {
-        _settings.Update(new JsonObject
-        {
-            [SourceLabelKey] = UsageText.SanitizeExternal(label, 40) ?? "Custom",
-            [CodexExecutablePathKey] = options.ExecutablePath ?? string.Empty,
-            [CodexHomePathKey] = options.HomePath ?? string.Empty,
-        }.ToJsonString());
-        OnSettingsChanged(_settings, _settings);
-    }
-
     public TimeSpan RefreshInterval => ParseRefreshInterval(_settings.GetSetting<string>(RefreshIntervalKey));
 
     internal int HistoryRetentionDays => _settings.GetSetting<string>(HistoryRetentionKey) switch
     { "7" => 7, "30" => 30, "90" => 90, _ => 0 };
-    internal TimeOnly WorkdayEnd => TimeOnly.TryParseExact(_settings.GetSetting<string>(WorkdayEndKey), "HH:mm",
-        System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out var time) ? time : new(17, 0);
-    internal int RemainingWorkdays => int.TryParse(_settings.GetSetting<string>(RemainingWorkdaysKey), out var days)
-        && days is >= 1 and <= 7 ? days : 1;
 
     internal string? StatusMessage { get; private set; }
 
@@ -266,12 +189,6 @@ internal sealed partial class CodexUsageDockSettingsPage : ContentPage
             var valid = new JsonObject();
             foreach (var property in document.RootElement.EnumerateObject())
             {
-                if (property.Name is CodexExecutablePathKey or CodexHomePathKey or ClaudeBridgePathKey)
-                {
-                    valid[property.Name] = property.Value.ValueKind == JsonValueKind.String && IsValidPathSetting(property.Value.GetString())
-                        ? property.Value.GetString() : InvalidSourcePath;
-                    continue;
-                }
                 if (property.Value.ValueKind is JsonValueKind.True or JsonValueKind.False
                     && IsBooleanSetting(property.Name))
                 {
@@ -285,18 +202,11 @@ internal sealed partial class CodexUsageDockSettingsPage : ContentPage
                 }
 
                 var value = property.Value.GetString();
-                if (property.Name == SourceLabelKey)
-                {
-                    valid[property.Name] = UsageText.SanitizeExternal(value, 40) ?? "Default";
-                }
-                else if (property.Name == RefreshIntervalKey && value is "1" or "5" or "15")
+                if (property.Name == RefreshIntervalKey && value is "1" or "5" or "15")
                 {
                     valid[property.Name] = value;
                 }
-                else if (property.Name == HistoryRetentionKey && value is "0" or "7" or "30" or "90"
-                    || property.Name == RemainingWorkdaysKey && value is "1" or "2" or "3" or "4" or "5" or "6" or "7"
-                    || property.Name == WorkdayEndKey && TimeOnly.TryParseExact(value, "HH:mm",
-                        System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out _))
+                else if (property.Name == HistoryRetentionKey && value is "0" or "7" or "30" or "90")
                 {
                     valid[property.Name] = value;
                 }
@@ -318,31 +228,7 @@ internal sealed partial class CodexUsageDockSettingsPage : ContentPage
     private static bool IsBooleanSetting(string name) => name is
         ShowFiveHourLimitKey or ShowWeeklyLimitKey or ShowResetsAndCreditsKey or ShowResetTimeKey or
         UseAdaptiveWeeklyForecastKey or EnableUsageAlertsKey or CompactDockKey or SeparateDockItemsKey or
-        ShowAccountActivityKey or EnableClaudeKey;
-
-    private static bool IsValidPathSetting(string? value)
-    {
-        if (value is null || value.Length > MaximumPathLength)
-        {
-            return false;
-        }
-
-        foreach (var character in value)
-        {
-            if (char.IsControl(character))
-            {
-                return false;
-            }
-        }
-
-        return true;
-    }
-
-    private string GetPathSetting(string key)
-    {
-        var value = _settings.GetSetting<string>(key);
-        return IsValidPathSetting(value) ? value! : InvalidSourcePath;
-    }
+        ShowAccountActivityKey;
 
     private void OnSettingsChanged(object sender, Settings args)
     {

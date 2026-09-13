@@ -19,8 +19,6 @@ public sealed class UsagePreferenceTests : IDisposable
         Assert.False(settings.CompactDock);
         Assert.False(settings.SeparateDockItems);
         Assert.True(settings.ShowAccountActivity);
-        Assert.Equal(string.Empty, settings.CodexExecutablePath);
-        Assert.Equal(string.Empty, settings.CodexHomePath);
     }
 
     [Fact]
@@ -33,16 +31,12 @@ public sealed class UsagePreferenceTests : IDisposable
             ["compactDock"] = "true",
             ["separateDockItems"] = "true",
             ["showAccountActivity"] = "false",
-            ["codexExecutablePath"] = "C:/Tools/codex.cmd",
-            ["codexHomePath"] = "C:/Users/test/.codex",
         });
 
         Assert.True(first.EnableUsageAlerts);
         Assert.True(first.CompactDock);
         Assert.True(first.SeparateDockItems);
         Assert.False(first.ShowAccountActivity);
-        Assert.Equal("C:/Tools/codex.cmd", first.CodexExecutablePath);
-        Assert.Equal("C:/Users/test/.codex", first.CodexHomePath);
 
         var restarted = _environment.CreateSettings();
 
@@ -50,14 +44,11 @@ public sealed class UsagePreferenceTests : IDisposable
         Assert.True(restarted.CompactDock);
         Assert.True(restarted.SeparateDockItems);
         Assert.False(restarted.ShowAccountActivity);
-        Assert.Equal("C:/Tools/codex.cmd", restarted.CodexExecutablePath);
-        Assert.Equal("C:/Users/test/.codex", restarted.CodexHomePath);
     }
 
     [Fact]
-    public void SettingsLoadKeepsValidValuesAndRejectsUnsafePathValues()
+    public void SettingsLoadKeepsValidValuesAndRejectsInvalidChoices()
     {
-        var validBoundaryPath = new string('a', 1024);
         File.WriteAllText(_environment.PathFor("settings.json"), JsonSerializer.Serialize(
             new Dictionary<string, object?>
             {
@@ -65,8 +56,6 @@ public sealed class UsagePreferenceTests : IDisposable
                 ["compactDock"] = "true",
                 ["separateDockItems"] = "not-a-boolean",
                 ["showAccountActivity"] = "false",
-                ["codexExecutablePath"] = validBoundaryPath,
-                ["codexHomePath"] = new string('b', 1025),
             }));
 
         var settings = _environment.CreateSettings();
@@ -75,20 +64,6 @@ public sealed class UsagePreferenceTests : IDisposable
         Assert.True(settings.CompactDock);
         Assert.False(settings.SeparateDockItems);
         Assert.False(settings.ShowAccountActivity);
-        Assert.Equal(validBoundaryPath, settings.CodexExecutablePath);
-        Assert.Contains("Invalid source path", settings.CodexHomePath, StringComparison.Ordinal);
-
-        File.WriteAllText(_environment.PathFor("settings.json"), JsonSerializer.Serialize(
-            new Dictionary<string, object?>
-            {
-                ["codexExecutablePath"] = "C:/Codex\u0001/codex.exe",
-                ["codexHomePath"] = "C:/Users/test/.codex",
-            }));
-
-        var controlCharacterSettings = _environment.CreateSettings();
-
-        Assert.Contains("Invalid source path", controlCharacterSettings.CodexExecutablePath, StringComparison.Ordinal);
-        Assert.Equal("C:/Users/test/.codex", controlCharacterSettings.CodexHomePath);
     }
 
     [Theory]

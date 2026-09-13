@@ -4,7 +4,7 @@ using Xunit;
 
 namespace CodexUsageDock.Tests;
 
-public sealed class PlanningHistoryIntegrationTests : IDisposable
+public sealed class HistoryIntegrationTests : IDisposable
 {
     private static readonly DateTimeOffset Now = new(2026, 9, 9, 12, 0, 0, TimeSpan.Zero);
     private readonly TestEnvironment _environment = new();
@@ -12,49 +12,37 @@ public sealed class PlanningHistoryIntegrationTests : IDisposable
     public void Dispose() => _environment.Dispose();
 
     [Fact]
-    public void PlanningPreferencesRoundTripAndExposeSafeDefaults()
+    public void RetentionPreferencesRoundTripAndExposeSafeDefaults()
     {
         var first = _environment.CreateSettings();
 
         SubmitSettings(first, new Dictionary<string, string>
         {
             ["historyRetentionDays"] = "90",
-            ["workdayEnd"] = "18:30",
-            ["remainingWorkdays"] = "5",
         });
 
         Assert.Equal(90, first.HistoryRetentionDays);
-        Assert.Equal(new TimeOnly(18, 30), first.WorkdayEnd);
-        Assert.Equal(5, first.RemainingWorkdays);
 
         var restarted = _environment.CreateSettings();
         Assert.Equal(90, restarted.HistoryRetentionDays);
-        Assert.Equal(new TimeOnly(18, 30), restarted.WorkdayEnd);
-        Assert.Equal(5, restarted.RemainingWorkdays);
 
         File.Delete(_environment.PathFor("settings.json"));
         var defaults = _environment.CreateSettings();
         Assert.Equal(0, defaults.HistoryRetentionDays);
-        Assert.Equal(new TimeOnly(17, 0), defaults.WorkdayEnd);
-        Assert.Equal(1, defaults.RemainingWorkdays);
     }
 
     [Fact]
-    public void InvalidPlanningPreferencesUseSafeDefaults()
+    public void InvalidRetentionPreferencesUseSafeDefaults()
     {
         File.WriteAllText(_environment.PathFor("settings.json"), JsonSerializer.Serialize(
             new Dictionary<string, string>
             {
                 ["historyRetentionDays"] = "365",
-                ["workdayEnd"] = "25:61",
-                ["remainingWorkdays"] = "0",
             }));
 
         var settings = _environment.CreateSettings();
 
         Assert.Equal(0, settings.HistoryRetentionDays);
-        Assert.Equal(new TimeOnly(17, 0), settings.WorkdayEnd);
-        Assert.Equal(1, settings.RemainingWorkdays);
     }
 
     [Fact]
@@ -200,8 +188,6 @@ public sealed class PlanningHistoryIntegrationTests : IDisposable
         var payload = new Dictionary<string, string>
         {
             ["historyRetentionDays"] = "0",
-            ["workdayEnd"] = "17:00",
-            ["remainingWorkdays"] = "1",
         };
 
         foreach (var pair in values)
