@@ -38,7 +38,7 @@ Each entry links to the commit or pull request that introduced the change.
 
 ### Removed
 
-- Remove the workday planner and its workday-end and remaining-workdays settings. Existing planner preferences are ignored and dropped on the next settings save; usage displays, reset times, forecasts, and history remain available. ([implementation](https://github.com/TheBeems/CodexUsageDock/commit/codex/codex-only-settings))
+- Remove the workday planner and its workday-end and remaining-workdays settings. Existing planner preferences are ignored and dropped on the next settings save; usage displays, reset times, forecasts, and history remain available. ([commit 263c22a](https://github.com/TheBeems/CodexUsageDock/commit/263c22a650f2b7062515f94e983023e337dc7610))
 - Remove the experimental Claude integration and capture script, manual Codex path settings, and source profiles to keep the extension focused on automatically detected Codex usage. Older source preferences are ignored while other saved Codex choices are preserved. ([commit 39bf74c](https://github.com/TheBeems/CodexUsageDock/commit/39bf74cd476920441146f37737ad1216a9c0b8ad))
 
 ## [0.6.1] - 2026-09-09
