@@ -1,5 +1,6 @@
 using System.Buffers;
 using System.Diagnostics;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 
@@ -7,10 +8,257 @@ namespace CodexUsageDock;
 
 internal static class CodexAppServerReader
 {
-    internal static async Task<CodexUsageSnapshot> ReadAsync(CancellationToken cancellationToken = default)
+    private const int MaximumBucketCount = 32;
+
+    internal static Task<CodexUsageSnapshot> ReadAsync(CancellationToken cancellationToken = default) =>
+        ReadAsync(CodexSourceOptions.Default, cancellationToken);
+
+    internal static Task<CodexUsageSnapshot> ReadAsync(CodexSourceOptions options, CancellationToken cancellationToken) =>
+        WithAppServerAsync(options, static async (process, token) =>
+        {
+            await SendAsync(process, "account/rateLimits/read", 2, null, token).ConfigureAwait(false);
+            await SendAsync(
+                process,
+                "account/read",
+                3,
+                static writer =>
+                {
+                    writer.WritePropertyName("params");
+                    writer.WriteStartObject();
+                    writer.WriteBoolean("refreshToken", false);
+                    writer.WriteEndObject();
+                },
+                token).ConfigureAwait(false);
+
+            var responses = await ReadResponsesAsync(process.StandardOutput, token, 2, 3).ConfigureAwait(false);
+            using var rateResponse = responses[2];
+            using var accountResponse = responses[3];
+            ThrowIfError(rateResponse.RootElement);
+            return ParseSnapshot(rateResponse.RootElement.GetProperty("result"), accountResponse.RootElement, DateTimeOffset.Now);
+        }, cancellationToken);
+
+    internal static async Task<AccountUsageSnapshot> ReadAccountUsageAsync(CodexSourceOptions options, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        using var process = StartAppServer();
+        try
+        {
+            return await WithAppServerAsync(options, static (process, token) =>
+                ReadAccountUsageSequenceAsync((method, id, requestToken) => RequestAsync(process, method, id, requestToken), token),
+                cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception error) when (error is IOException or InvalidOperationException or JsonException
+            or OperationCanceledException or System.ComponentModel.Win32Exception or UnauthorizedAccessException)
+        {
+            return AccountUsageSnapshot.Unavailable with { UpdatedAt = DateTimeOffset.Now };
+        }
+    }
+
+    internal static async Task<AccountUsageSnapshot> ReadAccountUsageSequenceAsync(
+        Func<string, int, CancellationToken, Task<JsonDocument>> request,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        using var before = await request("account/rateLimits/read", 2, cancellationToken).ConfigureAwait(false);
+        var beforeKey = GetResponseAccountKey(before.RootElement);
+        if (beforeKey is null)
+        {
+            return AccountUsageSnapshot.Unavailable with { UpdatedAt = DateTimeOffset.Now };
+        }
+
+        using var usage = await request("account/usage/read", 3, cancellationToken).ConfigureAwait(false);
+        if (IsMethodNotFound(usage.RootElement))
+        {
+            return new AccountUsageSnapshot(beforeKey, DateTimeOffset.Now, [], AccountUsageStatus.Unsupported);
+        }
+
+        if (HasError(usage.RootElement))
+        {
+            return AccountUsageSnapshot.Unavailable with { UpdatedAt = DateTimeOffset.Now };
+        }
+
+        using var after = await request("account/rateLimits/read", 4, cancellationToken).ConfigureAwait(false);
+        var afterKey = GetResponseAccountKey(after.RootElement);
+        if (!string.Equals(beforeKey, afterKey, StringComparison.Ordinal))
+        {
+            return AccountUsageSnapshot.Unavailable with { UpdatedAt = DateTimeOffset.Now };
+        }
+
+        return TryGetObject(usage.RootElement, "result", out var result)
+            ? AccountUsageParser.Parse(result, beforeKey, DateTimeOffset.Now)
+            : AccountUsageSnapshot.Unavailable with { UpdatedAt = DateTimeOffset.Now };
+    }
+
+    internal static async Task<ThreadUsageSnapshot> ReadThreadUsageAsync(
+        CodexSourceOptions options, string threadId, string expectedAccountKey, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (!ThreadUsageParser.IsValidThreadId(threadId)) return EmptyThreadUsage(ThreadUsageStatus.Unavailable);
+        if (!IsValidAccountKey(expectedAccountKey)) return EmptyThreadUsage(ThreadUsageStatus.AccountMismatch);
+        try
+        {
+            return await WithAppServerAsync(options, (process, token) =>
+                ReadThreadUsageSequenceAsync((method, id, parameters, requestToken) =>
+                    RequestAsync(process, method, id, parameters, requestToken), threadId, expectedAccountKey, token),
+                cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception error) when (error is IOException or InvalidOperationException or JsonException
+            or OperationCanceledException or System.ComponentModel.Win32Exception or UnauthorizedAccessException)
+        {
+            return EmptyThreadUsage(ThreadUsageStatus.Unavailable);
+        }
+    }
+
+    internal static async Task<ThreadUsageSnapshot> ReadThreadUsageSequenceAsync(
+        Func<string, int, Action<Utf8JsonWriter>?, CancellationToken, Task<JsonDocument>> request,
+        string threadId, string expectedAccountKey, CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (!ThreadUsageParser.IsValidThreadId(threadId)) return EmptyThreadUsage(ThreadUsageStatus.Unavailable);
+        if (!IsValidAccountKey(expectedAccountKey)) return EmptyThreadUsage(ThreadUsageStatus.AccountMismatch);
+
+        using var before = await request("account/rateLimits/read", 2, null, cancellationToken).ConfigureAwait(false);
+        if (IsMethodNotFound(before.RootElement)) return EmptyThreadUsage(ThreadUsageStatus.Unsupported);
+        if (HasError(before.RootElement)) return EmptyThreadUsage(ThreadUsageStatus.Unavailable);
+        var beforeKey = GetResponseAccountKey(before.RootElement);
+        if (!string.Equals(expectedAccountKey, beforeKey, StringComparison.OrdinalIgnoreCase))
+            return EmptyThreadUsage(ThreadUsageStatus.AccountMismatch);
+
+        using var usage = await request("account/usage/read", 3,
+            writer => WriteStringParameter(writer, "threadId", threadId), cancellationToken).ConfigureAwait(false);
+        if (IsMethodNotFound(usage.RootElement)) return EmptyThreadUsage(ThreadUsageStatus.Unsupported);
+        if (HasError(usage.RootElement)) return EmptyThreadUsage(ThreadUsageStatus.Unavailable);
+
+        using var after = await request("account/rateLimits/read", 4, null, cancellationToken).ConfigureAwait(false);
+        if (HasError(after.RootElement)) return EmptyThreadUsage(ThreadUsageStatus.Unavailable);
+        if (!string.Equals(beforeKey, GetResponseAccountKey(after.RootElement), StringComparison.Ordinal))
+            return EmptyThreadUsage(ThreadUsageStatus.AccountMismatch);
+
+        return TryGetObject(usage.RootElement, "result", out var result)
+            ? ThreadUsageParser.Parse(result, threadId, beforeKey!, DateTimeOffset.Now)
+            : EmptyThreadUsage(ThreadUsageStatus.Unavailable);
+    }
+
+    internal static async Task<ResetCreditResult> ConsumeResetCreditAsync(
+        CodexSourceOptions options, string expectedAccountKey, string idempotencyKey, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        ValidateIdempotencyKey(idempotencyKey);
+        if (!IsValidAccountKey(expectedAccountKey)) return new(ResetCreditOutcome.AccountMismatch, DateTimeOffset.Now);
+
+        var consumeStarted = false;
+        ResetCreditResult? completed = null;
+        try
+        {
+            return await WithAppServerAsync(options, async (process, token) =>
+            {
+                var result = await ConsumeResetCreditSequenceAsync((method, id, parameters, requestToken) =>
+                {
+                    if (method == "account/rateLimitResetCredit/consume") consumeStarted = true;
+                    return RequestAsync(process, method, id, parameters, requestToken);
+                }, expectedAccountKey, idempotencyKey, token).ConfigureAwait(false);
+                completed = result;
+                return result;
+            }, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception)
+        {
+            // Cleanup can fail after the server has replied. Keep a known result;
+            // otherwise never describe a possibly dispatched reset as safe to replace.
+            return completed ?? new(consumeStarted ? ResetCreditOutcome.Ambiguous : ResetCreditOutcome.Unavailable, DateTimeOffset.Now);
+        }
+    }
+
+    internal static async Task<ResetCreditResult> ConsumeResetCreditSequenceAsync(
+        Func<string, int, Action<Utf8JsonWriter>?, CancellationToken, Task<JsonDocument>> request,
+        string expectedAccountKey, string idempotencyKey, CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        ValidateIdempotencyKey(idempotencyKey);
+        var attemptedAt = DateTimeOffset.Now;
+        if (!IsValidAccountKey(expectedAccountKey)) return new(ResetCreditOutcome.AccountMismatch, attemptedAt);
+
+        var consumeStarted = false;
+        try
+        {
+            using var before = await request("account/rateLimits/read", 2, null, cancellationToken).ConfigureAwait(false);
+            if (IsMethodNotFound(before.RootElement)) return new(ResetCreditOutcome.Unsupported, attemptedAt);
+            if (HasError(before.RootElement)) return new(ResetCreditOutcome.Unavailable, attemptedAt);
+            if (!string.Equals(expectedAccountKey, GetResponseAccountKey(before.RootElement), StringComparison.OrdinalIgnoreCase))
+                return new(ResetCreditOutcome.AccountMismatch, attemptedAt);
+
+            cancellationToken.ThrowIfCancellationRequested();
+            attemptedAt = DateTimeOffset.Now;
+            consumeStarted = true;
+            using var response = await request("account/rateLimitResetCredit/consume", 3,
+                writer => WriteStringParameter(writer, "idempotencyKey", idempotencyKey), cancellationToken).ConfigureAwait(false);
+            return ResetCreditParser.Parse(response.RootElement, attemptedAt);
+        }
+        catch (Exception)
+        {
+            return new(consumeStarted ? ResetCreditOutcome.Ambiguous : ResetCreditOutcome.Unavailable, attemptedAt);
+        }
+    }
+
+    private static ThreadUsageSnapshot EmptyThreadUsage(ThreadUsageStatus status) =>
+        ThreadUsageSnapshot.Unavailable with { Status = status, UpdatedAt = DateTimeOffset.Now };
+
+    private static bool IsValidAccountKey(string? value) => value is { Length: 64 } && value.All(char.IsAsciiHexDigit);
+
+    private static void ValidateIdempotencyKey(string value)
+    {
+        if (!ResetCreditParser.IsValidIdempotencyKey(value))
+            throw new ArgumentException("A bounded, nonempty idempotency key is required.", nameof(value));
+    }
+
+    private static void WriteStringParameter(Utf8JsonWriter writer, string name, string value)
+    {
+        writer.WritePropertyName("params");
+        writer.WriteStartObject();
+        writer.WriteString(name, value);
+        writer.WriteEndObject();
+    }
+
+    private static string? GetResponseAccountKey(JsonElement response) =>
+        !HasError(response) && TryGetObject(response, "result", out var result) ? ParseAccountKey(result) : null;
+
+    internal static bool IsMethodNotFound(JsonElement response) =>
+        TryGetObject(response, "error", out var error)
+        && error.TryGetProperty("code", out var code)
+        && code.ValueKind == JsonValueKind.Number
+        && code.TryGetInt32(out var number)
+        && number == -32601;
+
+    private static Task<JsonDocument> RequestAsync(Process process, string method, int id, CancellationToken cancellationToken) =>
+        RequestAsync(process, method, id, method == "account/usage/read" ? static writer =>
+        {
+            writer.WritePropertyName("params");
+            writer.WriteStartObject();
+            writer.WriteEndObject();
+        } : null, cancellationToken);
+
+    private static async Task<JsonDocument> RequestAsync(Process process, string method, int id,
+        Action<Utf8JsonWriter>? parameters, CancellationToken cancellationToken)
+    {
+        await SendAsync(process, method, id, parameters, cancellationToken).ConfigureAwait(false);
+        var responses = await ReadResponsesAsync(process.StandardOutput, cancellationToken, id).ConfigureAwait(false);
+        return responses[id];
+    }
+
+    private static async Task<T> WithAppServerAsync<T>(
+        CodexSourceOptions options,
+        Func<Process, CancellationToken, Task<T>> operation,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        using var process = StartAppServer(options);
         var standardErrorDrain = DrainAsync(process.StandardError);
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeout.CancelAfter(TimeSpan.FromSeconds(20));
@@ -40,44 +288,7 @@ internal static class CodexAppServerReader
             ThrowIfError(initializationResponse.RootElement);
 
             await SendAsync(process, "initialized", null, null, readCancellationToken).ConfigureAwait(false);
-            await SendAsync(process, "account/rateLimits/read", 2, null, readCancellationToken).ConfigureAwait(false);
-            await SendAsync(
-                process,
-                "account/read",
-                3,
-                static writer =>
-                {
-                    writer.WritePropertyName("params");
-                    writer.WriteStartObject();
-                    writer.WriteBoolean("refreshToken", false);
-                    writer.WriteEndObject();
-                },
-                readCancellationToken).ConfigureAwait(false);
-
-            var responses = await ReadResponsesAsync(process.StandardOutput, readCancellationToken, 2, 3).ConfigureAwait(false);
-            using var rateResponse = responses[2];
-            using var accountResponse = responses[3];
-
-            ThrowIfError(rateResponse.RootElement);
-            var rateResult = rateResponse.RootElement.GetProperty("result");
-            var limits = rateResult.GetProperty("rateLimits");
-            var windows = RateLimitWindowParser.Classify(
-                RateLimitWindowParser.TryParse(limits, "primary", "usedPercent", "windowDurationMins", "resetsAt"),
-                RateLimitWindowParser.TryParse(limits, "secondary", "usedPercent", "windowDurationMins", "resetsAt"));
-            RateLimitWindowParser.ThrowIfNoKnownWindow(windows);
-            var credits = ParseCredits(rateResult, limits);
-            var resetCredits = ParseResetCredits(rateResult);
-            var plan = ParsePlan(accountResponse.RootElement);
-
-            return new CodexUsageSnapshot(
-                windows.FiveHour,
-                windows.Weekly,
-                plan,
-                credits,
-                resetCredits,
-                DateTimeOffset.Now,
-                UsageDataSource.AppServer,
-                null);
+            return await operation(process, readCancellationToken).ConfigureAwait(false);
         }
         finally
         {
@@ -94,6 +305,133 @@ internal static class CodexAppServerReader
 
             await ObserveProcessExitAsync(process, standardErrorDrain).ConfigureAwait(false);
         }
+    }
+
+    internal static CodexUsageSnapshot ParseSnapshot(JsonElement rateResult, JsonElement accountResponse, DateTimeOffset now)
+    {
+        if (rateResult.ValueKind != JsonValueKind.Object)
+        {
+            throw new InvalidOperationException("Codex app-server did not return a usage result.");
+        }
+
+        TryGetObject(rateResult, "rateLimits", out var legacyLimits);
+        var defaultId = ReadLimitId(legacyLimits, "limitId") ?? "codex";
+        var defaultLimits = legacyLimits;
+        if (TryGetObject(rateResult, "rateLimitsByLimitId", out var limitsById)
+            && TryGetObject(limitsById, defaultId, out var richDefault))
+        {
+            defaultLimits = richDefault;
+        }
+
+        var buckets = new List<RateLimitBucket>();
+        var bucketIds = new HashSet<string>(StringComparer.Ordinal);
+        RateLimitBucket? defaultBucket = null;
+        if (defaultLimits.ValueKind == JsonValueKind.Object)
+        {
+            defaultBucket = ParseBucket(defaultId, defaultLimits);
+            buckets.Add(defaultBucket);
+            bucketIds.Add(defaultId);
+        }
+
+        if (limitsById.ValueKind == JsonValueKind.Object)
+        {
+            foreach (var entry in limitsById.EnumerateObject())
+            {
+                if (buckets.Count >= MaximumBucketCount)
+                {
+                    break;
+                }
+
+                if (entry.Value.ValueKind == JsonValueKind.Object
+                    && IsValidLimitId(entry.Name)
+                    && bucketIds.Add(entry.Name))
+                {
+                    buckets.Add(ParseBucket(entry.Name, entry.Value));
+                }
+            }
+        }
+
+        var windows = RateLimitWindowParser.Classify(defaultBucket?.Primary, defaultBucket?.Secondary);
+        var credits = ParseCredits(rateResult, defaultLimits);
+        var resetCredits = ParseResetCredits(rateResult);
+        var ordinaryUsageAllowed = rateResult.TryGetProperty("ordinaryUsageAllowed", out var allowed)
+            && allowed.ValueKind is JsonValueKind.True or JsonValueKind.False
+            ? allowed.GetBoolean()
+            : (bool?)null;
+        if (buckets.Count == 0 && credits is null && resetCredits is null && ordinaryUsageAllowed is null)
+        {
+            throw new InvalidOperationException("Codex app-server did not return usable usage information.");
+        }
+
+        return new CodexUsageSnapshot(
+            windows.FiveHour,
+            windows.Weekly,
+            ParsePlan(accountResponse) ?? ReadLabel(defaultLimits, "planType", 32),
+            credits,
+            resetCredits,
+            now,
+            UsageDataSource.AppServer,
+            null,
+            buckets.ToArray(),
+            ParseAccountKey(rateResult),
+            ordinaryUsageAllowed,
+            now,
+            defaultBucket?.Id);
+    }
+
+    private static RateLimitBucket ParseBucket(string id, JsonElement limits) => new(
+        id,
+        ReadLabel(limits, "limitName", 80),
+        RateLimitWindowParser.TryParse(limits, "primary", "usedPercent", "windowDurationMins", "resetsAt"),
+        RateLimitWindowParser.TryParse(limits, "secondary", "usedPercent", "windowDurationMins", "resetsAt"));
+
+    private static string? ParseAccountKey(JsonElement result)
+    {
+        if (!result.TryGetProperty("accountId", out var value) || value.ValueKind != JsonValueKind.String)
+        {
+            return null;
+        }
+
+        var accountId = value.GetString();
+        if (string.IsNullOrWhiteSpace(accountId) || accountId.Length > 512
+            || accountId.Any(character => char.IsControl(character) || char.IsWhiteSpace(character)))
+        {
+            return null;
+        }
+
+        var hash = SHA256.HashData(Encoding.UTF8.GetBytes("CodexUsageDock:account:v1:" + accountId));
+        return Convert.ToHexString(hash);
+    }
+
+    private static string? ReadLimitId(JsonElement limits, string propertyName)
+    {
+        if (limits.ValueKind != JsonValueKind.Object
+            || !limits.TryGetProperty(propertyName, out var value)
+            || value.ValueKind != JsonValueKind.String)
+        {
+            return null;
+        }
+
+        var id = value.GetString();
+        return id is not null && IsValidLimitId(id) ? id : null;
+    }
+
+    private static bool IsValidLimitId(string id) => id.Length is > 0 and <= 128
+        && id.All(character => char.IsAsciiLetterOrDigit(character) || character is '-' or '_' or '.' or ':' or '/');
+
+    private static string? ReadLabel(JsonElement element, string propertyName, int maxLength) =>
+        element.ValueKind == JsonValueKind.Object
+        && element.TryGetProperty(propertyName, out var value)
+        && value.ValueKind == JsonValueKind.String
+            ? UsageText.SanitizeExternal(value.GetString(), maxLength)
+            : null;
+
+    private static bool TryGetObject(JsonElement element, string propertyName, out JsonElement value)
+    {
+        value = default;
+        return element.ValueKind == JsonValueKind.Object
+            && element.TryGetProperty(propertyName, out value)
+            && value.ValueKind == JsonValueKind.Object;
     }
 
     internal static string GetSafeWorkingDirectory(string executable)
@@ -126,8 +464,15 @@ internal static class CodexAppServerReader
                     throw new InvalidOperationException("Codex app-server stopped unexpectedly.");
                 }
 
-                var document = JsonDocument.Parse(line);
-                if (document.RootElement.TryGetProperty("id", out var id)
+                if (line.Length > 1_048_576)
+                {
+                    throw new InvalidOperationException("Codex app-server returned an oversized response.");
+                }
+
+                var document = JsonDocument.Parse(line, new JsonDocumentOptions { MaxDepth = 32 });
+                if (document.RootElement.ValueKind == JsonValueKind.Object
+                    && document.RootElement.TryGetProperty("id", out var id)
+                    && id.ValueKind == JsonValueKind.Number
                     && id.TryGetInt32(out var value)
                     && pendingIds.Remove(value))
                 {
@@ -155,11 +500,11 @@ internal static class CodexAppServerReader
     internal static CreditBalance? ParseCredits(JsonElement result, JsonElement limits)
     {
         var credits = default(JsonElement);
-        if (limits.TryGetProperty("credits", out var nested) && nested.ValueKind == JsonValueKind.Object)
+        if (TryGetObject(limits, "credits", out var nested))
         {
             credits = nested;
         }
-        else if (!result.TryGetProperty("credits", out credits) || credits.ValueKind != JsonValueKind.Object)
+        else if (!TryGetObject(result, "credits", out credits))
         {
             return null;
         }
@@ -187,7 +532,8 @@ internal static class CodexAppServerReader
 
     internal static RateLimitResetCredits? ParseResetCredits(JsonElement result)
     {
-        if (!result.TryGetProperty("rateLimitResetCredits", out var resets)
+        if (result.ValueKind != JsonValueKind.Object
+            || !result.TryGetProperty("rateLimitResetCredits", out var resets)
             || resets.ValueKind != JsonValueKind.Object
             || !resets.TryGetProperty("availableCount", out var count)
             || count.ValueKind != JsonValueKind.Number
@@ -241,13 +587,15 @@ internal static class CodexAppServerReader
         return new RateLimitResetCredits(availableCount, parsed);
     }
 
-    private static Process StartAppServer()
+    private static Process StartAppServer(CodexSourceOptions options) =>
+        Process.Start(CreateStartInfo(options)) ?? throw new InvalidOperationException("Codex app-server could not be started.");
+
+    internal static ProcessStartInfo CreateStartInfo(CodexSourceOptions options)
     {
-        var executable = FindCodexExecutable();
+        var executable = options.ExecutablePath ?? FindCodexExecutable();
         var startInfo = new ProcessStartInfo
         {
             FileName = executable,
-            Arguments = "app-server --stdio",
             WorkingDirectory = GetSafeWorkingDirectory(executable),
             UseShellExecute = false,
             RedirectStandardInput = true,
@@ -255,7 +603,13 @@ internal static class CodexAppServerReader
             RedirectStandardError = true,
             CreateNoWindow = true,
         };
-        return Process.Start(startInfo) ?? throw new InvalidOperationException("Codex app-server could not be started.");
+        startInfo.ArgumentList.Add("app-server");
+        startInfo.ArgumentList.Add("--stdio");
+        if (options.HomePath is not null)
+        {
+            startInfo.Environment["CODEX_HOME"] = options.HomePath;
+        }
+        return startInfo;
     }
 
     private static string FindCodexExecutable()
@@ -383,23 +737,23 @@ internal static class CodexAppServerReader
 
     private static void ThrowIfError(JsonElement response)
     {
-        if (response.TryGetProperty("error", out var error))
+        if (HasError(response))
         {
-            throw new InvalidOperationException(error.GetRawText());
+            throw new InvalidOperationException("Codex app-server returned an error.");
         }
     }
 
+    private static bool HasError(JsonElement response) => response.ValueKind == JsonValueKind.Object
+        && response.TryGetProperty("error", out _);
+
     private static string? ParsePlan(JsonElement accountResponse)
     {
-        if (!accountResponse.TryGetProperty("result", out var result)
-            || !result.TryGetProperty("account", out var account)
-            || account.ValueKind == JsonValueKind.Null
-            || !account.TryGetProperty("planType", out var plan)
-            || plan.ValueKind != JsonValueKind.String)
+        if (!TryGetObject(accountResponse, "result", out var result)
+            || !TryGetObject(result, "account", out var account))
         {
             return null;
         }
 
-        return UsageText.SanitizeExternal(plan.GetString(), 32);
+        return ReadLabel(account, "planType", 32);
     }
 }

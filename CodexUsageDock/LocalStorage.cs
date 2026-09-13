@@ -1,9 +1,16 @@
 using System.Diagnostics;
+using System.Security.Cryptography;
+using System.Text;
 
 namespace CodexUsageDock;
 
 internal static class LocalStorage
 {
+    internal static string ContextPath(string path, string context) => Path.Combine(
+        Path.GetDirectoryName(Path.GetFullPath(path))!, "contexts",
+        Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(context))).ToLowerInvariant(),
+        Path.GetFileName(path));
+
     internal static string GetPath(string fileName) => Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "CodexUsageDock", fileName);
 

@@ -63,9 +63,10 @@ internal sealed partial class CodexUsageDockPage : ContentPage, IDisposable
         AdaptiveWeeklyUsageHistory? adaptiveWeeklyHistory = null,
         LocalTokenUsageSnapshot? tokenUsage = null)
     {
-        var dataAvailable = snapshot.Source != UsageDataSource.Unavailable;
+        var freshness = GetFreshnessState(snapshot, now, refreshInterval);
+        var dataAvailable = IsDataAvailable(snapshot, freshness);
         var maximumSampleAge = TrendFreshness(refreshInterval);
-        var (statusTitle, statusDescription) = FormatSummaryParts(snapshot, now);
+        var (statusTitle, statusDescription) = FormatSummaryParts(snapshot, now, refreshInterval);
         var data = new JsonObject
         {
             ["isLoading"] = isLoading,
@@ -103,6 +104,9 @@ internal sealed partial class CodexUsageDockPage : ContentPage, IDisposable
             weeklyHistory,
             weeklyTrend,
             dataAvailable,
+            snapshot.Source is UsageDataSource.AppServer
+                or UsageDataSource.LocalSession
+                or UsageDataSource.LastConfirmed,
             now,
             TrendMaximumGap(refreshInterval),
             tokenUsage);
@@ -113,7 +117,8 @@ internal sealed partial class CodexUsageDockPage : ContentPage, IDisposable
     internal static string FormatDetailsBody(
         CodexUsageSnapshot snapshot,
         DateTimeOffset now,
-        IReadOnlyList<UsageHistoryEntry>? weeklyHistory = null) => $"""
+        IReadOnlyList<UsageHistoryEntry>? weeklyHistory = null,
+        TimeSpan? refreshInterval = null) => $"""
         ## Resets and credits
 
         {FormatResetSummary(snapshot.ResetCredits, now)}
@@ -122,44 +127,190 @@ internal sealed partial class CodexUsageDockPage : ContentPage, IDisposable
 
         {FormatRestorationDetails(snapshot.Secondary, weeklyHistory ?? [], now)}
 
+        {FormatAdditionalBucketDetails(snapshot, now)}
+
         ## Account and data
 
         - **Plan:** {FormatPlan(snapshot.PlanType)}
-        - **Status:** {FormatDataStatus(snapshot, now)}
+        - **Status:** {FormatDataStatus(snapshot, now, refreshInterval)}
         - **Source:** {snapshot.SourceDisplayName}
         {FormatError(snapshot)}
         """;
 
-    internal static string FormatSummary(CodexUsageSnapshot snapshot, DateTimeOffset now)
+    internal static string FormatAdditionalBucketDetails(CodexUsageSnapshot snapshot, DateTimeOffset now)
     {
-        var (title, description) = FormatSummaryParts(snapshot, now);
+        if (snapshot.Buckets is not { Count: > 0 } buckets)
+        {
+            return string.Empty;
+        }
+
+        var rows = new List<string>();
+        foreach (var bucket in buckets)
+        {
+            var label = UsageText.SanitizeExternal(bucket.Name)
+                ?? UsageText.SanitizeExternal(bucket.Id)
+                ?? "Additional quota";
+            var isDefaultBucket = string.Equals(bucket.Id, snapshot.DefaultBucketId, StringComparison.Ordinal);
+            AppendAdditionalBucketWindow(rows, label, "primary", bucket.Primary, snapshot, now, isDefaultBucket);
+            AppendAdditionalBucketWindow(rows, label, "secondary", bucket.Secondary, snapshot, now, isDefaultBucket);
+        }
+
+        return rows.Count == 0
+            ? string.Empty
+            : $"## Other quota windows\n\n{string.Join(Environment.NewLine, rows)}";
+    }
+
+    private static void AppendAdditionalBucketWindow(
+        List<string> rows,
+        string label,
+        string role,
+        RateLimitWindow? window,
+        CodexUsageSnapshot snapshot,
+        DateTimeOffset now,
+        bool skipKnownDefaultWindow)
+    {
+        if (window is null
+            || skipKnownDefaultWindow && (window == snapshot.Primary || window == snapshot.Secondary)
+            || !UsageFreshness.IsValidWindow(window, now))
+        {
+            return;
+        }
+
+        var safeLabel = UsageText.EscapeMarkdown(label);
+        var duration = FormatWindowDuration(window.WindowMinutes);
+        rows.Add($"- **{safeLabel} ({role}, {duration}):** {window.RemainingPercent:0}% available · resets {FormatRelativeTime(window.ResetsAt, now)}.");
+    }
+
+    private static string FormatWindowDuration(int windowMinutes)
+    {
+        if (windowMinutes == (int)TimeSpan.FromHours(5).TotalMinutes)
+        {
+            return "5-hour";
+        }
+
+        if (windowMinutes == (int)TimeSpan.FromDays(7).TotalMinutes)
+        {
+            return "weekly";
+        }
+
+        if (windowMinutes > 0 && windowMinutes % (int)TimeSpan.FromDays(1).TotalMinutes == 0)
+        {
+            return $"{windowMinutes / (int)TimeSpan.FromDays(1).TotalMinutes}-day";
+        }
+
+        if (windowMinutes > 0 && windowMinutes % 60 == 0)
+        {
+            return $"{windowMinutes / 60}-hour";
+        }
+
+        return $"{windowMinutes}-minute";
+    }
+
+    internal static string FormatSummary(
+        CodexUsageSnapshot snapshot,
+        DateTimeOffset now,
+        TimeSpan? refreshInterval = null)
+    {
+        var (title, description) = FormatSummaryParts(snapshot, now, refreshInterval);
         return $"> **{title}**  \n> {description}";
     }
 
-    private static (string Title, string Description) FormatSummaryParts(CodexUsageSnapshot snapshot, DateTimeOffset now)
+    private static (string Title, string Description) FormatSummaryParts(
+        CodexUsageSnapshot snapshot,
+        DateTimeOffset now,
+        TimeSpan? refreshInterval = null)
     {
-        var activeWindow = snapshot.Primary is { } primary && snapshot.Secondary is { } secondary
+        var primaryWindow = UsageFreshness.IsValidWindow(snapshot.Primary, now) ? snapshot.Primary : null;
+        var secondaryWindow = UsageFreshness.IsValidWindow(snapshot.Secondary, now) ? snapshot.Secondary : null;
+        var activeWindow = primaryWindow is { } primary && secondaryWindow is { } secondary
             ? (primary.RemainingPercent <= secondary.RemainingPercent ? primary : secondary)
-            : snapshot.Primary ?? snapshot.Secondary;
+            : primaryWindow ?? secondaryWindow;
+        var freshness = GetFreshnessState(snapshot, now, refreshInterval);
+        if (freshness == UsageFreshnessState.Fresh && snapshot.OrdinaryUsageAllowed == false)
+        {
+            return (
+                "Status: Ordinary usage blocked",
+                "Ordinary usage is currently blocked for this account.");
+        }
+
         if (activeWindow is null)
         {
-            return ("Status: Usage allowance unknown", FormatDataStatus(snapshot, now));
+            var statusTitle = freshness switch
+            {
+                UsageFreshnessState.LastConfirmed => "Status: Last confirmed usage",
+                UsageFreshnessState.Stale => "Status: Usage data is stale",
+                UsageFreshnessState.Future => "Status: Usage timestamp is in the future",
+                _ => "Status: Usage allowance unknown",
+            };
+            return (statusTitle, FormatDataStatus(snapshot, now, refreshInterval));
+        }
+
+        if (freshness is UsageFreshnessState.LastConfirmed or UsageFreshnessState.Stale)
+        {
+            var state = freshness == UsageFreshnessState.LastConfirmed ? "Last confirmed usage" : "Usage data is stale";
+            var description = $"Last known allowance: {FormatWindowSummary(activeWindow, snapshot, now)}";
+            return ($"Status: {state}", description);
+        }
+
+        if (freshness == UsageFreshnessState.Future)
+        {
+            return (
+                "Status: Usage timestamp is in the future",
+                $"{FormatWindowSummary(activeWindow, snapshot, now)} Timestamp needs confirmation.");
+        }
+
+        if (freshness == UsageFreshnessState.Unknown)
+        {
+            return (
+                "Status: Usage freshness unknown",
+                $"{FormatWindowSummary(activeWindow, snapshot, now)}");
         }
 
         var remaining = activeWindow.RemainingPercent;
-        var title = remaining switch
+        var allowanceTitle = remaining switch
         {
             <= 10 => "Almost at your limit",
             <= 30 => "Limited allowance available",
             _ => "Plenty of allowance available",
         };
-        var weekly = snapshot.Primary is not null && snapshot.Secondary is not null
-            ? $" Weekly allowance: {snapshot.Secondary.RemainingPercent:0}%."
+        var weekly = primaryWindow is not null && secondaryWindow is not null
+            ? $" Weekly allowance: {secondaryWindow.RemainingPercent:0}%."
             : string.Empty;
-        var limitingWindow = snapshot.Primary is not null && snapshot.Secondary is not null
-            ? (ReferenceEquals(activeWindow, snapshot.Secondary) ? "Weekly window: " : "5-hour window: ")
+        var limitingWindow = primaryWindow is not null && secondaryWindow is not null
+            ? (ReferenceEquals(activeWindow, secondaryWindow) ? "Weekly window: " : "5-hour window: ")
             : string.Empty;
-        return ($"Status: {title}", $"{limitingWindow}{remaining:0}% available; resets {FormatRelativeTime(activeWindow.ResetsAt, now)}.{weekly}");
+        return ($"Status: {allowanceTitle}", $"{limitingWindow}{remaining:0}% available; resets {FormatRelativeTime(activeWindow.ResetsAt, now)}.{weekly}");
+    }
+
+    private static UsageFreshnessState GetFreshnessState(
+        CodexUsageSnapshot snapshot,
+        DateTimeOffset now,
+        TimeSpan? refreshInterval)
+    {
+        return snapshot.Source switch
+        {
+            UsageDataSource.LastConfirmed => UsageFreshnessState.LastConfirmed,
+            UsageDataSource.AppServer or UsageDataSource.LocalSession =>
+                UsageFreshness.Classify(snapshot.UpdatedAt, now, refreshInterval ?? TimeSpan.FromMinutes(1)),
+            _ => UsageFreshnessState.Unknown,
+        };
+    }
+
+    private static bool IsDataAvailable(CodexUsageSnapshot snapshot, UsageFreshnessState freshness) =>
+        snapshot.Source is UsageDataSource.AppServer or UsageDataSource.LocalSession
+        && freshness == UsageFreshnessState.Fresh;
+
+    private static string FormatWindowSummary(
+        RateLimitWindow window,
+        CodexUsageSnapshot snapshot,
+        DateTimeOffset now)
+    {
+        var label = ReferenceEquals(window, snapshot.Secondary) && snapshot.Primary is not null
+            ? "Weekly window"
+            : ReferenceEquals(window, snapshot.Primary) && snapshot.Secondary is not null
+                ? "5-hour window"
+                : "Usage window";
+        return $"{label}: {window.RemainingPercent:0}% available; resets {FormatRelativeTime(window.ResetsAt, now)}.";
     }
 
     internal static string FormatCredits(CreditBalance? credits)
@@ -213,6 +364,11 @@ internal sealed partial class CodexUsageDockPage : ContentPage, IDisposable
             return $"## {name}\n\n**{inactiveMessage ?? "Not available"}**";
         }
 
+        if (!UsageFreshness.IsValidWindow(window, now))
+        {
+            return $"## {name}\n\n**Window data expired or invalid; waiting for refreshed data.**";
+        }
+
         return $"## {name}\n\n**{window.RemainingPercent:0}% available**  \nResets {FormatRelativeTime(window.ResetsAt, now)} · {FormatLocalTime(window.ResetsAt, "ddd d MMM HH:mm")}";
     }
 
@@ -230,10 +386,13 @@ internal sealed partial class CodexUsageDockPage : ContentPage, IDisposable
         AdaptiveWeeklyUsageHistory? adaptiveWeeklyHistory = null,
         bool adaptiveWeeklyForecastEnabled = false)
     {
-        data[$"{prefix}Available"] = window is not null;
-        if (window is null)
+        var usableWindow = UsageFreshness.IsValidWindow(window, now);
+        data[$"{prefix}Available"] = usableWindow;
+        if (!usableWindow || window is null)
         {
-            data[$"{prefix}State"] = inactiveMessage;
+            data[$"{prefix}State"] = window is null
+                ? inactiveMessage
+                : "Window data expired or invalid; waiting for refreshed data.";
             return null;
         }
 
@@ -245,7 +404,9 @@ internal sealed partial class CodexUsageDockPage : ContentPage, IDisposable
         var elapsedPercent = window.WindowMinutes > 0
             ? Math.Clamp((now - windowStartsAt).TotalMinutes / window.WindowMinutes * 100, 0, 100)
             : 0;
-        var (paceStatus, paceColor) = FormatPaceStatus(usedPercent, elapsedPercent);
+        var (paceStatus, paceColor) = dataAvailable
+            ? FormatPaceStatus(usedPercent, elapsedPercent)
+            : ("Pace unavailable until refreshed", "Default");
         data[$"{prefix}UsedPercent"] = $"{usedPercent:0}%";
         data[$"{prefix}ElapsedPercent"] = $"{elapsedPercent:0}%";
         data[$"{prefix}UsedBarUrl"] = UsageDashboardCard.CreateProgressBarImageUrl(usedPercent, palette);
@@ -275,20 +436,25 @@ internal sealed partial class CodexUsageDockPage : ContentPage, IDisposable
         IReadOnlyList<UsageHistoryEntry> history,
         UsageTrendAnalyzer.TrendAnalysis? trend,
         bool dataAvailable,
+        bool canShowObservedHistory,
         DateTimeOffset now,
         TimeSpan maximumGap,
         LocalTokenUsageSnapshot? tokenUsage)
     {
         data["weeklyTrendAvailable"] = false;
         data["weeklyRestorationAvailable"] = false;
-        if (window is null || trend is null || !dataAvailable)
+        if (window is not { } validWindow
+            || !UsageFreshness.IsValidWindow(validWindow, now)
+            || !canShowObservedHistory)
         {
             return;
         }
 
-        data["weeklyForecastStatus"] = trend.ForecastStatus;
+        data["weeklyForecastStatus"] = dataAvailable && trend is not null
+            ? trend.ForecastStatus
+            : "Forecast unavailable until usage data is refreshed.";
 
-        var windowStartsAt = window.ResetsAt - TimeSpan.FromMinutes(window.WindowMinutes);
+        var windowStartsAt = validWindow.ResetsAt - TimeSpan.FromMinutes(validWindow.WindowMinutes);
         var chartHistory = history.Where(sample => sample.RecordedAt >= windowStartsAt).ToArray();
         if (chartHistory.Length < 2)
         {
@@ -297,10 +463,10 @@ internal sealed partial class CodexUsageDockPage : ContentPage, IDisposable
 
         var chart = WeeklyUsageTrendChartRenderer.Create(
             history,
-            window,
+            validWindow,
             now,
             maximumGap,
-            trend.Forecast,
+            dataAvailable ? trend?.Forecast : null,
             tokenUsage);
         if (chart is null)
         {
@@ -310,19 +476,22 @@ internal sealed partial class CodexUsageDockPage : ContentPage, IDisposable
         data["weeklyTrendAvailable"] = true;
         data["weeklyTrendChartUrl"] = chart.ImageUrl;
         data["weeklyTrendChartAlt"] = chart.AltText;
+        var forecastLegend = dataAvailable && trend?.Forecast is not null
+            ? "dashed: forecast"
+            : "forecast unavailable until usage data is refreshed";
         data["weeklyTrendLegend"] = tokenUsage?.Status switch
         {
-            LocalTokenUsageStatus.Complete => "Solid: remaining allowance (%) · dashed: forecast · bars: local tokens per day · amber: detected restorations",
-            LocalTokenUsageStatus.Partial => "Solid: remaining allowance (%) · dashed: forecast · bars: partial local tokens per day · amber: detected restorations",
-            _ => "Solid: remaining allowance (%) · dashed: forecast · local token data unavailable · amber: detected restorations",
+            LocalTokenUsageStatus.Complete => $"Solid: remaining allowance (%) · {forecastLegend} · bars: local tokens per day · amber: detected restorations",
+            LocalTokenUsageStatus.Partial => $"Solid: remaining allowance (%) · {forecastLegend} · bars: partial local tokens per day · amber: detected restorations",
+            _ => $"Solid: remaining allowance (%) · {forecastLegend} · local token data unavailable · amber: detected restorations",
         };
 
-        var restorations = WeeklyAllowanceRestoration.Detect(history, window, now);
+        var restorations = WeeklyAllowanceRestoration.Detect(history, validWindow, now);
         if (restorations.Length > 0)
         {
             data["weeklyRestorationAvailable"] = true;
             data["weeklyRestorationSummary"] = FormatRestorationSummary(restorations);
-            if (trend.Forecast is not null)
+            if (dataAvailable && trend?.Forecast is not null)
             {
                 data["weeklyProjection"] = $"{trend.Message} Forecast restarted from the latest restoration.";
             }
@@ -414,7 +583,7 @@ internal sealed partial class CodexUsageDockPage : ContentPage, IDisposable
     }
 
     internal static string FormatTrend(IReadOnlyList<UsageHistoryEntry> history, DateTimeOffset now, bool dataAvailable = true) =>
-        $"## Usage trend\n\n{FormatTrendBodyForReset(history, null, null, now, dataAvailable, TimeSpan.FromMinutes(5))}";
+        $"## Usage trend\n\n{FormatTrendBodyForReset(history, null, null, now, dataAvailable, UsageFreshness.MaximumAge(TimeSpan.FromMinutes(1)))}";
 
     internal static string FormatTrend(
         string title,
@@ -484,7 +653,7 @@ internal sealed partial class CodexUsageDockPage : ContentPage, IDisposable
     }
 
     private static TimeSpan TrendFreshness(TimeSpan refreshInterval) =>
-        UsageTrendHistory.Freshness(refreshInterval);
+        UsageFreshness.MaximumAge(refreshInterval);
 
     private static TimeSpan TrendMaximumGap(TimeSpan refreshInterval) =>
         UsageTrendHistory.MaximumGap(refreshInterval);
@@ -497,24 +666,36 @@ internal sealed partial class CodexUsageDockPage : ContentPage, IDisposable
         return $"- **Resets:** {resets.AvailableCount.ToString(CultureInfo.CurrentCulture)} available{expiry}";
     }
 
-    internal static string FormatDataStatus(CodexUsageSnapshot snapshot, DateTimeOffset now)
+    internal static string FormatDataStatus(
+        CodexUsageSnapshot snapshot,
+        DateTimeOffset now,
+        TimeSpan? refreshInterval = null)
     {
         if (snapshot.Source == UsageDataSource.Unavailable)
         {
-            return $"Data not available · last attempt at {FormatLocalTime(snapshot.UpdatedAt, "HH:mm")}";
+            return snapshot.LastAttemptAt is { } lastAttempt
+                ? $"Data not available · last attempt at {FormatLocalTime(lastAttempt, "HH:mm")}"
+                : "Data not available · last attempt unknown";
         }
 
-        var age = now - snapshot.UpdatedAt;
-        var freshness = age < TimeSpan.FromMinutes(2)
-            ? $"just updated at {FormatLocalTime(snapshot.UpdatedAt, "HH:mm")}"
-            : $"possibly outdated · updated {FormatRelativeAge(age)} ago";
         var mode = snapshot.Source switch
         {
             UsageDataSource.AppServer => "Live",
             UsageDataSource.LocalSession => "Local fallback data",
+            UsageDataSource.LastConfirmed => "Last confirmed usage",
             UsageDataSource.Initializing => "Loading data",
             UsageDataSource.Unavailable => "Data not available",
             _ => "Data not available",
+        };
+
+        var state = GetFreshnessState(snapshot, now, refreshInterval);
+        var freshness = state switch
+        {
+            UsageFreshnessState.Fresh => $"just updated at {FormatLocalTime(snapshot.UpdatedAt, "HH:mm")}",
+            UsageFreshnessState.Stale => $"possibly outdated · updated {FormatAge(snapshot.UpdatedAt, now)} ago",
+            UsageFreshnessState.Future => $"timestamp is in the future ({FormatLocalTime(snapshot.UpdatedAt, "HH:mm")})",
+            UsageFreshnessState.LastConfirmed => $"last confirmed {FormatAge(snapshot.UpdatedAt, now)} ago",
+            _ => "data age unknown",
         };
         return $"{mode} · {freshness}";
     }
@@ -527,15 +708,42 @@ internal sealed partial class CodexUsageDockPage : ContentPage, IDisposable
             : UsageText.EscapeMarkdown(CultureInfo.CurrentCulture.TextInfo.ToTitleCase(safePlan.Replace('_', ' ')));
     }
 
-    private static string FormatRelativeAge(TimeSpan age) => age < TimeSpan.FromHours(1)
-        ? $"{Math.Max(1, (int)age.TotalMinutes)} minutes"
-        : age < TimeSpan.FromDays(1) ? $"{(int)age.TotalHours} hours" : $"{(int)age.TotalDays} days";
+    private static string FormatAge(DateTimeOffset timestamp, DateTimeOffset now)
+    {
+        TimeSpan age;
+        try
+        {
+            age = now - timestamp;
+        }
+        catch (ArgumentOutOfRangeException)
+        {
+            return "an unknown time";
+        }
+
+        if (age < TimeSpan.Zero)
+        {
+            return "in the future";
+        }
+
+        return age < TimeSpan.FromMinutes(1)
+            ? "less than a minute"
+            : age < TimeSpan.FromHours(1)
+                ? $"{Math.Max(1, (int)age.TotalMinutes)} minutes"
+                : age < TimeSpan.FromDays(1)
+                    ? $"{(int)age.TotalHours} hours"
+                    : $"{(int)age.TotalDays} days";
+    }
 
     internal static string FormatError(CodexUsageSnapshot snapshot)
     {
         if (snapshot.Source == UsageDataSource.LocalSession && snapshot.Error is not null)
         {
             return $"> **Live Codex data is unavailable. Showing local fallback data.**  \n> {CodexUsageService.LiveDataUnavailableMessage}";
+        }
+
+        if (snapshot.Source == UsageDataSource.LastConfirmed)
+        {
+            return $"> **Live Codex data is unavailable. Showing last confirmed usage.**  \n> {CodexUsageService.LiveDataUnavailableMessage}";
         }
 
         return snapshot.Source == UsageDataSource.Unavailable
@@ -555,20 +763,21 @@ internal sealed partial class CodexUsageDockPage : ContentPage, IDisposable
                 return;
             }
 
-            var snapshot = _usage.Current;
+            var presentation = _usage.GetPresentation();
+            var snapshot = presentation.Usage;
             var now = DateTimeOffset.Now;
-            IsLoading = _usage.IsLoading;
+            IsLoading = presentation.IsLoading;
             _mainContent.DataJson = FormatMainDataJson(
                 snapshot,
                 now,
-                _usage.IsLoading,
-                _usage.PrimaryHistory,
-                _usage.WeeklyHistory,
+                presentation.IsLoading,
+                presentation.PrimaryHistory,
+                presentation.WeeklyHistory,
                 _usage.RefreshInterval,
                 _settings.UseAdaptiveWeeklyForecast,
-                _usage.AdaptiveWeeklyHistory,
-                _usage.CurrentTokenUsage);
-            _details.Body = FormatDetailsBody(snapshot, now, _usage.WeeklyHistory)
+                presentation.AdaptiveWeeklyHistory,
+                presentation.TokenUsage);
+            _details.Body = FormatDetailsBody(snapshot, now, presentation.WeeklyHistory, _usage.RefreshInterval)
                 + (_usage.HistoryStorageError is { } error ? $"\n\n> **Local storage:** {error}" : string.Empty);
         }
 

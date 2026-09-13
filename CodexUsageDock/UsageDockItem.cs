@@ -10,7 +10,7 @@ internal enum UsageDockItemKind
     ResetsAndCredits,
 }
 
-internal sealed partial class UsageDockItem : ListItem, IDisposable
+internal sealed partial class UsageDockItem : UsageDockListItem, IDisposable
 {
     private readonly CodexUsageService _usage;
     private readonly UsageDockItemKind _kind;
@@ -31,10 +31,11 @@ internal sealed partial class UsageDockItem : ListItem, IDisposable
     private void UpdateText()
     {
         var snapshot = _usage.Current;
+        var now = DateTimeOffset.Now;
         var window = _kind == UsageDockItemKind.FiveHour ? snapshot.Primary : snapshot.Secondary;
         if (snapshot.Source == UsageDataSource.Unavailable)
         {
-            (Title, Subtitle) = FormatUnavailable(_kind);
+            (Title, Subtitle) = FormatUnavailable(_kind, _settings?.CompactDock == true);
             Icon = new IconInfo("\uE783");
             return;
         }
@@ -42,32 +43,47 @@ internal sealed partial class UsageDockItem : ListItem, IDisposable
         if (_kind == UsageDockItemKind.ResetsAndCredits)
         {
             Title = FormatResetsAndCredits(snapshot);
-            Subtitle = FormatResetExpiry(snapshot.ResetCredits, DateTimeOffset.Now);
+            Subtitle = FormatLiveDetailOrStatus(
+                snapshot,
+                now,
+                _usage.RefreshInterval,
+                _settings?.CompactDock == true ? string.Empty : FormatResetExpiry(snapshot.ResetCredits, now));
             Icon = new IconInfo("\uE777");
             return;
         }
 
-        var label = _kind == UsageDockItemKind.FiveHour ? "5h" : "Week";
+        var compact = _settings?.CompactDock == true;
+        var label = _kind == UsageDockItemKind.FiveHour ? "5h" : compact ? "W" : "Week";
         if (window is null)
         {
             var dataWasLoaded = snapshot.Primary is not null || snapshot.Secondary is not null;
             Title = _kind == UsageDockItemKind.FiveHour && dataWasLoaded ? "5h inactive" : $"{label} --";
             Subtitle = _kind == UsageDockItemKind.FiveHour && dataWasLoaded
                 ? "No five-hour limit currently active"
-                : snapshot.Source == UsageDataSource.Unavailable
-                    ? "Codex usage unavailable"
-                    : "Waiting for Codex";
+                : FormatSourceFreshness(snapshot, now, _usage.RefreshInterval);
             Icon = new IconInfo("\uE783");
             return;
         }
 
-        Title = $"{label} {window.RemainingPercent:0}%";
-        Subtitle = _settings?.ShowResetTime == false ? string.Empty : $"reset {FormatReset(window.ResetsAt)}";
-        if (snapshot.Source == UsageDataSource.LocalSession)
+        if (!UsageFreshness.IsValidWindow(window, now))
         {
-            Subtitle = FormatFallbackAge(snapshot, DateTimeOffset.Now)
-                + (Subtitle.Length > 0 ? $" · {Subtitle}" : string.Empty);
+            Title = $"{label} --";
+            Subtitle = CombineStatusAndDetail(
+                FormatSourceFreshness(snapshot, now, _usage.RefreshInterval),
+                "Window data expired or invalid");
+            Icon = new IconInfo("\uE783");
+            return;
         }
+
+        Title = FormatQuotaTitle(_kind, window.RemainingPercent, compact);
+        var reset = compact || _settings?.ShowResetTime == false
+            ? string.Empty
+            : $"Reset - {FormatLocalDateTime(window.ResetsAt.ToLocalTime(), CultureInfo.CurrentCulture)}";
+        Subtitle = FormatLiveDetailOrStatus(
+            snapshot,
+            now,
+            _usage.RefreshInterval,
+            reset);
         Icon = new IconInfo(window.RemainingPercent <= 10 ? "\uE7BA" : "\uE916");
     }
 
@@ -75,12 +91,139 @@ internal sealed partial class UsageDockItem : ListItem, IDisposable
 
     internal static string FormatFallbackAge(CodexUsageSnapshot snapshot, DateTimeOffset now)
     {
-        var age = now - snapshot.UpdatedAt;
+        TimeSpan age;
+        try
+        {
+            age = now - snapshot.UpdatedAt;
+        }
+        catch (ArgumentOutOfRangeException)
+        {
+            return "Fallback · age unavailable";
+        }
+
+        if (age < TimeSpan.Zero)
+        {
+            return "Fallback · timestamp is in the future";
+        }
+
         return age < TimeSpan.FromMinutes(1) ? "Fallback · less than a minute old"
             : age < TimeSpan.FromHours(1) ? $"Fallback · {(int)age.TotalMinutes} minutes old"
             : age < TimeSpan.FromDays(1) ? $"Fallback · {(int)age.TotalHours} hours old"
             : $"Fallback · {(int)age.TotalDays} days old";
     }
+
+    internal static string FormatQuotaTitle(UsageDockItemKind kind, double remainingPercent, bool compact)
+    {
+        var label = kind switch
+        {
+            UsageDockItemKind.FiveHour => "5h",
+            UsageDockItemKind.Weekly => compact ? "W" : "Week",
+            _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, "The resets and credits item has no quota percentage."),
+        };
+
+        return compact
+            ? $"{label}{remainingPercent:0}%"
+            : $"{label} {remainingPercent:0}%";
+    }
+
+    internal static string FormatSourceFreshness(
+        CodexUsageSnapshot snapshot,
+        DateTimeOffset now,
+        TimeSpan? refreshInterval = null)
+    {
+        if (snapshot.Source == UsageDataSource.Unavailable)
+        {
+            return "Codex usage unavailable";
+        }
+
+        if (snapshot.Source == UsageDataSource.Initializing)
+        {
+            return "Waiting for Codex";
+        }
+
+        if (snapshot.Source == UsageDataSource.LastConfirmed)
+        {
+            return FormatConfirmedAge(snapshot, now);
+        }
+
+        var state = UsageFreshness.Classify(
+            snapshot.UpdatedAt,
+            now,
+            refreshInterval ?? TimeSpan.FromMinutes(1));
+        return state switch
+        {
+            UsageFreshnessState.Fresh when snapshot.Source == UsageDataSource.LocalSession => FormatFallbackAge(snapshot, now),
+            UsageFreshnessState.Fresh => $"Live · just updated at {FormatLocalTime(snapshot.UpdatedAt)}",
+            UsageFreshnessState.Stale => $"Stale · updated {FormatAge(snapshot.UpdatedAt, now)} ago",
+            UsageFreshnessState.Future => $"Timestamp is in the future ({FormatLocalTime(snapshot.UpdatedAt)})",
+            _ => "Usage age unavailable",
+        };
+    }
+
+    private static string FormatConfirmedAge(CodexUsageSnapshot snapshot, DateTimeOffset now)
+    {
+        var age = FormatAge(snapshot.UpdatedAt, now);
+        return age == "in the future"
+            ? "Last confirmed · timestamp is in the future"
+            : $"Last confirmed · {age} old";
+    }
+
+    private static string FormatAge(DateTimeOffset timestamp, DateTimeOffset now)
+    {
+        TimeSpan age;
+        try
+        {
+            age = now - timestamp;
+        }
+        catch (ArgumentOutOfRangeException)
+        {
+            return "age unavailable";
+        }
+
+        if (age < TimeSpan.Zero)
+        {
+            return "in the future";
+        }
+
+        return age < TimeSpan.FromMinutes(1)
+            ? "less than a minute"
+            : age < TimeSpan.FromHours(1)
+                ? $"{(int)age.TotalMinutes} minutes"
+                : age < TimeSpan.FromDays(1)
+                    ? $"{(int)age.TotalHours} hours"
+                    : $"{(int)age.TotalDays} days";
+    }
+
+    private static string FormatLocalTime(DateTimeOffset value) =>
+        value.ToLocalTime().ToString("HH:mm", CultureInfo.CurrentCulture);
+
+    internal static string FormatLocalDateTime(DateTimeOffset local, CultureInfo culture)
+    {
+        var month = local.ToString("MMM", culture).TrimEnd('.');
+        // Windows globalization data can abbreviate Dutch September as "sep".
+        if (culture.TwoLetterISOLanguageName == "nl" && local.Month == 9) month = "sept";
+        return $"{local.ToString("%d", culture)} {month} {local.ToString("H:mm", culture)}";
+    }
+
+    internal static string FormatLiveDetailOrStatus(
+        CodexUsageSnapshot snapshot,
+        DateTimeOffset now,
+        TimeSpan refreshInterval,
+        string detail)
+    {
+        var state = UsageFreshness.Classify(
+            snapshot.UpdatedAt,
+            now,
+            refreshInterval);
+        return snapshot.Source == UsageDataSource.AppServer
+            && state == UsageFreshnessState.Fresh
+            && detail.Length > 0
+            ? detail
+            : CombineStatusAndDetail(FormatSourceFreshness(snapshot, now, refreshInterval), detail);
+    }
+
+    private static string CombineStatusAndDetail(string status, string detail) =>
+        detail.Length == 0 ? status : $"{status} · {detail}";
 
     internal static string FormatResetsAndCredits(CodexUsageSnapshot snapshot)
     {
@@ -110,30 +253,19 @@ internal sealed partial class UsageDockItem : ListItem, IDisposable
 
         if (nextExpiry is not { } expiry)
         {
-            return "expiration unavailable";
+            return "Expires - unavailable";
         }
 
-        var remaining = expiry - now;
-        return remaining < TimeSpan.FromHours(24)
-            ? $"expires in {(int)Math.Ceiling(remaining.TotalHours)} hours"
-            : $"expires in {(int)Math.Ceiling(remaining.TotalDays)} days";
+        return $"Expires - {FormatLocalDateTime(expiry.ToLocalTime(), CultureInfo.CurrentCulture)}";
     }
 
-    internal static (string Title, string Subtitle) FormatUnavailable(UsageDockItemKind kind) =>
+    internal static (string Title, string Subtitle) FormatUnavailable(UsageDockItemKind kind, bool compact = false) =>
         (kind switch
         {
             UsageDockItemKind.FiveHour => "5h --",
-            UsageDockItemKind.Weekly => "Week --",
+            UsageDockItemKind.Weekly => compact ? "W --" : "Week --",
             _ => "-- resets",
         }, "Codex usage unavailable");
-
-    private static string FormatReset(DateTimeOffset reset)
-    {
-        var local = reset.ToLocalTime();
-        return local.Date == DateTime.Today
-            ? local.ToString("HH:mm", CultureInfo.CurrentCulture)
-            : local.ToString("ddd HH:mm", CultureInfo.CurrentCulture);
-    }
 
     public void Dispose()
     {

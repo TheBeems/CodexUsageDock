@@ -64,6 +64,12 @@ internal sealed record RateLimitWindow(double UsedPercent, int WindowMinutes, Da
 
 internal readonly record struct ClassifiedRateLimitWindows(RateLimitWindow? FiveHour, RateLimitWindow? Weekly);
 
+internal sealed record RateLimitBucket(
+    string Id,
+    string? Name,
+    RateLimitWindow? Primary,
+    RateLimitWindow? Secondary);
+
 internal sealed record CreditBalance(bool HasCredits, bool Unlimited, string? Balance);
 
 internal sealed record RateLimitResetCredit(string? Title, string? Status, DateTimeOffset? ExpiresAt);
@@ -109,6 +115,7 @@ internal enum UsageDataSource
     Initializing,
     AppServer,
     LocalSession,
+    LastConfirmed,
     Unavailable,
 }
 
@@ -120,12 +127,18 @@ internal sealed record CodexUsageSnapshot(
     RateLimitResetCredits? ResetCredits,
     DateTimeOffset UpdatedAt,
     UsageDataSource Source,
-    string? Error)
+    string? Error,
+    IReadOnlyList<RateLimitBucket>? Buckets = null,
+    string? AccountKey = null,
+    bool? OrdinaryUsageAllowed = null,
+    DateTimeOffset? LastAttemptAt = null,
+    string? DefaultBucketId = null)
 {
     public string SourceDisplayName => Source switch
     {
         UsageDataSource.AppServer => "standalone Codex CLI app-server",
         UsageDataSource.LocalSession => "local Codex session metadata (desktop app, CLI, or another client)",
+        UsageDataSource.LastConfirmed => "last confirmed Codex usage",
         UsageDataSource.Unavailable => "not available",
         _ => "initializing",
     };

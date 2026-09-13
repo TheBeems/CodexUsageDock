@@ -15,6 +15,8 @@ internal sealed class WeeklyUsageHistoryStore
 
     internal static WeeklyUsageHistoryStore CreateDefault() => new(LocalStorage.GetPath(FileName));
 
+    internal WeeklyUsageHistoryStore ForContext(string context) => new(LocalStorage.ContextPath(_path, context));
+
     internal string? StorageError { get; private set; }
 
     internal IReadOnlyList<UsageHistoryEntry> Load(DateTimeOffset now)

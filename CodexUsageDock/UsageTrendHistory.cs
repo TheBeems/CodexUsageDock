@@ -3,7 +3,7 @@ namespace CodexUsageDock;
 internal static class UsageTrendHistory
 {
     internal static TimeSpan Freshness(TimeSpan refreshInterval) =>
-        refreshInterval > TimeSpan.FromMinutes(5) ? refreshInterval : TimeSpan.FromMinutes(5);
+        UsageFreshness.MaximumAge(refreshInterval);
 
     internal static TimeSpan MaximumGap(TimeSpan refreshInterval) => TimeSpan.FromTicks(Freshness(refreshInterval).Ticks * 3);
 
