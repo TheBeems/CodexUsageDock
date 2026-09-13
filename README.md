@@ -1,125 +1,118 @@
 # Codex Usage Dock
 
-Codex Usage Dock is a Windows Command Palette extension that shows your Codex limits directly in the PowerToys Dock.
+See your remaining Codex usage at a glance in the PowerToys Dock. Codex Usage Dock is a Windows Command Palette extension for tracking limits, reset times, and usage trends.
 
-It displays:
+- Check your remaining five-hour and weekly allowance.
+- Explore usage trends, pace indicators, and forecasts.
+- See available earned resets, their expiry times, and credits when Codex provides them.
+- Customize the Dock and enable optional usage alerts.
 
-- the percentage remaining in the rolling five-hour usage window;
-- the percentage remaining in the weekly usage window;
-- compact pace indicators that compare allowance used with elapsed window time;
-- a projected allowance at reset, or an estimated limit time when current consumption would exhaust it sooner;
-- an optional adaptive weekly forecast that keeps the current pace dominant and gradually blends in up to eight local quota cycles and six-hour usage patterns;
-- a weekly trend chart with sampled remaining allowance on a 0–100% scale, a dashed projection that can follow six-hour adaptive forecast points, and locally observed total-token bars on an independent daily scale; equal-width local calendar-day columns retain dated weekday labels and partial reset-boundary days, the line connects samples across measurement gaps but breaks at allowance increases, amber markers identify detected allowance restorations, and the forecast uses only the latest post-restoration segment;
-- a textual summary of the latest detected weekly allowance restoration, plus the current window's restoration history in the Details pane;
-- the number of available earned resets and their expiry times;
-- the remaining credits balance when Codex provides it.
+**[Install from Microsoft Store](https://apps.microsoft.com/detail/9NFCPJXQG9FG)**
 
-The values refresh once per minute by default, with 5- and 15-minute intervals available in settings. The extension reads live data from the standalone Codex CLI app-server and uses local Codex session metadata as a fallback. Fallback selection uses the quota event's own timestamp, and the Dock shows its age. Local session readers use `CODEX_HOME` when set, otherwise the current user's `.codex` directory. The overall status identifies the most restrictive active quota window.
+[Quick start](#quick-start) · [Understand your usage](#understand-your-usage) · [Settings](#settings) · [Advanced features](#advanced-features) · [Troubleshooting](#troubleshooting)
 
-The extension also reads aggregate `token_count` records from active and archived local Codex session logs to show locally observed total tokens per calendar day. Limits update first; token bars update independently when local analysis finishes. These token bars are local activity observations, not an exact accounting of allowance consumption. The details page identifies the allowance source: the live route is explicitly the CLI app-server; session metadata may have been written by the desktop app, CLI, or another local Codex client and cannot be attributed more precisely.
+## Quick start
 
-Forecasts use the average consumption rate since the beginning of the latest continuous segment. A segment starts again after an allowance increase or a gap longer than three times the freshness allowance (the greater of five minutes and the refresh interval). Text and chart projections pause until enough fresh, continuous measurements show a meaningful decrease. The solid observed line still connects sampled values across gaps.
+### Requirements
 
-## Requirements
+- Windows 10 build 19041 or newer, or Windows 11.
+- [PowerToys 0.100.0 or newer](https://github.com/microsoft/PowerToys), with Command Palette enabled.
+- For live data, a standalone Codex CLI installed and signed in, with `codex.exe` or `codex.cmd` on `PATH`. Alternatively, set `CODEX_USAGE_DOCK_CODEX_PATH` to its full path and restart PowerToys.
 
-- Windows 10 build 19041 or newer, or Windows 11
-- [PowerToys 0.100.0 or newer](https://github.com/microsoft/PowerToys) with Command Palette enabled
-- Codex installed and signed in
-- A standalone `codex.exe` or `codex.cmd` CLI available on `PATH`, or `CODEX_USAGE_DOCK_CODEX_PATH` set to its full path. The protected CLI bundled with the Microsoft Store Codex Desktop app cannot be launched by this extension.
+**The Microsoft Store Codex Desktop app alone is not sufficient for live data.** Its protected bundled CLI cannot be launched by this extension. Local session metadata can provide fallback data when available.
 
-The package includes the required .NET runtime. You do not need the .NET SDK to install or use the extension.
+To check what is available on `PATH`, run `where.exe codex` in a terminal. A result must point to a standalone CLI; finding the protected Desktop copy does not satisfy this requirement.
 
-## Install
+The package includes the required .NET runtime. You do not need the .NET SDK to use it.
 
-Microsoft Store is the supported production installer. Install [Codex Usage Dock from the Microsoft Store](https://apps.microsoft.com/detail/9NFCPJXQG9FG).
+### Install and add to the Dock
 
-GitHub Actions artifacts are inputs for Microsoft Store certification, not public installers. Do not distribute or install them directly.
-
-Codex Usage Dock is activated inside PowerToys Command Palette and intentionally has no standalone Start-menu entry.
-
-## Add Codex Usage to the Dock
-
-1. Open Command Palette settings.
-2. Select **Extensions** and make sure **Codex Usage** is enabled.
+1. Install **Codex Usage Dock** using the Microsoft Store link above.
+2. Open Command Palette settings, select **Extensions**, and enable **Codex Usage**.
 3. Select **Dock (Preview)** and enable the Dock.
-4. Open the Dock customization interface.
-5. Choose **Add command** (`+`) in the section where you want the widget.
-6. Search for **Codex Usage** and select its Dock band.
+4. Open Dock customization and choose **Add command** (`+`) in the section where you want the widget.
+5. Search for **Codex Usage** and select its Dock band.
 
-The Dock will show entries similar to `5h 47%`, `Week 86%`, and `2 resets · 10.00`. The percentages represent the amount remaining. Quota subtitles show the next reset, such as `Reset - 15 sept 12:56`. The final entry shows available earned resets, the next credit expiry as `Expires - 4 okt 4:00`, and, when available, the credits balance. Dates use your local time zone and abbreviated month names from your regional settings. Stale or fallback data retains its source warning. Select an entry to see reset expiry details or refresh the data manually.
+The extension runs inside Command Palette and has no standalone Start-menu entry. Select a Dock entry to open usage details or refresh manually.
 
-## Customize the Dock
+### Updates and removal
 
-**Compact Dock** shortens quota labels to forms such as `5h47%` and `W86%` and hides reset times while retaining stale/source warnings. **Separate Dock items** offers each visible metric as a separate pinnable band. Turning it off offers the combined band. Pins belonging to the inactive mode and hidden metrics stop displaying items and are not restored as active bands after a reload. Command Palette keeps its saved pins: switching modes does not move or convert them. Add the desired bands through Dock customization if they were not already pinned; switching back makes matching saved pins available again.
+Microsoft Store is the only production installation and update channel. Check **Microsoft Store > Library** for updates and **Windows Settings > Apps > Installed apps** for the installed version or to uninstall.
 
-**Enable usage alerts** is off by default. When enabled, fresh, identified account data can notify on a downward crossing of 10% remaining, a new projected limit within one hour, or a reset credit entering its last 24 hours. The first measurement establishes a baseline. Duplicate refreshes do not repeat alerts, small reset-time fluctuations stay in the same cycle, and account/category changes start a new baseline. Multiple simultaneous alerts are combined into one host notification. Delivery depends on the Command Palette host.
+GitHub releases identify source versions and may differ from the version available in the Store. GitHub Actions artifacts are certification inputs, not public installers; do not install or distribute them directly.
 
-Open Command Palette and select **Codex Usage settings** to choose which usage entries appear in the Dock. You can independently show or hide the five-hour limit, weekly limit, and resets and credits, choose whether usage entries show their reset time, set the local data refresh interval to 1, 5, or 15 minutes, and enable or pause the adaptive weekly forecast. Pausing the forecast keeps its learned local history and excludes measurements collected while it is paused; **Delete learned forecast history** asks for confirmation before permanently clearing it.
+## Understand your usage
 
-The extension saves these choices in `CodexUsageDock/settings.json` under the current user's Windows local application data directory and restores them before refreshing after a restart. If saving fails, the page explains that the choices apply only to the running session and lets you save again. Deleting learned history confirms success only after the cleared state is saved. History read/write failures also appear in Details. Choices lost by older versions cannot be recovered; set them once again after updating.
+| Display | Meaning |
+| --- | --- |
+| `5h 47%` | 47% of the five-hour allowance remains. |
+| `Week 86%` | 86% of the weekly allowance remains. |
+| `2 resets · 10.00` | Two earned resets are available; `10.00` is the reported credits balance. |
+| `Reset - …` / `Expires - …` | The next quota reset or earned-reset expiry, using your local time zone and regional date format. |
 
-## Update
+Percentages show **remaining allowance**, not usage already consumed. Earned resets and the credits balance are separate values; missing information is not treated as zero. The overall status reflects the most restrictive active quota window.
 
-Microsoft Store installs updates automatically. You can also check for updates from **Microsoft Store > Library**.
+Values refresh every minute by default. Details shows the data source and measurement time. During an outage, **Last confirmed** can retain the previous live measurement with its original timestamp. Local fallback data is labeled with its source and age.
 
-## Sources and account activity
+Forecasts estimate future allowance from observed usage. They pause when data is stale or there are too few fresh, continuous measurements. Daily token bars reflect local session activity and are **not an exact measure of quota consumption**.
 
-Codex is detected automatically using the existing environment configuration described in [Requirements](#requirements). Local session readers use `CODEX_HOME` when set, otherwise the current user's `.codex` directory. The extension has no path fields or source-profile selection in its settings.
+See the [user guide](USER_GUIDE.md#charts-and-forecasts) for chart legends, adaptive forecasts, and data handling.
 
-Saved source paths, source labels, and Claude preferences from earlier development builds are ignored. Other Codex preferences are preserved, and obsolete fields are omitted the next time settings are saved. Old source-profile files and externally configured capture scripts or files are not deleted or modified by the extension.
+## Settings
 
-**Codex account activity** shows account-wide token summaries and up to 30 recent server-calendar days when `account/usage/read` is supported. It updates independently after quota data, at most every five minutes automatically; unsupported versions retry after 30 minutes. **Refresh now** on that page requests an immediate retry. Disable **Show account activity** to stop these optional reads. Account identity must match before and after the request. Missing days and fields are not zero usage, and the server's unspecified calendar time zone is kept separate from local calendar-day chart bars. No account activity is written to disk by this feature.
+Open Command Palette and select **Codex Usage settings**.
 
-**Codex usage in text**, also available from Details, provides quota tables, reset times, recent measured weekly points, and local daily token totals without relying on charts or color. Missing values, reported zero, expired windows, and last-confirmed observations have distinct text labels.
+| Option | What it changes |
+| --- | --- |
+| Visible metrics and reset times | Show or hide the five-hour limit, weekly limit, resets and credits, and quota reset times. |
+| **Compact Dock** | Use shorter labels such as `5h47%` and `W86%`, hiding reset times while keeping source warnings. |
+| **Separate Dock items** | Pin metrics individually instead of using one combined band. |
+| Refresh interval | Choose 1, 5, or 15 minutes. |
+| Adaptive weekly forecast | Enable or pause learning from local usage history. Pausing keeps learned history; deletion requires confirmation. |
+| **Enable usage alerts** | Receive optional low-allowance, projected-limit, and expiring-reset notifications. Off by default. |
+| **Show account activity** | Enable optional account-wide usage reads on compatible CLI versions. |
+| **Retain usage observations** | Enable optional history retention for 7, 30, or 90 days. |
 
-## History and optional account actions
+Switching between combined and separate items does not convert existing pins. Add the desired bands through Dock customization; inactive bands stay hidden. Settings persist after restart, and saving failures are shown on the settings page.
 
-**Codex usage history** retains quota observations only when **Retain usage observations** is set to 7, 30, or 90 days. Observations are scoped to the identified account and default quota category, sampled in five-minute buckets, and capped at 27,000 rows. Reset changes within a bucket remain separate observations. Pausing collection keeps retained data; the history page offers confirmed deletion for the selected context. CSV and JSON export actions write files to the extension's local application data `exports` folder and show the resulting path. Exports contain quota percentages and UTC observation/reset times, without account IDs or conversation content. Exported copies are not deleted when retained history is cleared.
+See [Dock settings](USER_GUIDE.md#dock-settings) for pin behavior, alert conditions, and saved preferences.
 
-The workday planner and its end-time and remaining-workdays settings have been removed. Forecasts use observed usage without requiring a work schedule. Saved planner preferences from earlier development builds are ignored and omitted the next time settings are saved; other preferences and usage history are preserved.
+## Advanced features
 
-**Codex task usage and earned resets** accepts an explicit task ID for `account/usage/read` on compatible CLI versions. It shows server-estimated credits and optional USD, plus model/effort/speed and available input/cached/output token groups. These estimates are not invoices or conversions of quota percentages. Task reads verify account identity before and after, keep the most recently requested task, and retain results only in memory.
+These pages are available in Command Palette:
 
-The same page offers **Use or retry an earned reset**, which always asks for confirmation. It only uses an existing earned reset, never purchases one, and verifies the expected account before the mutation. A request ID is saved locally before sending. Unknown outcomes retain that exact ID across retries and extension restarts; concurrent clicks share the same attempt. An unreadable or unwritable recovery record stops the request. Only an unambiguous server outcome clears the pending record, and limits are refreshed afterward. This feature has synthetic protocol and service tests; no real credit was consumed while developing it.
+| Page | Purpose |
+| --- | --- |
+| **Codex usage in text** | Read quotas, reset times, trends, and token totals without relying on charts or color. Also available from Details. |
+| **Codex account activity** | View account-wide token summaries and up to 30 recent server-calendar days on compatible CLI versions. |
+| **Codex usage history** | Browse retained quota observations and export CSV or JSON files. |
+| **Codex task usage and earned resets** | Request server usage estimates for a task ID or use an existing earned reset on compatible CLI versions. |
 
-## Uninstall
+Task estimates are not invoices or conversions of quota percentages. **Using an earned reset always requires confirmation and never purchases a reset.** If the outcome is unknown, retrying reuses the saved request ID, including after a restart.
 
-Remove **Codex Usage Dock** from **Windows Settings > Apps > Installed apps**.
+The [user guide](USER_GUIDE.md) explains availability, exports, retention, and reset recovery.
 
 ## Troubleshooting
 
-- Open **Codex Usage diagnostics** for the running build, measurement time, latest refresh attempt, source, and reset-field availability. **Copy diagnostics** copies only the safe report, without account identifiers, paths, or raw service errors. A missing reset count is different from an explicitly reported zero.
-- Confirm that a standalone `codex.exe` or `codex.cmd` is available on `PATH`, or set `CODEX_USAGE_DOCK_CODEX_PATH` to its full path and restart PowerToys. The extension will show local fallback data when no launchable CLI is found.
-- Confirm that Codex is signed in.
-- Confirm that PowerToys Command Palette is enabled and running.
-- Confirm that PowerToys is version 0.100.0 or newer.
-- If the extension does not appear, open Command Palette, run **Reload Command Palette Extension**, and then confirm that **Codex Usage** is enabled under **Settings > Extensions**.
-- If usage cannot be loaded, start Codex once so local account and session metadata are available.
+| Problem | What to do |
+| --- | --- |
+| Extension not visible | Confirm PowerToys meets the requirements and Command Palette is running. Run **Reload Command Palette Extension**, then check **Settings > Extensions > Codex Usage**. |
+| Only fallback data, or no usage | Check the standalone CLI requirement above and confirm Codex is signed in. Restart PowerToys after changing the CLI path. Start Codex once if local account and session metadata are missing. |
+| Old values or **Last confirmed** | Check the measurement time and latest refresh attempt in diagnostics, then retry a refresh. |
+| Forecast unavailable | Allow fresh, continuous measurements to accumulate. Projections pause after gaps, stale data, or allowance increases until enough usage is observed. |
+| Dock items missing after changing modes | Open Dock customization and add the bands for the selected combined or separate mode. |
+| Settings not saved | Read the error on the settings page and retry saving. Until saving succeeds, changes apply only to the running session. |
 
-## Distribution status
-
-Microsoft Store product `9NFCPJXQG9FG` is the only production and update channel. GitHub releases identify source versions; a source release does not establish Store rollout or the version installed on a device. Check Microsoft Store for available updates and Windows Apps settings for the installed package version. Diagnostics reports the running extension build separately.
+Open **Codex Usage diagnostics** for the running build, source, measurement time, and latest refresh attempt. **Copy diagnostics** excludes account identifiers, paths, and raw service errors. Include this report when [reporting an issue](https://github.com/TheBeems/CodexUsageDock/issues).
 
 ## Privacy
 
-The extension runs locally. It talks to the standalone Codex CLI app-server and may read local Codex session metadata for its fallback path and aggregate token counters for the daily chart bars. It does not retain prompts, responses, tool output, thread names, or source paths for token analysis. It keeps a rolling seven-day weekly usage trend and up to eight aggregated local weekly forecast profiles on the device, and does not send usage information to a separate service.
+The extension processes usage locally through the Codex CLI app-server and local session metadata. It has no developer-operated telemetry service and does not retain conversation content for token analysis. Codex's own service communication is governed by its policies.
 
-See the full [Privacy Policy](PRIVACY.md).
+Local storage includes settings, up to seven days of weekly trend data, and up to eight learned forecast profiles. Optional usage history retains 7, 30, or 90 days. Exported files remain after retained history is deleted. Account activity and task estimates stay in memory; pending earned-reset requests use a local recovery record.
 
-## Data reliability
+See the [Privacy Policy](PRIVACY.md) for full storage and communication details.
 
-Details retains separate quota categories returned by newer Codex versions, including durations other than five hours or one week. The familiar Dock entries and weekly forecast describe only the default category. Percentages from different categories are never added or averaged. Credits remain usable even when there are no percentage windows.
+## Development and license
 
-Freshness uses the greater of five minutes and the configured refresh interval throughout the UI and forecasts. After a failed refresh, a previous live measurement can remain visible as **Last confirmed** with its original timestamp; projections and new history learning pause. An unverified session log cannot replace a confirmed account measurement. At first launch, local session fallback is still available if live data cannot be obtained.
-
-When Codex supplies an account identity, weekly history and learned profiles are stored separately for that account and default quota category using opaque hashed directory names. History appears only after the account is identified. Older history files have no identity and are not imported into an account. Without a verified account identity, recent observations remain in memory and adaptive learning is paused.
-
-The local quota fallback caches read positions and the latest valid quota event in memory. Unchanged files still in its cache are not reread for content; appended, replaced, truncated, and deleted files are handled on later refreshes. Each scan reads at most 8 MiB of file content, tracks up to 512 files, and bounds partial lines to 128 KiB. It still enumerates session file metadata and skips inaccessible subdirectories; these limits do not promise constant scan time for large directories. Incomplete scans are reported, and later refreshes continue discovery. No session payload or read-position cache is saved to disk by this quota fallback.
-
-## Development
-
-Build, test, Store packaging, and release instructions are in [DEVELOPMENT.md](DEVELOPMENT.md).
-
-## License
-
-Codex Usage Dock is available under the [MIT License](LICENSE).
+See [DEVELOPMENT.md](DEVELOPMENT.md) for building, testing, and packaging, and the [Changelog](CHANGELOG.md) for release history. Codex Usage Dock is available under the [MIT License](LICENSE).
