@@ -17,13 +17,24 @@ See your remaining Codex usage at a glance in the PowerToys Dock. Codex Usage Do
 
 - Windows 10 build 19041 or newer, or Windows 11.
 - [PowerToys 0.100.0 or newer](https://github.com/microsoft/PowerToys), with Command Palette enabled.
-- For live data, a standalone Codex CLI installed and signed in, with `codex.exe` or `codex.cmd` on `PATH`. Alternatively, set `CODEX_USAGE_DOCK_CODEX_PATH` to its full path and restart PowerToys.
+- For live data, a standalone Codex CLI installed and signed in, with `codex.exe` or `codex.cmd` on `PATH`. Alternatively, [set an explicit CLI path](#set-an-explicit-cli-path-optional).
 
 **The Microsoft Store Codex Desktop app alone is not sufficient for live data.** Its protected bundled CLI cannot be launched by this extension. Local session metadata can provide fallback data when available.
 
 To check what is available on `PATH`, run `where.exe codex` in a terminal. A result must point to a standalone CLI; finding the protected Desktop copy does not satisfy this requirement.
 
 The package includes the required .NET runtime. You do not need the .NET SDK to use it.
+
+#### Set an explicit CLI path (optional)
+
+`CODEX_USAGE_DOCK_CODEX_PATH` is a **Windows environment variable**, not an option in Codex Usage Dock settings or `settings.json`. If automatic detection works, you can leave it unset.
+
+1. Search the Windows Start menu for **Edit environment variables for your account**.
+2. Under **User variables**, select **New**, or select `CODEX_USAGE_DOCK_CODEX_PATH` and choose **Edit** if it already exists.
+3. Set the variable name to `CODEX_USAGE_DOCK_CODEX_PATH` and its value to the full path of your standalone `codex.exe` or `codex.cmd` file. Use the file path only, without arguments or surrounding quotation marks.
+4. Save the change, fully exit PowerToys, and start it again. If the old value remains in use, sign out of Windows and sign back in so newly started processes receive the updated environment.
+
+The extension checks this path before searching `PATH`. The file must exist and be outside `WindowsApps`; if it is missing or excluded, the extension continues searching `PATH`.
 
 ### Install and add to the Dock
 
