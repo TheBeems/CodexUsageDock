@@ -8,6 +8,10 @@ Each entry links to the commit or pull request that introduced the change.
 
 ## [Unreleased]
 
+### Changed
+
+- Simplify the README with a quick start, settings and troubleshooting tables, and a separate user guide for detailed usage and data handling. ([commit 84e04a4](https://github.com/TheBeems/CodexUsageDock/commit/84e04a4e0e38ecf15831175c65c6afb91d9b8bb8))
+
 ## [0.7.0] - 2026-09-13
 
 ### Added
