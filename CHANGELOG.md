@@ -4,9 +4,14 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
-Each entry links to the commit or pull request that introduced the change.
+Entries link to the implementing commit or pull request once available, following
+the [changelog workflow](AGENTS.md#documentation-and-change-quality).
 
 ## [Unreleased]
+
+### Changed
+
+- Clarify contributor guidance on installation authorization, isolated test storage, architecture verification, and changelog links, and consolidate repeated instructions.
 
 ## [0.8.0] - 2026-09-15
 
