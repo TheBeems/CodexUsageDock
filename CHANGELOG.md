@@ -8,12 +8,15 @@ Each entry links to the commit or pull request that introduced the change.
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-09-15
+
 ### Fixed
 
 - Apply the weekly meaningful-change threshold to the recent six-hour window and preserve near-term forecast times in chart alternative text. ([PR #26](https://github.com/TheBeems/CodexUsageDock/pull/26))
 
 ### Changed
 
+- Release version 0.8.0 with matching version information in the details page.
 - Make weekly estimates conditional on at least 30 minutes of measurements, show their observation basis and remaining daily budget, and use representative recent history with less influence from short bursts further ahead. Break chart lines at measurement gaps and use the same adaptive model for weekly alerts. Add chronological synthetic forecast benchmarks. ([PR #26](https://github.com/TheBeems/CodexUsageDock/pull/26))
 - Explain where to set the optional Windows CLI path environment variable, its lookup priority, and how to apply changes after restarting PowerToys. ([commit c8c7628](https://github.com/TheBeems/CodexUsageDock/commit/c8c762852e66ed3be5411b4614516110ab8a98a4))
 - Simplify the README with a quick start, settings and troubleshooting tables, and a separate user guide for detailed usage and data handling. ([commit 84e04a4](https://github.com/TheBeems/CodexUsageDock/commit/84e04a4e0e38ecf15831175c65c6afb91d9b8bb8))
@@ -194,7 +197,8 @@ Each entry links to the commit or pull request that introduced the change.
 - Initial release of the Windows Command Palette extension for viewing local Codex usage. [commit ac72fe5](https://github.com/TheBeems/CodexUsageDock/commit/ac72fe50fcd1af36f41cda896f1d792899573351)
 - Automated release installer creation and smoke-test handling. [commit 64a3305](https://github.com/TheBeems/CodexUsageDock/commit/64a33058b7486dea12f026561c545b362eb2d622), [commit 21790a1](https://github.com/TheBeems/CodexUsageDock/commit/21790a1ea60a9bfec14ec578d77356c5576472fb)
 
-[Unreleased]: https://github.com/TheBeems/CodexUsageDock/compare/v0.7.0...main
+[Unreleased]: https://github.com/TheBeems/CodexUsageDock/compare/v0.8.0...main
+[0.8.0]: https://github.com/TheBeems/CodexUsageDock/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/TheBeems/CodexUsageDock/compare/v0.6.1...v0.7.0
 [0.6.1]: https://github.com/TheBeems/CodexUsageDock/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/TheBeems/CodexUsageDock/commit/eed6505c5fef9a4a6a5c39d6bd5bff619aa13f07
