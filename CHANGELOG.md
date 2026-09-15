@@ -11,7 +11,7 @@ the [changelog workflow](AGENTS.md#documentation-and-change-quality).
 
 ### Changed
 
-- Simplify the dashboard with shared Used/time bars for Codex and Spark quota windows, collapsed Details, concise forecast status, and a larger used-quota chart with smooth labels. Show local token bars only with Details and keep missing or stale values explicit.
+- Simplify the dashboard with shared Used/time bars for Codex and Spark quota windows, collapsed Details, concise forecast status, and a larger used-quota chart with smooth labels. Show local token bars only with Details and keep missing or stale values explicit. ([commit](https://github.com/TheBeems/CodexUsageDock/commit/f56e4ed6c2465a9f89f273412439e4735b79d2a4))
 
 - Clarify contributor guidance on installation authorization, isolated test storage, architecture verification, and changelog links, and consolidate repeated instructions. ([commit](https://github.com/TheBeems/CodexUsageDock/commit/0661e46a12ae9ae906a1ddbcb8fc70874fa2071d))
 
