@@ -11,7 +11,7 @@ the [changelog workflow](AGENTS.md#documentation-and-change-quality).
 
 ### Changed
 
-- Clarify contributor guidance on installation authorization, isolated test storage, architecture verification, and changelog links, and consolidate repeated instructions.
+- Clarify contributor guidance on installation authorization, isolated test storage, architecture verification, and changelog links, and consolidate repeated instructions. ([commit](https://github.com/TheBeems/CodexUsageDock/commit/0661e46a12ae9ae906a1ddbcb8fc70874fa2071d))
 
 ## [0.8.0] - 2026-09-15
 
