@@ -22,7 +22,7 @@ internal sealed record AdaptiveWeeklyUsageHistory(
     AdaptiveWeeklyUsageCycle[] CompletedCycles,
     AdaptiveWeeklyUsageCycle? ActiveCycle);
 
-internal sealed record AdaptiveWeeklyForecastProjection(UsageTrendForecast Forecast, string Status);
+internal sealed record AdaptiveWeeklyForecastProjection(UsageTrendForecast Forecast, string Status, bool UsesHistory = false);
 
 internal sealed class AdaptiveWeeklyUsageStore
 {
@@ -359,9 +359,10 @@ internal sealed class AdaptiveWeeklyUsageStore
 
 internal static class AdaptiveWeeklyForecast
 {
-    private const double BootstrapWeight = 0.25;
-    private const double MatureWeight = 0.35;
-    private const int MinimumBucketCycles = 3;
+    private const int MinimumPatternCycles = 3;
+    private const double MinimumCoverage = 0.5;
+    private static readonly TimeSpan MaximumHistoryAge = TimeSpan.FromDays(56);
+    private static readonly TimeSpan RecentInfluenceDuration = TimeSpan.FromHours(3);
 
     internal static AdaptiveWeeklyForecastProjection Project(
         UsageHistoryEntry latest,
@@ -369,161 +370,142 @@ internal static class AdaptiveWeeklyForecast
         DateTimeOffset resetsAt,
         double currentRatePerMinute,
         bool enabled,
-        AdaptiveWeeklyUsageHistory? history)
+        AdaptiveWeeklyUsageHistory? history,
+        TimeSpan? recentDuration = null)
     {
-        if (!enabled || history is null)
-        {
-            return new AdaptiveWeeklyForecastProjection(
-                ProjectAtCurrentRate(latest, resetsAt, currentRatePerMinute),
-                "Forecast: current pace only.");
-        }
-
-        var completed = history.CompletedCycles
-            .Where(cycle => cycle.WindowMinutes == (int)TimeSpan.FromDays(7).TotalMinutes && GetRate(cycle) is not null)
-            .OrderByDescending(cycle => cycle.ResetsAt)
-            .Take(AdaptiveWeeklyUsageStore.MaximumCompletedCycles)
-            .ToArray();
-        var provisional = history.ActiveCycle is { } active
-            && AdaptiveWeeklyUsageStore.IsSameCycle(active, resetsAt, (int)TimeSpan.FromDays(7).TotalMinutes)
-            && GetRate(active) is not null
-            ? active
-            : null;
-        var profiles = completed.Length > 0
-            ? completed
-            : provisional is null ? [] : [provisional];
+        var basis = recentDuration is { } duration
+            ? duration.TotalHours < 1 ? $"recent {duration.TotalMinutes:0} min" : $"recent {duration.TotalHours:0.#} h"
+            : "current pace";
+        var profiles = enabled && history is not null
+            ? history.CompletedCycles
+                .Where(cycle => IsRepresentative(cycle)
+                    && cycle.ResetsAt <= windowStart.AddMinutes(1)
+                    && windowStart - cycle.ResetsAt <= MaximumHistoryAge)
+                .OrderByDescending(cycle => cycle.ResetsAt)
+                .DistinctBy(cycle => cycle.ResetsAt)
+                .Take(AdaptiveWeeklyUsageStore.MaximumCompletedCycles)
+                .ToArray()
+            : [];
         if (profiles.Length == 0)
         {
-            return new AdaptiveWeeklyForecastProjection(
-                ProjectAtCurrentRate(latest, resetsAt, currentRatePerMinute),
-                "Forecast: current pace only.");
+            var reason = enabled ? " Weekly history is insufficient or outdated." : string.Empty;
+            return new(ProjectAtCurrentRate(latest, resetsAt, currentRatePerMinute),
+                $"Forecast: {basis} only.{reason}");
         }
 
-        var historicalRate = Median(profiles.Select(cycle => GetRate(cycle)!.Value));
-        var historicalWeight = completed.Length == 0
-            ? BootstrapWeight
-            : BootstrapWeight + (Math.Min(completed.Length, AdaptiveWeeklyUsageStore.MaximumCompletedCycles) - 1)
-                * (MatureWeight - BootstrapWeight) / (AdaptiveWeeklyUsageStore.MaximumCompletedCycles - 1);
-        var projected = ProjectByBucket(
-            latest,
-            windowStart,
-            resetsAt,
-            currentRatePerMinute,
-            historicalRate,
-            historicalWeight,
-            profiles);
-        var status = completed.Length == 0
-            ? "Forecast: current pace + limited local history."
-            : $"Forecast: current pace + local history ({completed.Length}/{AdaptiveWeeklyUsageStore.MaximumCompletedCycles} cycles).";
-        return new AdaptiveWeeklyForecastProjection(projected, status);
-    }
-
-    private static UsageTrendForecast ProjectByBucket(
-        UsageHistoryEntry latest,
-        DateTimeOffset windowStart,
-        DateTimeOffset resetsAt,
-        double currentRatePerMinute,
-        double historicalRatePerMinute,
-        double historicalWeight,
-        IReadOnlyList<AdaptiveWeeklyUsageCycle> profiles)
-    {
+        var totalWeight = profiles.Sum(cycle => Weight(cycle, windowStart));
+        var coverage = profiles.Sum(cycle => Coverage(cycle) * Weight(cycle, windowStart)) / totalWeight;
+        // Limited coverage or history depth slows the transition from recent pace to the historical baseline.
+        var historyInfluence = coverage * Math.Min(1, totalWeight / MinimumPatternCycles);
+        var historicalRate = WeightedMedian(profiles.Select(cycle =>
+            (Rate: cycle.ConsumedPercent / cycle.ObservedMinutes, Weight: Weight(cycle, windowStart))));
         var points = new List<UsageTrendForecastPoint>();
         var cursor = latest.RecordedAt;
         var remaining = latest.RemainingPercent;
         while (cursor < resetsAt && remaining > 0)
         {
-            var bucketIndex = GetBucketIndex(cursor, windowStart);
-            var bucketEnd = Min(resetsAt, windowStart + TimeSpan.FromTicks(AdaptiveWeeklyUsageStore.BucketDuration.Ticks * (bucketIndex + 1)));
-            if (bucketEnd <= cursor)
+            var index = GetBucketIndex(cursor, windowStart);
+            var end = Min(resetsAt, Min(cursor.AddHours(1),
+                windowStart + TimeSpan.FromTicks(AdaptiveWeeklyUsageStore.BucketDuration.Ticks * (index + 1))));
+            var horizon = (cursor - latest.RecordedAt + (end - cursor) / 2).TotalMinutes;
+            var historyWeight = 1 - Math.Exp(-horizon * historyInfluence / RecentInfluenceDuration.TotalMinutes);
+            var bucketRate = BucketRate(profiles, index, windowStart) ?? historicalRate;
+            var rate = currentRatePerMinute * (1 - historyWeight) + bucketRate * historyWeight;
+            var consumed = rate * (end - cursor).TotalMinutes;
+            if (consumed >= remaining && rate > 0)
             {
-                break;
+                var limit = cursor.AddMinutes(remaining / rate);
+                points.Add(new(limit, 0));
+                return Result(new(limit, 0, limit < resetsAt, points));
             }
 
-            var bucketFactor = GetBucketFactor(profiles, bucketIndex);
-            var rate = currentRatePerMinute * (1 - historicalWeight) + historicalRatePerMinute * bucketFactor * historicalWeight;
-            if (rate <= 0 || !double.IsFinite(rate))
-            {
-                return ProjectAtCurrentRate(latest, resetsAt, currentRatePerMinute);
-            }
-
-            var capacity = rate * (bucketEnd - cursor).TotalMinutes;
-            if (capacity >= remaining)
-            {
-                var endsAt = cursor.AddMinutes(remaining / rate);
-                points.Add(new UsageTrendForecastPoint(endsAt, 0));
-                return new UsageTrendForecast(endsAt, 0, true, points);
-            }
-
-            remaining -= capacity;
-            cursor = bucketEnd;
-            points.Add(new UsageTrendForecastPoint(cursor, remaining));
+            remaining = Math.Max(0, remaining - consumed);
+            cursor = end;
+            points.Add(new(cursor, remaining));
         }
 
-        return new UsageTrendForecast(resetsAt, Math.Max(0, remaining), false, points);
+        return Result(new(resetsAt, remaining, false, points));
+
+        AdaptiveWeeklyForecastProjection Result(UsageTrendForecast forecast) => new(forecast,
+            $"Forecast: {basis} + {profiles.Length} usable week{(profiles.Length == 1 ? string.Empty : "s")} ({coverage:P0} observed). Historical influence grows further ahead; estimate only.",
+            UsesHistory: true);
     }
 
-    private static UsageTrendForecast ProjectAtCurrentRate(
-        UsageHistoryEntry latest,
-        DateTimeOffset resetsAt,
-        double currentRatePerMinute)
-    {
-        var minutesToEmpty = latest.RemainingPercent / currentRatePerMinute;
-        var estimated = latest.RecordedAt.AddMinutes(minutesToEmpty);
-        if (estimated >= resetsAt)
-        {
-            var remainingAtReset = Math.Max(0, latest.RemainingPercent - currentRatePerMinute * (resetsAt - latest.RecordedAt).TotalMinutes);
-            return new UsageTrendForecast(
-                resetsAt,
-                remainingAtReset,
-                false,
-                [new UsageTrendForecastPoint(resetsAt, remainingAtReset)]);
-        }
+    private static bool IsRepresentative(AdaptiveWeeklyUsageCycle cycle) =>
+        cycle.WindowMinutes == 10080
+        && double.IsFinite(cycle.ObservedMinutes) && cycle.ObservedMinutes is >= 5040 and <= 10080
+        && double.IsFinite(cycle.ConsumedPercent) && cycle.ConsumedPercent >= 0
+        && cycle.Buckets.All(bucket => bucket.Index is >= 0 and < 28
+            && double.IsFinite(bucket.ObservedMinutes) && bucket.ObservedMinutes is >= 0 and <= 360
+            && double.IsFinite(bucket.ConsumedPercent) && bucket.ConsumedPercent >= 0)
+        && cycle.Buckets.Select(bucket => bucket.Index).Distinct().Count() == cycle.Buckets.Length
+        && Math.Abs(cycle.Buckets.Sum(bucket => bucket.ObservedMinutes) - cycle.ObservedMinutes) < 0.001
+        && Math.Abs(cycle.Buckets.Sum(bucket => bucket.ConsumedPercent) - cycle.ConsumedPercent) < 0.001
+        && Coverage(cycle) >= MinimumCoverage
+        // Observing only daytime activity cannot establish an around-the-clock baseline.
+        && Enumerable.Range(0, 4).All(slot => cycle.Buckets
+            .Where(bucket => bucket.Index % 4 == slot).Sum(bucket => bucket.ObservedMinutes) >= 360);
 
-        return new UsageTrendForecast(
-            estimated,
-            0,
-            true,
-            [new UsageTrendForecastPoint(estimated, 0)]);
-    }
+    private static double Coverage(AdaptiveWeeklyUsageCycle cycle) =>
+        Math.Min(cycle.ObservedMinutes, cycle.Buckets.Sum(bucket => bucket.ObservedMinutes)) / cycle.WindowMinutes;
 
-    private static double GetBucketFactor(IReadOnlyList<AdaptiveWeeklyUsageCycle> profiles, int bucketIndex)
+    private static double Weight(AdaptiveWeeklyUsageCycle cycle, DateTimeOffset windowStart) =>
+        Coverage(cycle) * Math.Pow(0.5, Math.Max(0, (windowStart - cycle.ResetsAt).TotalDays) / 28);
+
+    private static double? BucketRate(AdaptiveWeeklyUsageCycle[] profiles, int index, DateTimeOffset windowStart)
     {
-        var factors = profiles
-            .Select(cycle =>
-            {
-                var rate = GetRate(cycle);
-                var bucket = cycle.Buckets.FirstOrDefault(candidate => candidate.Index == bucketIndex);
-                return rate is > 0 && bucket is { ObservedMinutes: > 0 }
-                    ? bucket.ConsumedPercent / bucket.ObservedMinutes / rate.Value
-                    : double.NaN;
-            })
-            .Where(double.IsFinite)
-            .Where(factor => factor >= 0)
+        var rates = profiles.Where(cycle => HasMatchingCalendarPhase(cycle, windowStart))
+            .Select(cycle => (Cycle: cycle, Bucket: cycle.Buckets.FirstOrDefault(bucket => bucket.Index == index)))
+            .Where(item => item.Bucket is { ObservedMinutes: >= 180 })
+            .Select(item => (Rate: item.Bucket!.ConsumedPercent / item.Bucket.ObservedMinutes,
+                Weight: Weight(item.Cycle, windowStart) * item.Bucket.ObservedMinutes / 360))
             .ToArray();
-        return factors.Length >= MinimumBucketCycles
-            ? Math.Clamp(Median(factors), 0, 4)
-            : 1;
+        return rates.Length >= MinimumPatternCycles ? WeightedMedian(rates) : null;
     }
 
-    private static double? GetRate(AdaptiveWeeklyUsageCycle cycle) =>
-        cycle.ObservedMinutes > 0 && double.IsFinite(cycle.ObservedMinutes) && double.IsFinite(cycle.ConsumedPercent)
-            ? cycle.ConsumedPercent / cycle.ObservedMinutes
-            : null;
+    private static bool HasMatchingCalendarPhase(AdaptiveWeeklyUsageCycle cycle, DateTimeOffset windowStart)
+    {
+        var previous = cycle.ResetsAt.AddMinutes(-cycle.WindowMinutes).ToLocalTime();
+        var current = windowStart.ToLocalTime();
+        // Older files store reset-relative buckets. Do not reinterpret shifted resets or DST as the same clock-time pattern.
+        return previous.DayOfWeek == current.DayOfWeek && previous.Offset == current.Offset
+            && Math.Abs((previous.TimeOfDay - current.TimeOfDay).TotalMinutes) < 1;
+    }
 
     private static int GetBucketIndex(DateTimeOffset instant, DateTimeOffset windowStart) =>
-        Math.Clamp((int)Math.Floor((instant - windowStart).TotalHours / AdaptiveWeeklyUsageStore.BucketDuration.TotalHours), 0, AdaptiveWeeklyUsageStore.BucketCount - 1);
+        Math.Clamp((int)((instant - windowStart).TotalHours / 6), 0, 27);
 
-    private static double Median(IEnumerable<double> values)
+    private static double WeightedMedian(IEnumerable<(double Rate, double Weight)> values)
     {
-        var ordered = values.OrderBy(value => value).ToArray();
-        var middle = ordered.Length / 2;
-        return ordered.Length % 2 == 0
-            ? (ordered[middle - 1] + ordered[middle]) / 2
-            : ordered[middle];
+        var ordered = values.OrderBy(value => value.Rate).ToArray();
+        var half = ordered.Sum(value => value.Weight) / 2;
+        var cumulative = 0d;
+        foreach (var value in ordered)
+        {
+            cumulative += value.Weight;
+            if (cumulative >= half)
+            {
+                return value.Rate;
+            }
+        }
+
+        return ordered[^1].Rate;
+    }
+
+    private static UsageTrendForecast ProjectAtCurrentRate(UsageHistoryEntry latest, DateTimeOffset resetsAt, double rate)
+    {
+        var remainingAtReset = latest.RemainingPercent - rate * (resetsAt - latest.RecordedAt).TotalMinutes;
+        if (rate <= 0 || remainingAtReset >= 0)
+        {
+            return new(resetsAt, Math.Max(0, remainingAtReset), false, [new(resetsAt, Math.Max(0, remainingAtReset))]);
+        }
+
+        var limit = latest.RecordedAt.AddMinutes(latest.RemainingPercent / rate);
+        return new(limit, 0, true, [new(limit, 0)]);
     }
 
     private static DateTimeOffset Min(DateTimeOffset left, DateTimeOffset right) => left <= right ? left : right;
 }
-
 [JsonSerializable(typeof(AdaptiveWeeklyUsageState))]
 internal sealed partial class AdaptiveWeeklyUsageJsonContext : JsonSerializerContext
 {

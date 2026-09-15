@@ -63,7 +63,7 @@ internal sealed partial class CodexUsageDockSettingsPage : ContentPage
         _settings.Add(new ToggleSetting(UseAdaptiveWeeklyForecastKey, true)
         {
             Label = "Use adaptive weekly forecast",
-            Description = "Blend the current pace with up to eight local weekly cycles. Turning this off pauses learning and keeps saved history.",
+            Description = "Use sufficiently observed recent weeks to improve longer-range estimates. Turning this off pauses learning and keeps saved history.",
         });
         _settings.Add(new ToggleSetting(EnableUsageAlertsKey, false)
         {

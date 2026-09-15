@@ -232,7 +232,7 @@ public sealed class ReliabilityTests : IDisposable
     [Fact]
     public void ForecastUsesOnlyContinuousMeasurementsAfterGap()
     {
-        UsageHistoryEntry[] history = [new(Now.AddDays(-1), 100), new(Now.AddMinutes(-5), 75), new(Now, 70)];
+        UsageHistoryEntry[] history = [new(Now.AddDays(-1), 100), .. WeeklyForecastTests.Series(Now.AddMinutes(-30), Now, 100, 70)];
         var result = UsageTrendAnalyzer.Analyze(history, Now.AddDays(-4), Now.AddDays(3), Now, true, TimeSpan.FromMinutes(5));
         Assert.Equal(Now.AddMinutes(70), result.Forecast!.EndsAt);
     }

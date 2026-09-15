@@ -102,7 +102,9 @@ internal static class WeeklyUsageTrendChartRenderer
         ApplyDailyTokens(dailyUse, tokenUsage);
         var tokenScaleMaximum = GetTokenScaleMaximum(dailyUse);
         var calendarScale = new CalendarDayScale(dailyUse);
-        var renderedSegments = DownsampleSegments(SplitAtQuotaIncreases(samples), windowStart, window.ResetsAt);
+        var renderedSegments = DownsampleSegments(SplitAtDiscontinuities(samples,
+            (previous, current) => WeeklyAllowanceRestoration.IsIncrease(previous, current)
+                || current.RecordedAt - previous.RecordedAt > maximumGap), windowStart, window.ResetsAt);
         var latestSegment = UsageTrendHistory.LatestSegment(samples, windowStart, window.ResetsAt, effectiveNow, maximumGap);
         var forecastSegment = latestSegment is { Length: >= 2 } ? latestSegment : null;
         var usableForecast = forecastSegment is not null && forecast is { } candidate && candidate.EndsAt > forecastSegment[^1].RecordedAt
@@ -234,11 +236,6 @@ internal static class WeeklyUsageTrendChartRenderer
             .OrderBy(sample => sample.RecordedAt)
             .ToArray();
     }
-
-    private static List<UsageHistoryEntry[]> SplitAtQuotaIncreases(UsageHistoryEntry[] samples) =>
-        SplitAtDiscontinuities(
-            samples,
-            WeeklyAllowanceRestoration.IsIncrease);
 
     private static List<UsageHistoryEntry[]> SplitAtDiscontinuities(
         UsageHistoryEntry[] samples,
@@ -773,14 +770,14 @@ internal static class WeeklyUsageTrendChartRenderer
         var daily = FormatDailyTokenAltText(dailyUse, tokenUsage, tokenScaleMaximum, culture);
         var forecastText = forecast switch
         {
-            { ReachesLimitBeforeReset: true } => $" Forecast reaches the limit around {TimeZoneInfo.ConvertTime(forecast.EndsAt, timeZone).ToString("ddd d MMM HH:mm", culture)}.",
-            { } => $" Forecast leaves {forecast.RemainingPercent:0}% at reset.",
+            { ReachesLimitBeforeReset: true } => $" Estimated limit day: {TimeZoneInfo.ConvertTime(forecast.EndsAt, timeZone).ToString("ddd d MMM", culture)}; actual usage may differ.",
+            { } => $" Forecast leaves about {forecast.RemainingPercent:0}% at reset; actual usage may differ.",
             null => " Forecast is unavailable.",
         };
         var restorationText = restorations.Length > 0
             ? $" {restorations.Length} allowance restoration{(restorations.Length == 1 ? " was" : "s were")} detected; the latest at {TimeZoneInfo.ConvertTime(restorations[^1].DetectedAt, timeZone).ToString("ddd d MMM HH:mm", culture)} increased remaining allowance from {restorations[^1].PreviousRemainingPercent:0}% to {restorations[^1].CurrentRemainingPercent:0}%. Amber markers show detected restorations."
             : " No allowance restorations were detected in this window.";
-        return $"Weekly quota trend from {period}. Remaining allowance changed from {first.RemainingPercent:0}% to {last.RemainingPercent:0}% across {sampleCount} observations. The left vertical scale is remaining allowance from 0% to 100%; the independent right scale is locally observed total tokens per calendar day. Horizontal labels are local calendar dates, and reset markers bound the quota window. Solid line connects sampled values across measurement gaps; line breaks mark allowance increases or resets; dashed line is forecast.{restorationText}{forecastText} {daily}";
+        return $"Weekly quota trend from {period}. Remaining allowance changed from {first.RemainingPercent:0}% to {last.RemainingPercent:0}% across {sampleCount} observations. The left vertical scale is remaining allowance from 0% to 100%; the independent right scale is locally observed total tokens per calendar day. Horizontal labels are local calendar dates, and reset markers bound the quota window. Solid line connects continuous measurements; gaps and allowance increases break the line; dashed line is a conditional forecast.{restorationText}{forecastText} {daily}";
     }
 
     private static string FormatDailyTokenAltText(

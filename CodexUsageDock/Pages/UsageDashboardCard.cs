@@ -352,6 +352,14 @@ internal static class UsageDashboardCard
                   "$when": "${weeklyAvailable}"
                 },
                 {
+                  "type": "TextBlock",
+                  "text": "${weeklyBudget}",
+                  "isSubtle": true,
+                  "spacing": "small",
+                  "wrap": true,
+                  "$when": "${weeklyAvailable}"
+                },
+                {
                   "type": "Container",
                   "separator": true,
                   "spacing": "medium",

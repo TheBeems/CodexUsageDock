@@ -427,7 +427,26 @@ internal sealed partial class CodexUsageDockPage : ContentPage, IDisposable
             adaptiveWeeklyForecastEnabled,
             adaptiveWeeklyHistory);
         data[$"{prefix}Projection"] = trend.Message;
+        if (prefix == "weekly")
+        {
+            data["weeklyBudget"] = FormatWeeklyBudget(window, now, dataAvailable);
+        }
         return trend;
+    }
+
+    private static string FormatWeeklyBudget(RateLimitWindow window, DateTimeOffset now, bool dataAvailable)
+    {
+        if (!dataAvailable || !UsageFreshness.IsValidWindow(window, now))
+        {
+            return "Remaining usage budget unavailable until refreshed.";
+        }
+
+        var remaining = window.ResetsAt - now;
+        return remaining.TotalDays >= 1
+            ? $"To last until reset: average at most {window.RemainingPercent / remaining.TotalDays:0.#} percentage points per day."
+            : remaining.TotalHours >= 1
+                ? $"To last until reset: average at most {window.RemainingPercent / remaining.TotalHours:0.#} percentage points per hour."
+                : $"Available until reset in {Math.Ceiling(remaining.TotalMinutes):0} min: {window.RemainingPercent:0}%.";
     }
 
     private static void AddWeeklyTrendData(
@@ -478,12 +497,12 @@ internal sealed partial class CodexUsageDockPage : ContentPage, IDisposable
         data["weeklyTrendChartAlt"] = chart.AltText;
         var forecastLegend = dataAvailable && trend?.Forecast is not null
             ? "dashed: forecast"
-            : "forecast unavailable until usage data is refreshed";
+            : "forecast pending sufficient fresh measurements";
         data["weeklyTrendLegend"] = tokenUsage?.Status switch
         {
-            LocalTokenUsageStatus.Complete => $"Solid: remaining allowance (%) · {forecastLegend} · bars: local tokens per day · amber: detected restorations",
-            LocalTokenUsageStatus.Partial => $"Solid: remaining allowance (%) · {forecastLegend} · bars: partial local tokens per day · amber: detected restorations",
-            _ => $"Solid: remaining allowance (%) · {forecastLegend} · local token data unavailable · amber: detected restorations",
+            LocalTokenUsageStatus.Complete => $"Solid: remaining allowance (%) · breaks: gaps or restorations · {forecastLegend} · bars: local tokens per day · amber: detected restorations",
+            LocalTokenUsageStatus.Partial => $"Solid: remaining allowance (%) · breaks: gaps or restorations · {forecastLegend} · bars: partial local tokens per day · amber: detected restorations",
+            _ => $"Solid: remaining allowance (%) · breaks: gaps or restorations · {forecastLegend} · local token data unavailable · amber: detected restorations",
         };
 
         var restorations = WeeklyAllowanceRestoration.Detect(history, validWindow, now);
@@ -613,7 +632,7 @@ internal sealed partial class CodexUsageDockPage : ContentPage, IDisposable
         AdaptiveWeeklyUsageHistory? adaptiveWeeklyHistory = null)
     {
         var windowStartsAt = window.ResetsAt - TimeSpan.FromMinutes(window.WindowMinutes);
-        return FormatTrendBodyForReset(
+        var body = FormatTrendBodyForReset(
             history,
             windowStartsAt,
             window.ResetsAt,
@@ -622,6 +641,7 @@ internal sealed partial class CodexUsageDockPage : ContentPage, IDisposable
             maximumSampleAge,
             adaptiveWeeklyForecastEnabled,
             adaptiveWeeklyHistory);
+        return window.WindowMinutes == 10080 ? $"{body}  \n{FormatWeeklyBudget(window, now, dataAvailable)}" : body;
     }
 
     private static string FormatTrendBodyForReset(
@@ -649,7 +669,8 @@ internal sealed partial class CodexUsageDockPage : ContentPage, IDisposable
         }
 
         var message = analysis.IsEstimate ? $"*{analysis.Message}*" : analysis.Message;
-        return $"{analysis.HistoryValues}  \n{message}";
+        var basis = resetsAt - windowStartsAt == TimeSpan.FromDays(7) ? $"  \n{analysis.ForecastStatus}" : string.Empty;
+        return $"{analysis.HistoryValues}  \n{message}{basis}";
     }
 
     private static TimeSpan TrendFreshness(TimeSpan refreshInterval) =>
