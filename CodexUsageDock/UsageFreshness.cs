@@ -61,5 +61,6 @@ internal static class UsageFreshness
         window is { WindowMinutes: > 0 } candidate
         && double.IsFinite(candidate.UsedPercent)
         && candidate.UsedPercent is >= 0 and <= 100
+        && (long)candidate.WindowMinutes * TimeSpan.TicksPerMinute <= Math.Min(candidate.ResetsAt.Ticks, candidate.ResetsAt.UtcTicks)
         && candidate.ResetsAt > now;
 }

@@ -13,6 +13,10 @@ public sealed class UsageDataTests : IDisposable
     public void Dispose() => _environment.Dispose();
 
     private static readonly TimeSpan AsyncTestTimeout = TimeSpan.FromSeconds(5);
+    private static JsonElement DashboardWindow(JsonElement root, string title) =>
+        root.GetProperty("quotaGroups")[0].GetProperty("windows").EnumerateArray()
+            .Single(window => window.GetProperty("title").GetString() == title);
+
     private static readonly XNamespace Svg = "http://www.w3.org/2000/svg";
 
     private static XDocument ParseSvg(string imageUrl)
@@ -220,23 +224,25 @@ public sealed class UsageDataTests : IDisposable
     }
 
     [Fact]
-    public void DetailsPageUsesNativeMediumDetailsPane()
+    public void DashboardKeepsDetailsCollapsedUntilRequested()
     {
         using var service = _environment.CreateService();
         using var page = new CodexUsageDockPage(service, _environment.CreateSettings());
 
+        Assert.Null(page.Details);
+        var main = Assert.IsAssignableFrom<FormContent>(Assert.Single(page.GetContent()));
+        main.SubmitForm("""{"action":"details"}""");
         var details = Assert.IsType<Details>(page.Details);
-        var main = Assert.IsType<FormContent>(Assert.Single(page.GetContent()));
         using var template = JsonDocument.Parse(main.TemplateJson);
 
         Assert.Equal("Usage details", details.Title);
         Assert.Equal(ContentSize.Medium, details.Size);
         Assert.Equal("AdaptiveCard", template.RootElement.GetProperty("type").GetString());
         Assert.Contains("\"type\": \"Image\"", main.TemplateJson, StringComparison.Ordinal);
-        Assert.Contains("Allowance used", main.TemplateJson, StringComparison.Ordinal);
-        Assert.Contains("Window elapsed", main.TemplateJson, StringComparison.Ordinal);
+        Assert.Contains("Used", main.TemplateJson, StringComparison.Ordinal);
+        Assert.Contains("Time elapsed", main.TemplateJson, StringComparison.Ordinal);
         Assert.Contains("weeklyTrendAvailable", main.TemplateJson, StringComparison.Ordinal);
-        Assert.Contains("weeklyTrendLegend", main.TemplateJson, StringComparison.Ordinal);
+        Assert.DoesNotContain("weeklyTrendLegend", main.TemplateJson, StringComparison.Ordinal);
         Assert.Same(Assert.Single(page.GetContent()), Assert.Single(page.GetContent()));
     }
 
@@ -266,23 +272,21 @@ public sealed class UsageDataTests : IDisposable
         using var mainData = JsonDocument.Parse(main);
         var root = mainData.RootElement;
 
-        Assert.Equal("Status: Plenty of allowance available", root.GetProperty("statusTitle").GetString());
-        Assert.Equal("80%", root.GetProperty("fiveHourRemaining").GetString());
-        Assert.Equal("98%", root.GetProperty("weeklyRemaining").GetString());
-        Assert.Equal("20%", root.GetProperty("fiveHourUsedPercent").GetString());
-        Assert.Equal("20%", root.GetProperty("fiveHourElapsedPercent").GetString());
-        Assert.Equal("2%", root.GetProperty("weeklyUsedPercent").GetString());
-        Assert.Equal("14%", root.GetProperty("weeklyElapsedPercent").GetString());
-        Assert.StartsWith("data:image/svg+xml;utf8,", root.GetProperty("fiveHourUsedBarUrl").GetString(), StringComparison.Ordinal);
-        Assert.StartsWith("data:image/svg+xml;utf8,", root.GetProperty("fiveHourElapsedBarUrl").GetString(), StringComparison.Ordinal);
-        Assert.StartsWith("data:image/svg+xml;utf8,", root.GetProperty("weeklyUsedBarUrl").GetString(), StringComparison.Ordinal);
-        Assert.StartsWith("data:image/svg+xml;utf8,", root.GetProperty("weeklyElapsedBarUrl").GetString(), StringComparison.Ordinal);
+        Assert.False(root.GetProperty("hasNotice").GetBoolean());
+        Assert.Equal("20%", DashboardWindow(root, "5-hour").GetProperty("usedPercent").GetString());
+        Assert.Equal("20%", DashboardWindow(root, "5-hour").GetProperty("elapsedPercent").GetString());
+        Assert.Equal("2%", DashboardWindow(root, "Weekly").GetProperty("usedPercent").GetString());
+        Assert.Equal("14%", DashboardWindow(root, "Weekly").GetProperty("elapsedPercent").GetString());
+        Assert.StartsWith("data:image/svg+xml;utf8,", DashboardWindow(root, "5-hour").GetProperty("usedBarUrl").GetString(), StringComparison.Ordinal);
+        Assert.StartsWith("data:image/svg+xml;utf8,", DashboardWindow(root, "5-hour").GetProperty("elapsedBarUrl").GetString(), StringComparison.Ordinal);
+        Assert.StartsWith("data:image/svg+xml;utf8,", DashboardWindow(root, "Weekly").GetProperty("usedBarUrl").GetString(), StringComparison.Ordinal);
+        Assert.StartsWith("data:image/svg+xml;utf8,", DashboardWindow(root, "Weekly").GetProperty("elapsedBarUrl").GetString(), StringComparison.Ordinal);
         Assert.True(root.GetProperty("weeklyTrendAvailable").GetBoolean());
         Assert.StartsWith("data:image/svg+xml;utf8,", root.GetProperty("weeklyTrendChartUrl").GetString(), StringComparison.Ordinal);
         Assert.Contains("Solid line connects continuous measurements", root.GetProperty("weeklyTrendChartAlt").GetString(), StringComparison.Ordinal);
         Assert.StartsWith("Forecast: recent 6 h only.", root.GetProperty("weeklyForecastStatus").GetString(), StringComparison.Ordinal);
-        Assert.Equal("On track", root.GetProperty("fiveHourPaceStatus").GetString());
-        Assert.Equal("Comfortably on track", root.GetProperty("weeklyPaceStatus").GetString());
+        Assert.DoesNotContain("On track", main, StringComparison.Ordinal);
+        Assert.Equal("Default", DashboardWindow(root, "Weekly").GetProperty("usedColor").GetString());
         Assert.Contains("Projected at reset", root.GetProperty("fiveHourProjection").GetString(), StringComparison.Ordinal);
         Assert.Contains("Projected at reset", root.GetProperty("weeklyProjection").GetString(), StringComparison.Ordinal);
         Assert.DoesNotContain("Resets and credits", main, StringComparison.Ordinal);
@@ -330,7 +334,7 @@ public sealed class UsageDataTests : IDisposable
             refreshInterval: TimeSpan.FromMinutes(1),
             tokenUsage: TokenUsage(
                 new DateOnly(2026, 7, 16), 250_000,
-                new DateOnly(2026, 7, 17), 500_000));
+                new DateOnly(2026, 7, 17), 500_000), showDetails: true);
 
         using var document = JsonDocument.Parse(data);
         var root = document.RootElement;
@@ -390,7 +394,8 @@ public sealed class UsageDataTests : IDisposable
             _ => result.Task,
             () => throw new InvalidOperationException("Fallback should not run."));
         using var page = new CodexUsageDockPage(service, _environment.CreateSettings());
-        var main = Assert.IsType<FormContent>(Assert.Single(page.GetContent()));
+        var main = Assert.IsAssignableFrom<FormContent>(Assert.Single(page.GetContent()));
+        main.SubmitForm("""{"action":"details"}""");
         var details = Assert.IsType<Details>(page.Details);
 
         var refresh = service.RefreshAsync();
@@ -416,10 +421,10 @@ public sealed class UsageDataTests : IDisposable
         using (var refreshedData = JsonDocument.Parse(main.DataJson))
         {
             Assert.False(refreshedData.RootElement.GetProperty("isLoading").GetBoolean());
-            Assert.Equal("75%", refreshedData.RootElement.GetProperty("fiveHourRemaining").GetString());
+            Assert.Equal("25%", DashboardWindow(refreshedData.RootElement, "5-hour").GetProperty("usedPercent").GetString());
             Assert.StartsWith(
                 "data:image/svg+xml;utf8,",
-                refreshedData.RootElement.GetProperty("fiveHourUsedBarUrl").GetString(),
+                DashboardWindow(refreshedData.RootElement, "5-hour").GetProperty("usedBarUrl").GetString(),
                 StringComparison.Ordinal);
             Assert.Equal(
                 "Projection will appear after another measurement.",
@@ -473,17 +478,17 @@ public sealed class UsageDataTests : IDisposable
     [Fact]
     public void UsageProgressBarCreatesSvgDataUri()
     {
-        var bar = UsageDashboardCard.CreateProgressBarImageUrl(75, UsageBarPalette.FiveHour);
+        var bar = UsageDashboardCard.CreateProgressBarImageUrl(75, UsageBarPalette.Used);
 
         Assert.StartsWith("data:image/svg+xml;utf8,", bar, StringComparison.Ordinal);
         Assert.Contains("%3Csvg", bar, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("%2339B8E3", bar, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("%235C9EFA", bar, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
     public void UsageProgressBarHandlesNonFinitePercentage()
     {
-        var bar = UsageDashboardCard.CreateProgressBarImageUrl(double.NaN, UsageBarPalette.Weekly);
+        var bar = UsageDashboardCard.CreateProgressBarImageUrl(double.NaN, UsageBarPalette.Used);
 
         Assert.StartsWith("data:image/svg+xml;utf8,", bar, StringComparison.Ordinal);
         Assert.DoesNotContain("NaN", bar, StringComparison.Ordinal);
@@ -517,7 +522,7 @@ public sealed class UsageDataTests : IDisposable
         Assert.NotNull(root);
         var lines = root!.Descendants(Svg + "polyline").ToArray();
 
-        Assert.Equal($"0 0 {UsageDashboardCard.BarWidth} {WeeklyUsageTrendChartRenderer.Height}", root.Attribute("viewBox")?.Value);
+        Assert.Equal($"0 0 {WeeklyUsageTrendChartRenderer.Width} {WeeklyUsageTrendChartRenderer.Height}", root.Attribute("viewBox")?.Value);
         Assert.Contains(lines, line => line.Attribute("stroke-dasharray") is null);
         Assert.Contains(lines, line => line.Attribute("stroke-dasharray")?.Value == "5 4");
         Assert.Equal(3, root.Descendants(Svg + "rect").Count(rect => rect.Attribute("data-series")?.Value == "daily-tokens"));
@@ -557,7 +562,7 @@ public sealed class UsageDataTests : IDisposable
                 new UsageHistoryEntry(now, 80),
             ],
             refreshInterval: TimeSpan.FromMinutes(1),
-            tokenUsage: tokenUsage);
+            tokenUsage: tokenUsage, showDetails: true);
 
         using var document = JsonDocument.Parse(data);
         var root = document.RootElement;
@@ -833,8 +838,8 @@ public sealed class UsageDataTests : IDisposable
             .Select(group => group.Attribute("data-rendered-label")!.Value));
         Assert.Empty(root.Descendants(Svg + "text"));
         Assert.All(root.Descendants(Svg + "g").Where(group => group.Attribute("data-axis") is not null), group =>
-            Assert.NotEmpty(group.Descendants(Svg + "rect")));
-        Assert.Contains("left vertical scale is remaining allowance", result.AltText, StringComparison.Ordinal);
+            Assert.NotEmpty(group.Descendants(Svg + "path")));
+        Assert.Contains("left vertical scale is used quota", result.AltText, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -976,11 +981,11 @@ public sealed class UsageDataTests : IDisposable
         var root = Assert.IsType<XElement>(ParseSvg(result.ImageUrl).Root);
         var zeroGridline = Assert.Single(
             root.Descendants(Svg + "line"),
-            line => line.Attribute("data-grid")?.Value == "remaining-percent"
+            line => line.Attribute("data-grid")?.Value == "used-percent"
                 && line.Attribute("data-value")?.Value == "0");
         var zeroY = double.Parse(zeroGridline.Attribute("y1")!.Value, CultureInfo.InvariantCulture);
         var bottomGridY = root.Descendants(Svg + "line")
-            .Where(line => line.Attribute("data-grid")?.Value == "remaining-percent")
+            .Where(line => line.Attribute("data-grid")?.Value == "used-percent")
             .Max(line => double.Parse(line.Attribute("y1")!.Value, CultureInfo.InvariantCulture));
         var dailyTokenBar = Assert.Single(
             root.Descendants(Svg + "rect"),
@@ -991,12 +996,13 @@ public sealed class UsageDataTests : IDisposable
             root.Descendants(Svg + "g"),
             group => group.Attribute("data-axis")?.Value == "vertical"
                 && group.Attribute("data-axis-label")?.Value == "0%");
-        var labelTop = zeroLabel.Descendants(Svg + "rect")
-            .Min(rect => double.Parse(rect.Attribute("y")!.Value, CultureInfo.InvariantCulture));
+        var labelTop = zeroLabel.Descendants(Svg + "path")
+            .Select(path => path.Attribute("transform")!.Value.TrimEnd(')').Split(' ')[1])
+            .Min(value => double.Parse(value, CultureInfo.InvariantCulture));
 
         Assert.Equal(bottomGridY, zeroY, precision: 3);
         Assert.Equal(zeroY, barBottom, precision: 3);
-        Assert.Equal(zeroY - 5, labelTop, precision: 3);
+        Assert.Equal(zeroY - ChartLabelGlyphs.Height / 2, labelTop, precision: 3);
     }
 
     [Fact]
@@ -1094,10 +1100,10 @@ public sealed class UsageDataTests : IDisposable
             refreshInterval: TimeSpan.FromMinutes(1));
         using var document = JsonDocument.Parse(data);
 
-        Assert.Equal("70%", document.RootElement.GetProperty("fiveHourUsedPercent").GetString());
-        Assert.Equal("20%", document.RootElement.GetProperty("fiveHourElapsedPercent").GetString());
-        Assert.Equal("Limit may be reached before reset", document.RootElement.GetProperty("fiveHourPaceStatus").GetString());
-        Assert.Equal("Attention", document.RootElement.GetProperty("fiveHourPaceColor").GetString());
+        Assert.Equal("70%", DashboardWindow(document.RootElement, "5-hour").GetProperty("usedPercent").GetString());
+        Assert.Equal("20%", DashboardWindow(document.RootElement, "5-hour").GetProperty("elapsedPercent").GetString());
+        Assert.DoesNotContain("Limit may be reached before reset", data, StringComparison.Ordinal);
+        Assert.Equal("Warning", DashboardWindow(document.RootElement, "5-hour").GetProperty("usedColor").GetString());
     }
 
     [Theory]

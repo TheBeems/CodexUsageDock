@@ -6,9 +6,11 @@ For installation and first use, see the [README](README.md#quick-start). This gu
 
 ## Charts and forecasts
 
-The weekly chart shows sampled remaining allowance on a 0–100% scale. Its solid line connects continuous measurements and breaks at measurement gaps and allowance increases. Isolated measurements remain visible as points. Amber markers identify detected allowance restorations. The latest restoration is summarized below the chart, with the current window's restoration history in Details.
+The dashboard groups Codex and additional quota categories such as Spark into the same compact windows. Each reported window shows **Used**, **Time elapsed**, and a local reset date. The two bars share a 0–100% scale: blue indicates consumption and gray indicates elapsed time. Large percentages also mean used quota. Missing or expired windows take one short line, without fabricated zero values. An unavailable time comparison is shown as **—**. Fresh high usage is highlighted by the percentage; the comparison does not predict whether future usage will fit.
 
-Equal-width local calendar-day columns retain dated weekday labels and partial reset-boundary days. Locally observed total-token bars use an independent daily scale.
+The weekly chart also shows **used quota** on a 0–100% scale. Its solid line rises as quota is consumed and breaks at measurement gaps and allowance restorations; a restoration reduces the used percentage. Isolated measurements remain visible as points. Amber markers identify detected restorations. The chart has smooth font outlines and a short forecast status; the detailed explanation and restoration history are under **Details**. Dashboard date labels use English names and local time to match the English interface; Dock-band subtitles retain regional formatting.
+
+Equal-width local calendar-day columns retain dated weekday labels and partial reset-boundary days. **Details** starts collapsed to leave the dashboard the full width. Opening it reveals forecast explanations, the remaining daily/hourly budget, reset-credit expirations, credits, and source information. It also enables locally observed total-token bars on an independent daily scale. Hiding Details removes those bars again; refreshing retains the current Details choice for that page.
 
 Weekly projections require at least 30 minutes of fresh, continuous measurements. Recent pace uses at most the last six hours of that segment, so an old idle period cannot dilute the estimate indefinitely. With insufficient learned history, the projection explicitly describes what would happen if that recent pace continued. Its status identifies the measurement duration. The five-hour projection retains its shorter observation requirement.
 
@@ -18,7 +20,7 @@ Six-hour patterns require at least three usable weeks with at least three observ
 
 A segment starts again after an allowance increase or a gap longer than three times the freshness allowance (the greater of five minutes and the refresh interval). Text, chart, and alert projections pause until enough fresh measurements are available. Without usable history, a meaningful decrease is also required; with usable history, observed idle time can still produce an estimate. Weekly warning notifications follow the same adaptive setting and calculation as the dashboard.
 
-Projections are conditional estimates, not calibrated probabilities. Estimated exhaustion at least a day away shows a date; nearer estimates are rounded up to a quarter hour. The chart retains the calculated points. The separate budget shows the average percentage points per day (or hour near reset) available to last until reset, even while a forecast is pending. Pace indicators compare allowance used with elapsed window time; neither they nor the budget guarantee future consumption. The model is tested with deterministic scenarios and chronological synthetic benchmarks; its accuracy on your actual future weeks has not been established.
+Projections are conditional estimates, not calibrated probabilities. Estimated exhaustion at least a day away shows a date; nearer estimates are rounded up to a quarter hour. The chart retains the calculated points. The budget under Details shows the average percentage points per day (or hour near reset) available to last until reset, even while a forecast is pending. Used/time bars compare consumption with elapsed window time; neither they nor the budget guarantee future consumption. The dashboard therefore omits reassuring pace labels such as “On track”. The model is tested with deterministic scenarios and chronological synthetic benchmarks; its accuracy on your actual future weeks has not been established.
 
 The extension also reads aggregate `token_count` records from active and archived local Codex session logs to show locally observed total tokens per calendar day. Limits update first; token bars update independently when local analysis finishes. These token bars are local activity observations, not an exact accounting of allowance consumption. The details page identifies the allowance source: the live route is explicitly the CLI app-server; session metadata may have been written by the desktop app, CLI, or another local Codex client and cannot be attributed more precisely.
 
@@ -70,7 +72,7 @@ Codex is detected using the environment configuration described in [Requirements
 
 ### Quota categories
 
-Details retains separate quota categories returned by newer Codex versions, including durations other than five hours or one week. The familiar Dock entries and weekly forecast describe only the default category. Percentages from different categories are never added or averaged. Credits remain usable even when there are no percentage windows.
+The dashboard renders separate quota categories returned by newer Codex versions with the same Used/time bars, including durations other than five hours or one week. The familiar Dock entries and weekly forecast describe only the default category. Percentages from different categories are never added or averaged. Available reset credits have a compact count; an expiry within 24 hours is highlighted. The full credits balance is under Details, and credits remain usable even when there are no percentage windows.
 
 ### Freshness and account isolation
 

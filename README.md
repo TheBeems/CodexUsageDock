@@ -61,11 +61,11 @@ GitHub releases identify source versions and may differ from the version availab
 | `2 resets · 10.00` | Two earned resets are available; `10.00` is the reported credits balance. |
 | `Reset - …` / `Expires - …` | The next quota reset or earned-reset expiry, using your local time zone and regional date format. |
 
-Percentages show **remaining allowance**, not usage already consumed. Earned resets and the credits balance are separate values; missing information is not treated as zero. The overall status reflects the most restrictive active quota window.
+Dock-band percentages show **remaining allowance**. Open **Codex Usage** for a compact dashboard: Codex and additional categories such as Spark use the same **Used** and **Time elapsed** bars. Dashboard percentages and the weekly line show **usage consumed**, on a 0–100% scale. Missing windows are marked **Not reported** or **Awaiting refresh**, never shown as zero.
 
-Values refresh every minute by default. Details shows the data source and measurement time. During an outage, **Last confirmed** can retain the previous live measurement with its original timestamp. Local fallback data is labeled with its source and age.
+Values refresh every minute by default. **Details** opens the data source, measurement time, reset-credit expirations, credits balance, and explanatory text; it starts collapsed. During an outage, **Last confirmed** retains the previous observation with its age and pauses time comparisons and forecasts. Local fallback data remains labeled.
 
-Forecasts estimate future allowance from observed usage. Weekly forecasts require at least 30 minutes of fresh, continuous measurements and show their measurement basis. Adaptive estimates use sufficiently observed recent weeks, with less influence from a short burst further ahead. A separate budget shows the average allowance available per day until reset. Daily token bars reflect local session activity and are **not an exact measure of quota consumption**.
+The weekly graph shows one short forecast status. Forecasts require at least 30 minutes of fresh, continuous measurements; their basis and the remaining daily budget are under **Details**. Adaptive estimates use sufficiently observed recent weeks, with less influence from a short burst further ahead. Daily token bars appear only while **Details** is open; they reflect local session activity and are **not an exact measure of quota consumption**.
 
 See the [user guide](USER_GUIDE.md#charts-and-forecasts) for chart legends, adaptive forecasts, and data handling.
 

@@ -79,7 +79,7 @@ public sealed class UsageFreshnessTests
             refreshInterval: TimeSpan.FromMinutes(1)));
         var root = document.RootElement;
 
-        Assert.Contains("Last confirmed usage", root.GetProperty("statusTitle").GetString(), StringComparison.Ordinal);
+        Assert.Contains("Last confirmed", root.GetProperty("notice").GetString(), StringComparison.Ordinal);
         Assert.Contains("Projection unavailable", root.GetProperty("weeklyProjection").GetString(), StringComparison.Ordinal);
         Assert.Equal("Forecast unavailable until usage data is refreshed.", root.GetProperty("weeklyForecastStatus").GetString());
         Assert.True(root.GetProperty("weeklyTrendAvailable").GetBoolean());
@@ -106,7 +106,7 @@ public sealed class UsageFreshnessTests
 
         Assert.Contains("allowance unknown", summary, StringComparison.Ordinal);
         Assert.DoesNotContain("0%", summary, StringComparison.Ordinal);
-        Assert.False(document.RootElement.GetProperty("fiveHourAvailable").GetBoolean());
+        Assert.Empty(document.RootElement.GetProperty("quotaGroups")[0].GetProperty("windows").EnumerateArray());
     }
 
     [Fact]
