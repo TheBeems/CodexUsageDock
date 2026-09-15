@@ -260,7 +260,7 @@ public sealed class UsageDataTests : IDisposable
             now,
             isLoading: false,
             ContinuousHistory(now.AddMinutes(-30), 90, now, 80),
-            ContinuousHistory(now.AddHours(-12), 99, now, 98),
+            ContinuousHistory(now.AddHours(-12), 100, now, 98),
             TimeSpan.FromMinutes(1));
         var details = CodexUsageDockPage.FormatDetailsBody(snapshot, now);
         using var mainData = JsonDocument.Parse(main);
@@ -279,8 +279,8 @@ public sealed class UsageDataTests : IDisposable
         Assert.StartsWith("data:image/svg+xml;utf8,", root.GetProperty("weeklyElapsedBarUrl").GetString(), StringComparison.Ordinal);
         Assert.True(root.GetProperty("weeklyTrendAvailable").GetBoolean());
         Assert.StartsWith("data:image/svg+xml;utf8,", root.GetProperty("weeklyTrendChartUrl").GetString(), StringComparison.Ordinal);
-        Assert.Contains("Solid line connects sampled values", root.GetProperty("weeklyTrendChartAlt").GetString(), StringComparison.Ordinal);
-        Assert.Equal("Forecast: current pace only.", root.GetProperty("weeklyForecastStatus").GetString());
+        Assert.Contains("Solid line connects continuous measurements", root.GetProperty("weeklyTrendChartAlt").GetString(), StringComparison.Ordinal);
+        Assert.StartsWith("Forecast: recent 6 h only.", root.GetProperty("weeklyForecastStatus").GetString(), StringComparison.Ordinal);
         Assert.Equal("On track", root.GetProperty("fiveHourPaceStatus").GetString());
         Assert.Equal("Comfortably on track", root.GetProperty("weeklyPaceStatus").GetString());
         Assert.Contains("Projected at reset", root.GetProperty("fiveHourProjection").GetString(), StringComparison.Ordinal);
@@ -346,7 +346,7 @@ public sealed class UsageDataTests : IDisposable
 
         Assert.True(root.GetProperty("weeklyTrendAvailable").GetBoolean());
         Assert.Equal("250000", thursdayTokenBar.Attribute("data-tokens")?.Value);
-        Assert.Equal(2, observedLines.Length);
+        Assert.Equal(3, observedLines.Length);
     }
 
     [Fact]
@@ -364,34 +364,21 @@ public sealed class UsageDataTests : IDisposable
             now,
             UsageDataSource.AppServer,
             null);
-        var cycles = Enumerable.Range(1, 3)
-            .Select(offset => new AdaptiveWeeklyUsageCycle(
-                reset.AddDays(-7 * offset),
-                10080,
-                60,
-                6,
-                [new AdaptiveWeeklyUsageBucket(1, 60, 12)]))
-            .ToArray();
+        var cycles = WeeklyForecastTests.History(index => index == 1 ? 0.2 : 0.001, reset).CompletedCycles;
 
         var data = CodexUsageDockPage.FormatMainDataJson(
             snapshot,
             now,
             isLoading: false,
             primaryHistory: [],
-            weeklyHistory:
-            [
-                new UsageHistoryEntry(now.AddMinutes(-10), 90),
-                new UsageHistoryEntry(now, 80),
-            ],
+            weeklyHistory: ContinuousHistory(now.AddMinutes(-30), 90, now, 80),
             refreshInterval: TimeSpan.FromMinutes(1),
             adaptiveWeeklyForecastEnabled: true,
             adaptiveWeeklyHistory: new AdaptiveWeeklyUsageHistory(cycles, null));
 
         using var document = JsonDocument.Parse(data);
 
-        Assert.Equal(
-            "Forecast: current pace + local history (3/8 cycles).",
-            document.RootElement.GetProperty("weeklyForecastStatus").GetString());
+        Assert.Contains("3 usable weeks", document.RootElement.GetProperty("weeklyForecastStatus").GetString(), StringComparison.Ordinal);
     }
 
     [Fact]
@@ -537,7 +524,7 @@ public sealed class UsageDataTests : IDisposable
         Assert.Equal(["1M", "500K"], root.Descendants(Svg + "g")
             .Where(group => group.Attribute("data-axis")?.Value == "tokens")
             .Select(group => group.Attribute("data-axis-label")!.Value));
-        Assert.Contains("Solid line connects sampled values", result.AltText, StringComparison.Ordinal);
+        Assert.Contains("Solid line connects continuous measurements", result.AltText, StringComparison.Ordinal);
         Assert.Contains("locally observed total tokens", result.AltText, StringComparison.Ordinal);
         Assert.DoesNotContain("NaN", result.ImageUrl, StringComparison.Ordinal);
         Assert.DoesNotContain("Infinity", result.ImageUrl, StringComparison.Ordinal);
@@ -608,7 +595,7 @@ public sealed class UsageDataTests : IDisposable
     }
 
     [Fact]
-    public void WeeklyTrendChartConnectsAllowanceGapsWithoutChangingDailyTokens()
+    public void WeeklyTrendChartBreaksAllowanceGapsWithoutChangingDailyTokens()
     {
         var windowStart = new DateTimeOffset(2026, 7, 10, 9, 0, 0, TimeSpan.Zero);
         var reset = windowStart.AddDays(7);
@@ -637,10 +624,8 @@ public sealed class UsageDataTests : IDisposable
             root.Descendants(Svg + "rect"),
             bar => bar.Attribute("data-series")?.Value == "daily-tokens");
 
-        var observedPoints = Assert.Single(observedLines)
-            .Attribute("points")!.Value.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-
-        Assert.Equal(4, observedPoints.Length);
+        Assert.Equal(2, observedLines.Length);
+        Assert.All(observedLines, line => Assert.Equal(2, line.Attribute("points")!.Value.Split(' ', StringSplitOptions.RemoveEmptyEntries).Length));
         Assert.Equal("250000", tokenBar.Attribute("data-tokens")?.Value);
     }
 
@@ -676,7 +661,7 @@ public sealed class UsageDataTests : IDisposable
 
         Assert.Equal(2, observedLines.Length);
         Assert.Equal("125000", dailyTokenBar.Attribute("data-tokens")?.Value);
-        Assert.Contains("line breaks mark allowance increases or resets", result.AltText, StringComparison.Ordinal);
+        Assert.Contains("gaps and allowance increases break the line", result.AltText, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -684,7 +669,7 @@ public sealed class UsageDataTests : IDisposable
     {
         var windowStart = new DateTimeOffset(2026, 7, 18, 9, 0, 0, TimeSpan.Zero);
         var reset = windowStart.AddDays(7);
-        var now = windowStart.AddMinutes(20);
+        var now = windowStart.AddMinutes(45);
         UsageHistoryEntry[] history =
         [
             new(windowStart.AddMinutes(1), 100, reset, 10080),
@@ -694,6 +679,7 @@ public sealed class UsageDataTests : IDisposable
             new(windowStart.AddMinutes(15), 92, reset, 10080),
             new(now, 90, reset, 10080),
         ];
+        history = history[..^1].Concat(ContinuousHistory(windowStart.AddMinutes(15), 92, now, 90)).ToArray();
         var snapshot = CodexUsageSnapshot.Loading with
         {
             Secondary = new RateLimitWindow(10, 10080, reset),
@@ -1014,7 +1000,7 @@ public sealed class UsageDataTests : IDisposable
     }
 
     [Fact]
-    public void WeeklyTrendChartConnectsGapIsolatedObservationsAsASampledLine()
+    public void WeeklyTrendChartShowsGapIsolatedObservationsAsPoints()
     {
         var windowStart = new DateTimeOffset(2026, 7, 10, 9, 0, 0, TimeSpan.Zero);
         var reset = windowStart.AddDays(7);
@@ -1032,11 +1018,8 @@ public sealed class UsageDataTests : IDisposable
         var result = Assert.IsType<WeeklyUsageTrendChart>(chart);
         var svg = ParseSvg(result.ImageUrl);
 
-        var observed = Assert.Single(svg.Descendants(Svg + "polyline"));
-        var points = observed.Attribute("points")!.Value.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-
-        Assert.Equal(2, points.Length);
-        Assert.Single(svg.Descendants(Svg + "circle"));
+        Assert.Empty(svg.Descendants(Svg + "polyline"));
+        Assert.Equal(2, svg.Descendants(Svg + "circle").Count());
     }
 
     [Fact]
@@ -1895,7 +1878,7 @@ public sealed class UsageDataTests : IDisposable
             maximumSampleAge: TimeSpan.FromMinutes(5));
 
         Assert.Contains("Weekly usage trend", trend, StringComparison.Ordinal);
-        Assert.Contains("Projected at reset: 40% available", trend, StringComparison.Ordinal);
+        Assert.Contains("Projected at reset: about 40% available", trend, StringComparison.Ordinal);
         Assert.DoesNotContain("limit may be reached", trend, StringComparison.Ordinal);
     }
 
@@ -1905,7 +1888,7 @@ public sealed class UsageDataTests : IDisposable
         var now = DateTimeOffset.Now;
         var trend = CodexUsageDockPage.FormatTrend(
             "Weekly usage trend",
-            [new UsageHistoryEntry(now.AddMinutes(-10), 30), new UsageHistoryEntry(now, 10)],
+            ContinuousHistory(now.AddMinutes(-30), 30, now, 10),
             new RateLimitWindow(90, 10080, now.AddDays(3)),
             now,
             dataAvailable: true,
@@ -1927,7 +1910,7 @@ public sealed class UsageDataTests : IDisposable
             dataAvailable: true,
             maximumSampleAge: TimeSpan.FromMinutes(5));
 
-        Assert.Contains($"limit may be reached around {estimated.ToLocalTime():ddd d MMM HH:mm}", trend, StringComparison.Ordinal);
+        Assert.Contains($"limit may be reached around {estimated.ToLocalTime():ddd d MMM}.", trend, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -2094,7 +2077,7 @@ public sealed class UsageDataTests : IDisposable
     }
 
     [Fact]
-    public void AdaptiveForecastUsesTheActiveCycleWhenItsResetTimeHasSmallJitter()
+    public void AdaptiveForecastDoesNotDoubleCountTheActiveCycleAsLearnedHistory()
     {
         var reset = new DateTimeOffset(2026, 7, 24, 0, 0, 0, TimeSpan.Zero);
         var active = new AdaptiveWeeklyUsageCycle(reset, 10080, 60, 6, []);
@@ -2107,7 +2090,8 @@ public sealed class UsageDataTests : IDisposable
             enabled: true,
             new AdaptiveWeeklyUsageHistory([], active));
 
-        Assert.Equal("Forecast: current pace + limited local history.", projection.Status);
+        Assert.Contains("history is insufficient", projection.Status, StringComparison.Ordinal);
+        Assert.False(projection.UsesHistory);
     }
 
     [Fact]
@@ -2262,21 +2246,14 @@ public sealed class UsageDataTests : IDisposable
     {
         var reset = new DateTimeOffset(2026, 7, 24, 0, 0, 0, TimeSpan.Zero);
         var start = reset.AddDays(-7);
-        var cycles = Enumerable.Range(1, 3)
-            .Select(offset => new AdaptiveWeeklyUsageCycle(
-                reset.AddDays(-7 * offset),
-                10080,
-                60,
-                6,
-                [new AdaptiveWeeklyUsageBucket(1, 60, 12)]))
-            .ToArray();
+        var cycles = WeeklyForecastTests.History(index => index == 1 ? 0.2 : 0.001, reset).CompletedCycles;
         var history = new AdaptiveWeeklyUsageHistory(cycles, null);
         var latest = new UsageHistoryEntry(start.AddHours(6), 50);
 
         var adaptive = AdaptiveWeeklyForecast.Project(latest, start, reset, 0.1, true, history);
         var currentOnly = AdaptiveWeeklyForecast.Project(latest, start, reset, 0.1, false, history);
 
-        Assert.Equal("Forecast: current pace + local history (3/8 cycles).", adaptive.Status);
+        Assert.Contains("3 usable weeks", adaptive.Status, StringComparison.Ordinal);
         Assert.True(adaptive.Forecast.EndsAt < currentOnly.Forecast.EndsAt);
         Assert.Equal("Forecast: current pace only.", currentOnly.Status);
     }

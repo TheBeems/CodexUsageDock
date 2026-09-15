@@ -160,7 +160,8 @@ public partial class CodexUsageDockCommandsProvider : CommandProvider
             band.NotifyItemsChanged();
         }
         var alerts = _alerts.Evaluate(_usage.GetPresentation(), _clock(), _usage.RefreshInterval,
-            new UsageAlertOptions(Enabled: _settings.EnableUsageAlerts));
+            new UsageAlertOptions(Enabled: _settings.EnableUsageAlerts,
+                AdaptiveWeeklyForecastEnabled: _settings.UseAdaptiveWeeklyForecast));
         if (alerts.Count > 0)
         {
             var message = string.Join(" · ", alerts.Take(3).Select(alert => alert.Message));

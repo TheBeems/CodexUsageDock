@@ -322,6 +322,37 @@ public sealed class UsageAlertTests
         UsageAlertOptions? options = null) =>
         evaluator.Evaluate(presentation, now ?? Now, RefreshInterval, options ?? EnabledOptions);
 
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void WeeklyWarningUsesTheSameAdaptiveChoiceAsTheDashboard(bool adaptive)
+    {
+        var reset = Now.AddDays(5);
+        var learned = WeeklyForecastTests.History(_ => 0, reset);
+        var evaluator = new UsageAlertEvaluator();
+        var options = EnabledOptions with { LowRemainingPercent = 1, AdaptiveWeeklyForecastEnabled = adaptive };
+        var baseline = Presentation(primaryRemaining: null, secondaryRemaining: 6, secondaryReset: reset,
+            updatedAt: Now.AddMinutes(-1)) with { AdaptiveWeeklyHistory = learned };
+        Assert.Empty(Evaluate(evaluator, baseline, Now.AddMinutes(-1), options));
+        var samples = WeeklyForecastTests.Series(Now.AddMinutes(-30), Now, 8.5, 5.5);
+        var current = Presentation(primaryRemaining: null, secondaryRemaining: 5.5, secondaryReset: reset,
+            weeklyHistory: samples) with { AdaptiveWeeklyHistory = learned };
+        var forecast = UsageTrendAnalyzer.Analyze(samples, reset.AddDays(-7), reset, Now, true,
+            TimeSpan.FromMinutes(5), adaptive, learned).Forecast!;
+        var alerts = Evaluate(evaluator, current, Now, options);
+
+        if (adaptive)
+        {
+            Assert.True(forecast.EndsAt > Now.AddHours(1));
+            Assert.Empty(alerts);
+        }
+        else
+        {
+            Assert.True(forecast.EndsAt <= Now.AddHours(1));
+            Assert.StartsWith("forecast:", Assert.Single(alerts).Key, StringComparison.Ordinal);
+        }
+    }
+
     private static UsagePresentation Presentation(
         double? primaryRemaining = 80,
         double? secondaryRemaining = 80,

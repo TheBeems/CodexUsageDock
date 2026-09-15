@@ -6,7 +6,8 @@ internal sealed record UsageAlertOptions(
     bool Enabled = false,
     int LowRemainingPercent = 10,
     bool ForecastWarnings = true,
-    bool ResetExpiryWarnings = true);
+    bool ResetExpiryWarnings = true,
+    bool AdaptiveWeeklyForecastEnabled = true);
 
 internal sealed record UsageAlert(string Key, string Message);
 
@@ -97,7 +98,9 @@ internal sealed class UsageAlertEvaluator
                     presentation.WeeklyHistory,
                     now,
                     refreshInterval,
-                    alerts);
+                    alerts,
+                    options.AdaptiveWeeklyForecastEnabled,
+                    presentation.AdaptiveWeeklyHistory);
             }
 
             if (options.ResetExpiryWarnings)
@@ -282,7 +285,9 @@ internal sealed class UsageAlertEvaluator
         IReadOnlyList<UsageHistoryEntry> history,
         DateTimeOffset now,
         TimeSpan refreshInterval,
-        List<UsageAlert> alerts)
+        List<UsageAlert> alerts,
+        bool adaptiveWeeklyForecastEnabled = false,
+        AdaptiveWeeklyUsageHistory? adaptiveWeeklyHistory = null)
     {
         if (targetWindow is null)
         {
@@ -306,7 +311,9 @@ internal sealed class UsageAlertEvaluator
                 targetWindow.ResetsAt,
                 now,
                 dataAvailable: true,
-                UsageFreshness.MaximumAge(refreshInterval)).Forecast;
+                UsageFreshness.MaximumAge(refreshInterval),
+                adaptiveWeeklyForecastEnabled,
+                adaptiveWeeklyHistory).Forecast;
         }
         catch (ArgumentException)
         {

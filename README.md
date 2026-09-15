@@ -65,7 +65,7 @@ Percentages show **remaining allowance**, not usage already consumed. Earned res
 
 Values refresh every minute by default. Details shows the data source and measurement time. During an outage, **Last confirmed** can retain the previous live measurement with its original timestamp. Local fallback data is labeled with its source and age.
 
-Forecasts estimate future allowance from observed usage. They pause when data is stale or there are too few fresh, continuous measurements. Daily token bars reflect local session activity and are **not an exact measure of quota consumption**.
+Forecasts estimate future allowance from observed usage. Weekly forecasts require at least 30 minutes of fresh, continuous measurements and show their measurement basis. Adaptive estimates use sufficiently observed recent weeks, with less influence from a short burst further ahead. A separate budget shows the average allowance available per day until reset. Daily token bars reflect local session activity and are **not an exact measure of quota consumption**.
 
 See the [user guide](USER_GUIDE.md#charts-and-forecasts) for chart legends, adaptive forecasts, and data handling.
 
@@ -110,7 +110,7 @@ The [user guide](USER_GUIDE.md) explains availability, exports, retention, and r
 | Extension not visible | Confirm PowerToys meets the requirements and Command Palette is running. Run **Reload Command Palette Extension**, then check **Settings > Extensions > Codex Usage**. |
 | Only fallback data, or no usage | Check the standalone CLI requirement above and confirm Codex is signed in. Restart PowerToys after changing the CLI path. Start Codex once if local account and session metadata are missing. |
 | Old values or **Last confirmed** | Check the measurement time and latest refresh attempt in diagnostics, then retry a refresh. |
-| Forecast unavailable | Allow fresh, continuous measurements to accumulate. Projections pause after gaps, stale data, or allowance increases until enough usage is observed. |
+| Forecast unavailable | Allow at least 30 minutes of fresh, continuous weekly measurements to accumulate after a gap or allowance increase. Without usable history, a meaningful decrease is also needed. |
 | Dock items missing after changing modes | Open Dock customization and add the bands for the selected combined or separate mode. |
 | Settings not saved | Read the error on the settings page and retry saving. Until saving succeeds, changes apply only to the running session. |
 
