@@ -5,8 +5,7 @@ namespace CodexUsageDock;
 
 internal enum UsageBarPalette
 {
-    FiveHour,
-    Weekly,
+    Used,
     Time,
 }
 
@@ -15,391 +14,137 @@ internal static class UsageDashboardCard
     internal const int BarHeight = 12;
     internal const int BarWidth = 536;
 
+
     internal const string TemplateJson = """
         {
           "type": "AdaptiveCard",
           "body": [
             {
-              "type": "TextBlock",
-              "text": "Refreshing Codex usage…",
-              "weight": "bolder",
-              "wrap": true,
-              "$when": "${isLoading}"
-            },
-            {
-              "type": "Container",
-              "items": [
+              "type": "ColumnSet",
+              "columns": [
                 {
-                  "type": "TextBlock",
-                  "text": "${statusTitle}",
-                  "weight": "bolder",
-                  "wrap": true
-                },
-                {
-                  "type": "TextBlock",
-                  "text": "${statusDescription}",
-                  "spacing": "none",
-                  "wrap": true
-                }
-              ]
-            },
-            {
-              "type": "Container",
-              "separator": true,
-              "spacing": "medium",
-              "items": [
-                {
-                  "type": "TextBlock",
-                  "text": "5-hour window",
-                  "size": "large",
-                  "weight": "bolder"
-                },
-                {
-                  "type": "TextBlock",
-                  "text": "${fiveHourState}",
-                  "weight": "bolder",
-                  "wrap": true,
-                  "$when": "${fiveHourAvailable == false}"
-                },
-                {
-                  "type": "ColumnSet",
-                  "$when": "${fiveHourAvailable}",
-                  "columns": [
-                    {
-                      "type": "Column",
-                      "width": "stretch",
-                      "items": [
-                        {
-                          "type": "TextBlock",
-                          "text": "Available",
-                          "isSubtle": true
-                        },
-                        {
-                          "type": "TextBlock",
-                          "text": "${fiveHourRemaining}",
-                          "size": "large",
-                          "weight": "bolder",
-                          "spacing": "none"
-                        }
-                      ]
-                    },
-                    {
-                      "type": "Column",
-                      "width": "stretch",
-                      "items": [
-                        {
-                          "type": "TextBlock",
-                          "text": "Reset",
-                          "isSubtle": true,
-                          "horizontalAlignment": "right"
-                        },
-                        {
-                          "type": "TextBlock",
-                          "text": "${fiveHourReset}",
-                          "horizontalAlignment": "right",
-                          "spacing": "none",
-                          "wrap": true
-                        }
-                      ]
-                    }
-                  ]
-                },
-                {
-                  "type": "ColumnSet",
-                  "spacing": "medium",
-                  "$when": "${fiveHourAvailable}",
-                  "columns": [
-                    {
-                      "type": "Column",
-                      "width": "stretch",
-                      "items": [
-                        {
-                          "type": "TextBlock",
-                          "text": "Allowance used",
-                          "isSubtle": true
-                        }
-                      ]
-                    },
-                    {
-                      "type": "Column",
-                      "width": "auto",
-                      "items": [
-                        {
-                          "type": "TextBlock",
-                          "text": "${fiveHourUsedPercent}",
-                          "weight": "bolder",
-                          "horizontalAlignment": "right"
-                        }
-                      ]
-                    }
-                  ]
-                },
-                {
-                  "type": "Image",
-                  "url": "${fiveHourUsedBarUrl}",
-                  "altText": "${fiveHourUsedBarAlt}",
-                  "size": "stretch",
-                  "spacing": "none",
-                  "$when": "${fiveHourAvailable}"
-                },
-                {
-                  "type": "ColumnSet",
-                  "spacing": "small",
-                  "$when": "${fiveHourAvailable}",
-                  "columns": [
-                    {
-                      "type": "Column",
-                      "width": "stretch",
-                      "items": [
-                        {
-                          "type": "TextBlock",
-                          "text": "Window elapsed",
-                          "isSubtle": true
-                        }
-                      ]
-                    },
-                    {
-                      "type": "Column",
-                      "width": "auto",
-                      "items": [
-                        {
-                          "type": "TextBlock",
-                          "text": "${fiveHourElapsedPercent}",
-                          "weight": "bolder",
-                          "horizontalAlignment": "right"
-                        }
-                      ]
-                    }
-                  ]
-                },
-                {
-                  "type": "Image",
-                  "url": "${fiveHourElapsedBarUrl}",
-                  "altText": "${fiveHourElapsedBarAlt}",
-                  "size": "stretch",
-                  "spacing": "none",
-                  "$when": "${fiveHourAvailable}"
-                },
-                {
-                  "type": "TextBlock",
-                  "text": "${fiveHourPaceStatus}",
-                  "color": "${fiveHourPaceColor}",
-                  "weight": "bolder",
-                  "wrap": true,
-                  "$when": "${fiveHourAvailable}"
-                },
-                {
-                  "type": "TextBlock",
-                  "text": "${fiveHourProjection}",
-                  "isSubtle": true,
-                  "spacing": "small",
-                  "wrap": true,
-                  "$when": "${fiveHourAvailable}"
-                }
-              ]
-            },
-            {
-              "type": "Container",
-              "separator": true,
-              "spacing": "medium",
-              "items": [
-                {
-                  "type": "TextBlock",
-                  "text": "Weekly window",
-                  "size": "large",
-                  "weight": "bolder"
-                },
-                {
-                  "type": "TextBlock",
-                  "text": "${weeklyState}",
-                  "weight": "bolder",
-                  "wrap": true,
-                  "$when": "${weeklyAvailable == false}"
-                },
-                {
-                  "type": "ColumnSet",
-                  "$when": "${weeklyAvailable}",
-                  "columns": [
-                    {
-                      "type": "Column",
-                      "width": "stretch",
-                      "items": [
-                        {
-                          "type": "TextBlock",
-                          "text": "Available",
-                          "isSubtle": true
-                        },
-                        {
-                          "type": "TextBlock",
-                          "text": "${weeklyRemaining}",
-                          "size": "large",
-                          "weight": "bolder",
-                          "spacing": "none"
-                        }
-                      ]
-                    },
-                    {
-                      "type": "Column",
-                      "width": "stretch",
-                      "items": [
-                        {
-                          "type": "TextBlock",
-                          "text": "Reset",
-                          "isSubtle": true,
-                          "horizontalAlignment": "right"
-                        },
-                        {
-                          "type": "TextBlock",
-                          "text": "${weeklyReset}",
-                          "horizontalAlignment": "right",
-                          "spacing": "none",
-                          "wrap": true
-                        }
-                      ]
-                    }
-                  ]
-                },
-                {
-                  "type": "ColumnSet",
-                  "spacing": "medium",
-                  "$when": "${weeklyAvailable}",
-                  "columns": [
-                    {
-                      "type": "Column",
-                      "width": "stretch",
-                      "items": [
-                        {
-                          "type": "TextBlock",
-                          "text": "Allowance used",
-                          "isSubtle": true
-                        }
-                      ]
-                    },
-                    {
-                      "type": "Column",
-                      "width": "auto",
-                      "items": [
-                        {
-                          "type": "TextBlock",
-                          "text": "${weeklyUsedPercent}",
-                          "weight": "bolder",
-                          "horizontalAlignment": "right"
-                        }
-                      ]
-                    }
-                  ]
-                },
-                {
-                  "type": "Image",
-                  "url": "${weeklyUsedBarUrl}",
-                  "altText": "${weeklyUsedBarAlt}",
-                  "size": "stretch",
-                  "spacing": "none",
-                  "$when": "${weeklyAvailable}"
-                },
-                {
-                  "type": "ColumnSet",
-                  "spacing": "small",
-                  "$when": "${weeklyAvailable}",
-                  "columns": [
-                    {
-                      "type": "Column",
-                      "width": "stretch",
-                      "items": [
-                        {
-                          "type": "TextBlock",
-                          "text": "Window elapsed",
-                          "isSubtle": true
-                        }
-                      ]
-                    },
-                    {
-                      "type": "Column",
-                      "width": "auto",
-                      "items": [
-                        {
-                          "type": "TextBlock",
-                          "text": "${weeklyElapsedPercent}",
-                          "weight": "bolder",
-                          "horizontalAlignment": "right"
-                        }
-                      ]
-                    }
-                  ]
-                },
-                {
-                  "type": "Image",
-                  "url": "${weeklyElapsedBarUrl}",
-                  "altText": "${weeklyElapsedBarAlt}",
-                  "size": "stretch",
-                  "spacing": "none",
-                  "$when": "${weeklyAvailable}"
-                },
-                {
-                  "type": "TextBlock",
-                  "text": "${weeklyPaceStatus}",
-                  "color": "${weeklyPaceColor}",
-                  "weight": "bolder",
-                  "wrap": true,
-                  "$when": "${weeklyAvailable}"
-                },
-                {
-                  "type": "TextBlock",
-                  "text": "${weeklyProjection}",
-                  "isSubtle": true,
-                  "spacing": "small",
-                  "wrap": true,
-                  "$when": "${weeklyAvailable}"
-                },
-                {
-                  "type": "TextBlock",
-                  "text": "${weeklyBudget}",
-                  "isSubtle": true,
-                  "spacing": "small",
-                  "wrap": true,
-                  "$when": "${weeklyAvailable}"
-                },
-                {
-                  "type": "Container",
-                  "separator": true,
-                  "spacing": "medium",
-                  "$when": "${weeklyTrendAvailable}",
+                  "type": "Column", "width": "stretch",
                   "items": [
                     {
-                      "type": "TextBlock",
-                      "text": "Weekly trend",
-                      "weight": "bolder"
+                      "type": "TextBlock", "text": "${notice}",
+                      "wrap": true, "color": "Warning", "$when": "${hasNotice}"
                     },
                     {
-                      "type": "TextBlock",
-                      "text": "${weeklyTrendLegend}",
-                      "isSubtle": true,
-                      "spacing": "none",
-                      "wrap": true
+                      "type": "TextBlock", "text": "${resetCreditsSummary}",
+                      "wrap": true, "color": "${resetCreditsColor}",
+                      "$when": "${hasResetCredits}"
                     },
                     {
-                      "type": "Image",
-                      "url": "${weeklyTrendChartUrl}",
-                      "altText": "${weeklyTrendChartAlt}",
-                      "size": "stretch",
-                      "spacing": "small"
-                    },
-                    {
-                      "type": "TextBlock",
-                      "text": "${weeklyRestorationSummary}",
-                      "color": "Warning",
-                      "spacing": "small",
-                      "wrap": true,
-                      "$when": "${weeklyRestorationAvailable}"
-                    },
-                    {
-                      "type": "TextBlock",
-                      "text": "${weeklyForecastStatus}",
-                      "isSubtle": true,
-                      "spacing": "small",
-                      "wrap": true
+                      "type": "TextBlock", "text": "Refreshing…",
+                      "isSubtle": true, "$when": "${isLoading}"
                     }
                   ]
+                },
+                {
+                  "type": "Column", "width": "auto",
+                  "items": [
+                    {
+                      "type": "ActionSet",
+                      "actions": [
+                        {
+                          "type": "Action.Submit", "title": "${detailsButtonTitle}",
+                          "data": { "action": "details" }
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "Container",
+              "$data": "${quotaGroups}",
+              "spacing": "medium", "separator": true,
+              "items": [
+                { "type": "TextBlock", "text": "${heading}", "weight": "bolder", "wrap": true },
+                {
+                  "type": "TextBlock", "text": "${inactiveWindows}",
+                  "isSubtle": true, "spacing": "small", "wrap": true,
+                  "$when": "${hasInactiveWindows}"
+                },
+                {
+                  "type": "ColumnSet", "spacing": "small",
+                  "columns": [
+                    {
+                      "type": "Column", "width": "stretch", "$data": "${windows}",
+                      "items": [
+                        {
+                          "type": "TextBlock", "text": "${title}", "weight": "bolder", "wrap": true,
+                          "$when": "${showTitle}"
+                        },
+                        {
+                          "type": "ColumnSet", "spacing": "small",
+                          "columns": [
+                            {
+                              "type": "Column", "width": "stretch",
+                              "items": [ { "type": "TextBlock", "text": "Used", "isSubtle": true } ]
+                            },
+                            {
+                              "type": "Column", "width": "auto",
+                              "items": [
+                                {
+                                  "type": "TextBlock", "text": "${usedPercent}",
+                                  "size": "large", "weight": "bolder", "color": "${usedColor}",
+                                  "horizontalAlignment": "right"
+                                }
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "type": "Image", "url": "${usedBarUrl}", "altText": "${usedBarAlt}",
+                          "size": "stretch", "height": "12px", "spacing": "none"
+                        },
+                        {
+                          "type": "ColumnSet", "spacing": "small",
+                          "columns": [
+                            {
+                              "type": "Column", "width": "stretch",
+                              "items": [ { "type": "TextBlock", "text": "Time elapsed", "isSubtle": true } ]
+                            },
+                            {
+                              "type": "Column", "width": "auto",
+                              "items": [
+                                { "type": "TextBlock", "text": "${elapsedPercent}", "horizontalAlignment": "right" }
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "type": "Image", "url": "${elapsedBarUrl}", "altText": "${elapsedBarAlt}",
+                          "size": "stretch", "height": "12px", "spacing": "none", "$when": "${elapsedAvailable}"
+                        },
+                        {
+                          "type": "TextBlock", "text": "${reset}",
+                          "isSubtle": true, "spacing": "small", "wrap": true
+                        }
+                      ]
+                    },
+                    {
+                      "type": "Column", "width": "stretch", "items": [],
+                      "$when": "${singleWindow}"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "Container", "separator": true, "spacing": "medium",
+              "$when": "${weeklyAvailable}",
+              "items": [
+                { "type": "TextBlock", "text": "Codex · weekly usage", "weight": "bolder" },
+                {
+                  "type": "Image", "url": "${weeklyTrendChartUrl}", "altText": "${weeklyTrendChartAlt}",
+                  "size": "stretch", "spacing": "small", "$when": "${weeklyTrendAvailable}"
+                },
+                {
+                  "type": "TextBlock", "text": "${weeklyForecastSummary}",
+                  "isSubtle": true, "wrap": true, "spacing": "small"
                 }
               ]
             }
@@ -415,8 +160,6 @@ internal static class UsageDashboardCard
         var progressWidth = (BarWidth - 2d) * normalized / 100;
         var fillColor = palette switch
         {
-            UsageBarPalette.FiveHour => "#39B8E3",
-            UsageBarPalette.Weekly => "#5C9EFA",
             UsageBarPalette.Time => "#8A8A8A",
             _ => "#5C9EFA",
         };

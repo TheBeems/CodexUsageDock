@@ -8,65 +8,18 @@ internal sealed record WeeklyUsageTrendChart(string ImageUrl, string AltText);
 
 internal static class WeeklyUsageTrendChartRenderer
 {
-    internal const int Height = 136;
+    internal const int Width = 960;
+    internal const int Height = 240;
     internal const int MaximumRenderedPoints = 180;
 
-    private const double Left = 38;
-    private const double Right = 38;
-    private const double TrendTop = 8;
-    private const double TrendBottom = 114;
+    private const double Left = 58;
+    private const double Right = 58;
+    private const double TrendTop = 28;
+    private const double TrendBottom = 207;
     private const double TrendHeight = TrendBottom - TrendTop;
-    private const double DayLabelTop = 122;
-    private const int BitmapGlyphColumns = 3;
-    private const int BitmapGlyphRows = 5;
-    private const double BitmapCellSize = 2;
-    private const double BitmapGlyphGap = 1;
-    private const string AxisLabelFill = "#C8C8C8";
+    private const double DayLabelTop = 219;
+    private const string AxisLabelFill = "#888888";
     private static readonly XNamespace Svg = "http://www.w3.org/2000/svg";
-    private static readonly Dictionary<char, string> BitmapGlyphs = new()
-    {
-        ['0'] = "111101101101111",
-        ['1'] = "010110010010111",
-        ['2'] = "111001111100111",
-        ['3'] = "111001111001111",
-        ['4'] = "101101111001001",
-        ['5'] = "111100111001111",
-        ['6'] = "111100111101111",
-        ['7'] = "111001010010010",
-        ['8'] = "111101111101111",
-        ['9'] = "111101111001111",
-        ['A'] = "010101111101101",
-        ['B'] = "110101110101110",
-        ['C'] = "111100100100111",
-        ['D'] = "110101101101110",
-        ['E'] = "111100110100111",
-        ['F'] = "111100110100100",
-        ['G'] = "111100101101111",
-        ['H'] = "101101111101101",
-        ['I'] = "111010010010111",
-        ['J'] = "001001001101111",
-        ['K'] = "101101110101101",
-        ['L'] = "100100100100111",
-        ['M'] = "101111111101101",
-        ['N'] = "101111111111101",
-        ['O'] = "111101101101111",
-        ['P'] = "111101111100100",
-        ['Q'] = "111101101111001",
-        ['R'] = "110101110101101",
-        ['S'] = "111100111001111",
-        ['T'] = "111010010010010",
-        ['U'] = "101101101101111",
-        ['V'] = "101101101101010",
-        ['W'] = "101101111111101",
-        ['X'] = "101101010101101",
-        ['Y'] = "101101010010010",
-        ['Z'] = "111001010100111",
-        [' '] = "000000000000000",
-        ['%'] = "101001010100101",
-        ['.'] = "000000000000010",
-        ['?'] = "111001010000010",
-    };
-
     internal static WeeklyUsageTrendChart? Create(
         IReadOnlyList<UsageHistoryEntry> history,
         RateLimitWindow window,
@@ -89,7 +42,7 @@ internal static class WeeklyUsageTrendChartRenderer
             return null;
         }
 
-        var displayCulture = culture ?? CultureInfo.CurrentCulture;
+        var displayCulture = culture ?? CultureInfo.InvariantCulture;
         var displayTimeZone = timeZone ?? TimeZoneInfo.Local;
         var restorations = WeeklyAllowanceRestoration.Detect(history, window, effectiveNow);
         var samples = Normalize(history, windowStart, effectiveNow);
@@ -143,9 +96,9 @@ internal static class WeeklyUsageTrendChartRenderer
 
     private static XElement CreateDocument() => new(
         Svg + "svg",
-        new XAttribute("width", UsageDashboardCard.BarWidth),
+        new XAttribute("width", Width),
         new XAttribute("height", Height),
-        new XAttribute("viewBox", $"0 0 {UsageDashboardCard.BarWidth} {Height}"),
+        new XAttribute("viewBox", $"0 0 {Width} {Height}"),
         new XAttribute("role", "img"));
 
     private static UsageHistoryEntry[] Normalize(
@@ -364,25 +317,25 @@ internal static class WeeklyUsageTrendChartRenderer
     {
         foreach (var percent in new[] { 100, 50, 0 })
         {
-            var y = GetTrendY(percent);
+            var y = GetTrendY(100 - percent);
             document.Add(
                 new XElement(
                     Svg + "line",
                     new XAttribute("x1", Left),
-                    new XAttribute("x2", UsageDashboardCard.BarWidth - Right),
+                    new XAttribute("x2", Width - Right),
                     new XAttribute("y1", Format(y)),
                     new XAttribute("y2", Format(y)),
                     new XAttribute("stroke", "#7A7A7A"),
                     new XAttribute("stroke-opacity", "0.42"),
                     new XAttribute("stroke-width", "1"),
-                    new XAttribute("data-grid", "remaining-percent"),
+                    new XAttribute("data-grid", "used-percent"),
                     new XAttribute("data-value", percent)));
-            AddBitmapLabel(
+            AddChartLabel(
                 document,
                 $"{percent}%",
                 Left - 5,
-                Math.Clamp(y - BitmapLabelHeight / 2, 0, Height - BitmapLabelHeight),
-                BitmapLabelAlignment.End,
+                Math.Clamp(y - ChartLabelHeight / 2, 0, Height - ChartLabelHeight),
+                ChartLabelAlignment.End,
                 "vertical");
         }
     }
@@ -397,34 +350,34 @@ internal static class WeeklyUsageTrendChartRenderer
         foreach (var (tokens, y) in new[]
         {
             // Keep the top token label below the reset label at the chart boundary.
-            (tokenScaleMaximum, TrendTop + BitmapLabelHeight + 2),
+            (tokenScaleMaximum, TrendTop + ChartLabelHeight + 2),
             (tokenScaleMaximum / 2d, TrendTop + TrendHeight / 2),
         })
         {
-            AddBitmapLabel(
+            AddChartLabel(
                 document,
                 FormatCompactTokens(tokens),
-                UsageDashboardCard.BarWidth - Right + 5,
-                Math.Clamp(y - BitmapLabelHeight / 2, 0, Height - BitmapLabelHeight),
-                BitmapLabelAlignment.Start,
+                Width - Right + 5,
+                Math.Clamp(y - ChartLabelHeight / 2, 0, Height - ChartLabelHeight),
+                ChartLabelAlignment.Start,
                 "tokens");
         }
     }
 
-    private static void AddBitmapLabel(
+    private static void AddChartLabel(
         XElement document,
         string label,
         double anchorX,
         double top,
-        BitmapLabelAlignment alignment,
+        ChartLabelAlignment alignment,
         string axis)
     {
-        var rendered = NormalizeBitmapLabel(label);
-        var width = MeasureBitmapLabel(rendered);
+        var rendered = NormalizeChartLabel(label);
+        var width = MeasureChartLabel(rendered);
         var left = alignment switch
         {
-            BitmapLabelAlignment.Center => anchorX - width / 2,
-            BitmapLabelAlignment.End => anchorX - width,
+            ChartLabelAlignment.Center => anchorX - width / 2,
+            ChartLabelAlignment.End => anchorX - width,
             _ => anchorX,
         };
         var group = new XElement(
@@ -433,35 +386,25 @@ internal static class WeeklyUsageTrendChartRenderer
             new XAttribute("data-axis-label", label),
             new XAttribute("data-rendered-label", rendered));
 
-        for (var characterIndex = 0; characterIndex < rendered.Length; characterIndex++)
+        var glyphLeft = left;
+        foreach (var character in rendered)
         {
-            var glyph = BitmapGlyphs[rendered[characterIndex]];
-            var glyphLeft = left + characterIndex * (BitmapGlyphColumns * BitmapCellSize + BitmapGlyphGap);
-            for (var row = 0; row < BitmapGlyphRows; row++)
+            var glyph = ChartLabelGlyphs.Values[character];
+            if (glyph.Path.Length > 0)
             {
-                for (var column = 0; column < BitmapGlyphColumns; column++)
-                {
-                    if (glyph[row * BitmapGlyphColumns + column] != '1')
-                    {
-                        continue;
-                    }
-
-                    group.Add(
-                        new XElement(
-                            Svg + "rect",
-                            new XAttribute("x", Format(glyphLeft + column * BitmapCellSize)),
-                            new XAttribute("y", Format(top + row * BitmapCellSize)),
-                            new XAttribute("width", Format(BitmapCellSize)),
-                            new XAttribute("height", Format(BitmapCellSize)),
-                            new XAttribute("fill", AxisLabelFill)));
-                }
+                group.Add(new XElement(
+                    Svg + "path",
+                    new XAttribute("d", glyph.Path),
+                    new XAttribute("transform", $"translate({Format(glyphLeft)} {Format(top)})"),
+                    new XAttribute("fill", AxisLabelFill)));
             }
+            glyphLeft += glyph.Width;
         }
 
         document.Add(group);
     }
 
-    private static string NormalizeBitmapLabel(string label)
+    private static string NormalizeChartLabel(string label)
     {
         var normalized = new StringBuilder(label.Length);
         foreach (var character in label.Normalize(NormalizationForm.FormD))
@@ -472,13 +415,13 @@ internal static class WeeklyUsageTrendChartRenderer
             }
 
             var glyph = char.ToUpperInvariant(character);
-            normalized.Append(BitmapGlyphs.ContainsKey(glyph) ? glyph : '?');
+            normalized.Append(ChartLabelGlyphs.Values.ContainsKey(glyph) ? glyph : '?');
         }
 
         return normalized.Length > 0 ? normalized.ToString() : "?";
     }
 
-    private static bool CanRenderBitmapLabel(string label)
+    private static bool CanRenderChartLabel(string label)
     {
         var hasGlyph = false;
         foreach (var character in label.Normalize(NormalizationForm.FormD))
@@ -489,7 +432,7 @@ internal static class WeeklyUsageTrendChartRenderer
             }
 
             hasGlyph = true;
-            if (!BitmapGlyphs.ContainsKey(char.ToUpperInvariant(character)))
+            if (!ChartLabelGlyphs.Values.ContainsKey(char.ToUpperInvariant(character)))
             {
                 return false;
             }
@@ -503,16 +446,16 @@ internal static class WeeklyUsageTrendChartRenderer
         var label = culture.DateTimeFormat.GetAbbreviatedDayName(date.DayOfWeek)
             .Trim()
             .TrimEnd('.');
-        var weekday = CanRenderBitmapLabel(label)
+        var weekday = CanRenderChartLabel(label)
             ? label
             : CultureInfo.InvariantCulture.DateTimeFormat.GetAbbreviatedDayName(date.DayOfWeek);
         return $"{weekday} {date.Day}";
     }
 
-    private static double MeasureBitmapLabel(string label) =>
-        label.Length * BitmapGlyphColumns * BitmapCellSize + Math.Max(0, label.Length - 1) * BitmapGlyphGap;
+    private static double MeasureChartLabel(string label) =>
+        label.Sum(character => ChartLabelGlyphs.Values[character].Width);
 
-    private static double BitmapLabelHeight => BitmapGlyphRows * BitmapCellSize;
+    private static double ChartLabelHeight => ChartLabelGlyphs.Height;
 
     private static void AddResetMarkers(
         XElement document,
@@ -538,7 +481,7 @@ internal static class WeeklyUsageTrendChartRenderer
                     new XAttribute("stroke-width", "1"),
                     new XAttribute("stroke-dasharray", "2 2"),
                     new XAttribute("data-marker", $"reset-{edge}")));
-            AddBitmapLabel(document, "RESET", x, 0, BitmapLabelAlignment.Center, "marker");
+            AddChartLabel(document, "RESET", x, 0, ChartLabelAlignment.Center, "marker");
         }
     }
 
@@ -566,9 +509,9 @@ internal static class WeeklyUsageTrendChartRenderer
                 new XAttribute("stroke-opacity", "0.45"),
                 new XAttribute("stroke-width", "1"),
                 new XAttribute("data-marker", "now")));
-        var labelWidth = MeasureBitmapLabel("NOW");
-        var labelX = Math.Clamp(x, Left + labelWidth / 2, UsageDashboardCard.BarWidth - Right - labelWidth / 2);
-        AddBitmapLabel(document, "NOW", labelX, 0, BitmapLabelAlignment.Center, "marker");
+        var labelWidth = MeasureChartLabel("NOW");
+        var labelX = Math.Clamp(x, Left + labelWidth / 2, Width - Right - labelWidth / 2);
+        AddChartLabel(document, "NOW", labelX, 0, ChartLabelAlignment.Center, "marker");
     }
 
     private static void AddRestorationMarkers(
@@ -743,12 +686,12 @@ internal static class WeeklyUsageTrendChartRenderer
                         new XAttribute("stroke-width", day.IsCurrent ? "1" : "0")));
             }
 
-            AddBitmapLabel(
+            AddChartLabel(
                 document,
                 FormatCalendarDayLabel(day.Date, culture),
                 (dayLeft + dayRight) / 2,
                 DayLabelTop,
-                BitmapLabelAlignment.Center,
+                ChartLabelAlignment.Center,
                 "horizontal");
         }
     }
@@ -769,17 +712,17 @@ internal static class WeeklyUsageTrendChartRenderer
         TimeZoneInfo timeZone)
     {
         var period = $"{TimeZoneInfo.ConvertTime(windowStart, timeZone).ToString("ddd d MMM HH:mm", culture)} to {TimeZoneInfo.ConvertTime(windowEnd, timeZone).ToString("ddd d MMM HH:mm", culture)}";
-        var daily = FormatDailyTokenAltText(dailyUse, tokenUsage, tokenScaleMaximum, culture);
+        var daily = tokenUsage is null ? string.Empty : FormatDailyTokenAltText(dailyUse, tokenUsage, tokenScaleMaximum, culture);
         var forecastText = forecast switch
         {
             { ReachesLimitBeforeReset: true } => $" Estimated limit: {UsageTrendAnalyzer.FormatWeeklyLimitEstimate(forecast.EndsAt, now, culture, timeZone)}; actual usage may differ.",
-            { } => $" Forecast leaves about {forecast.RemainingPercent:0}% at reset; actual usage may differ.",
+            { } => $" Forecast reaches about {100 - forecast.RemainingPercent:0}% used at reset; actual usage may differ.",
             null => " Forecast is unavailable.",
         };
         var restorationText = restorations.Length > 0
             ? $" {restorations.Length} allowance restoration{(restorations.Length == 1 ? " was" : "s were")} detected; the latest at {TimeZoneInfo.ConvertTime(restorations[^1].DetectedAt, timeZone).ToString("ddd d MMM HH:mm", culture)} increased remaining allowance from {restorations[^1].PreviousRemainingPercent:0}% to {restorations[^1].CurrentRemainingPercent:0}%. Amber markers show detected restorations."
             : " No allowance restorations were detected in this window.";
-        return $"Weekly quota trend from {period}. Remaining allowance changed from {first.RemainingPercent:0}% to {last.RemainingPercent:0}% across {sampleCount} observations. The left vertical scale is remaining allowance from 0% to 100%; the independent right scale is locally observed total tokens per calendar day. Horizontal labels are local calendar dates, and reset markers bound the quota window. Solid line connects continuous measurements; gaps and allowance increases break the line; dashed line is a conditional forecast.{restorationText}{forecastText} {daily}";
+        return $"Weekly quota trend from {period}. Used quota changed from {100 - first.RemainingPercent:0}% to {100 - last.RemainingPercent:0}% across {sampleCount} observations. The left vertical scale is used quota from 0% to 100%.{(tokenUsage is null ? string.Empty : " The independent right scale is locally observed total tokens per calendar day.")} Horizontal labels are local calendar dates, and reset markers bound the quota window. Solid line connects continuous measurements; gaps and allowance increases break the line; dashed line is a conditional forecast.{restorationText}{forecastText} {daily}";
     }
 
     private static string FormatDailyTokenAltText(
@@ -828,11 +771,11 @@ internal static class WeeklyUsageTrendChartRenderer
             points.Select(point => $"{Format(calendarScale.GetX(point.RecordedAt))},{Format(GetTrendY(point.RemainingPercent))}"));
 
     private static double GetTrendY(double remainingPercent) =>
-        TrendTop + (100 - Math.Clamp(remainingPercent, 0, 100)) / 100 * TrendHeight;
+        TrendTop + Math.Clamp(remainingPercent, 0, 100) / 100 * TrendHeight;
 
     private static string Format(double value) => value.ToString("0.##", CultureInfo.InvariantCulture);
 
-    private enum BitmapLabelAlignment
+    private enum ChartLabelAlignment
     {
         Start,
         Center,
@@ -892,7 +835,7 @@ internal static class WeeklyUsageTrendChartRenderer
                 }
             }
 
-            return UsageDashboardCard.BarWidth - Right;
+            return Width - Right;
         }
 
         public double GetDayStartX(int index) => Left + index * DayWidth;
@@ -900,7 +843,7 @@ internal static class WeeklyUsageTrendChartRenderer
         public double GetDayEndX(int index) => Left + (index + 1) * DayWidth;
 
         private double DayWidth => _days.Count > 0
-            ? (UsageDashboardCard.BarWidth - Left - Right) / _days.Count
+            ? (Width - Left - Right) / _days.Count
             : 0;
     }
 }

@@ -72,7 +72,11 @@ internal sealed record RateLimitBucket(
 
 internal sealed record CreditBalance(bool HasCredits, bool Unlimited, string? Balance);
 
-internal sealed record RateLimitResetCredit(string? Title, string? Status, DateTimeOffset? ExpiresAt);
+internal sealed record RateLimitResetCredit(string? Title, string? Status, DateTimeOffset? ExpiresAt)
+{
+    internal bool IsAvailable => Status is null
+        || string.Equals(Status.Trim(), "available", StringComparison.OrdinalIgnoreCase);
+}
 
 internal sealed record RateLimitResetCredits(int AvailableCount, IReadOnlyList<RateLimitResetCredit>? Credits);
 
