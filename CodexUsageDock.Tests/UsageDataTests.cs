@@ -260,7 +260,7 @@ public sealed class UsageDataTests : IDisposable
             now,
             isLoading: false,
             ContinuousHistory(now.AddMinutes(-30), 90, now, 80),
-            ContinuousHistory(now.AddHours(-12), 99, now, 98),
+            ContinuousHistory(now.AddHours(-12), 100, now, 98),
             TimeSpan.FromMinutes(1));
         var details = CodexUsageDockPage.FormatDetailsBody(snapshot, now);
         using var mainData = JsonDocument.Parse(main);

@@ -1,6 +1,7 @@
 using Xunit;
 using Xunit.Abstractions;
 using System.Text.Json;
+using System.Globalization;
 
 namespace CodexUsageDock.Tests;
 
@@ -25,6 +26,33 @@ public sealed class WeeklyForecastTests(ITestOutputHelper output)
         var withOldIdle = Series(Now.AddDays(-1), Now.AddHours(-6), 90, 90).Concat(recent).ToArray();
 
         Assert.Equal(Analyze(recent).Forecast!.EndsAt, Analyze(withOldIdle).Forecast!.EndsAt);
+    }
+
+    [Theory]
+    [InlineData(0.01)]
+    [InlineData(0.5)]
+    public void OlderConsumptionCannotMakeAnInsignificantRecentDecreaseForecastable(double recentDecrease)
+    {
+        var recent = Series(Now.AddHours(-6), Now, 90, 90 - recentDecrease);
+        var samples = Series(Now.AddDays(-1), Now.AddHours(-6), 100, 90).Concat(recent).ToArray();
+
+        Assert.Null(Analyze(samples).Forecast);
+        Assert.NotNull(Analyze(samples, History(_ => 0.002)).Forecast);
+    }
+
+    [Theory]
+    [InlineData(1, "06:45")]
+    [InlineData(25, "Thu 17 Sep")]
+    public void ChartAlternativeTextUsesTheSameNearAndDistantEstimatePrecision(int hoursAhead, string expected)
+    {
+        var zone = TimeZoneInfo.CreateCustomTimeZone("Forecast test zone", TimeSpan.FromMinutes(330), "Test", "Test");
+        var samples = Series(Now.AddHours(-1), Now, 90, 80);
+        var forecast = new UsageTrendForecast(Now.AddHours(hoursAhead).AddMinutes(7), 0, true);
+        var chart = WeeklyUsageTrendChartRenderer.Create(samples, new RateLimitWindow(20, 10080, Reset), Now,
+            TimeSpan.FromMinutes(15), forecast, culture: CultureInfo.InvariantCulture, timeZone: zone);
+
+        Assert.NotNull(chart);
+        Assert.Contains($"Estimated limit: {expected}; actual usage may differ.", chart.AltText, StringComparison.Ordinal);
     }
 
     [Fact]

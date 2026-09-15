@@ -150,7 +150,7 @@ internal static class UsageTrendAnalyzer
         var consumed = first.RemainingPercent - last.RemainingPercent;
         var projection = AdaptiveWeeklyForecast.Project(last, start, reset, consumed / duration.TotalMinutes,
             adaptiveEnabled, history, duration);
-        if ((consumed <= 0 || segment[0].RemainingPercent - last.RemainingPercent <= 0.5) && !projection.UsesHistory)
+        if (consumed <= 0.5 && !projection.UsesHistory)
         {
             return new(segment, values, "No meaningful recent change; weekly projection pending.", false, null, projection.Status);
         }
@@ -163,20 +163,23 @@ internal static class UsageTrendAnalyzer
         return new(segment, values, message, true, forecast, projection.Status);
     }
 
-    internal static string FormatWeeklyLimitEstimate(DateTimeOffset estimated, DateTimeOffset now)
+    internal static string FormatWeeklyLimitEstimate(DateTimeOffset estimated, DateTimeOffset now,
+        CultureInfo? culture = null, TimeZoneInfo? timeZone = null)
     {
-        var local = estimated.ToLocalTime();
+        var displayCulture = culture ?? CultureInfo.CurrentCulture;
+        var displayTimeZone = timeZone ?? TimeZoneInfo.Local;
+        var local = TimeZoneInfo.ConvertTime(estimated, displayTimeZone);
         if (estimated - now >= TimeSpan.FromDays(1))
         {
-            return local.ToString("ddd d MMM", CultureInfo.CurrentCulture);
+            return local.ToString("ddd d MMM", displayCulture);
         }
 
         // Round only the presentation; alert thresholds and chart points retain the calculated instant.
         var quarter = TimeSpan.FromMinutes(15).Ticks;
         var rounded = local.AddTicks((quarter - local.Ticks % quarter) % quarter);
-        return rounded.Date == now.ToLocalTime().Date
-            ? rounded.ToString("HH:mm", CultureInfo.CurrentCulture)
-            : rounded.ToString("ddd d MMM HH:mm", CultureInfo.CurrentCulture);
+        return rounded.Date == TimeZoneInfo.ConvertTime(now, displayTimeZone).Date
+            ? rounded.ToString("HH:mm", displayCulture)
+            : rounded.ToString("ddd d MMM HH:mm", displayCulture);
     }
 
     private static string FormatLimitEstimate(DateTimeOffset estimated, DateTimeOffset now) =>

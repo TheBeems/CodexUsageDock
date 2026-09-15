@@ -8,6 +8,10 @@ Each entry links to the commit or pull request that introduced the change.
 
 ## [Unreleased]
 
+### Fixed
+
+- Apply the weekly meaningful-change threshold to the recent six-hour window and preserve near-term forecast times in chart alternative text. ([PR #26](https://github.com/TheBeems/CodexUsageDock/pull/26))
+
 ### Changed
 
 - Make weekly estimates conditional on at least 30 minutes of measurements, show their observation basis and remaining daily budget, and use representative recent history with less influence from short bursts further ahead. Break chart lines at measurement gaps and use the same adaptive model for weekly alerts. Add chronological synthetic forecast benchmarks. ([PR #26](https://github.com/TheBeems/CodexUsageDock/pull/26))

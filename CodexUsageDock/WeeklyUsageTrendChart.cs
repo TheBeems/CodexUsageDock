@@ -132,6 +132,7 @@ internal static class WeeklyUsageTrendChartRenderer
             restorations,
             windowStart,
             window.ResetsAt,
+            effectiveNow,
             dailyUse,
             tokenUsage,
             tokenScaleMaximum,
@@ -760,6 +761,7 @@ internal static class WeeklyUsageTrendChartRenderer
         AllowanceRestoration[] restorations,
         DateTimeOffset windowStart,
         DateTimeOffset windowEnd,
+        DateTimeOffset now,
         IReadOnlyList<DailyUsage> dailyUse,
         LocalTokenUsageSnapshot? tokenUsage,
         long tokenScaleMaximum,
@@ -770,7 +772,7 @@ internal static class WeeklyUsageTrendChartRenderer
         var daily = FormatDailyTokenAltText(dailyUse, tokenUsage, tokenScaleMaximum, culture);
         var forecastText = forecast switch
         {
-            { ReachesLimitBeforeReset: true } => $" Estimated limit day: {TimeZoneInfo.ConvertTime(forecast.EndsAt, timeZone).ToString("ddd d MMM", culture)}; actual usage may differ.",
+            { ReachesLimitBeforeReset: true } => $" Estimated limit: {UsageTrendAnalyzer.FormatWeeklyLimitEstimate(forecast.EndsAt, now, culture, timeZone)}; actual usage may differ.",
             { } => $" Forecast leaves about {forecast.RemainingPercent:0}% at reset; actual usage may differ.",
             null => " Forecast is unavailable.",
         };
