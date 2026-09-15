@@ -216,6 +216,29 @@ public sealed class UsageDashboardTests : IDisposable
     }
 
     [Theory]
+    [InlineData("used", false)]
+    [InlineData("expired", false)]
+    [InlineData("unknown", false)]
+    [InlineData("available", true)]
+    [InlineData("AVAILABLE", true)]
+    [InlineData(" available ", true)]
+    [InlineData(null, true)]
+    public void ResetExpiryEmphasisOnlyUsesAvailableCredits(string? status, bool urgent)
+    {
+        using var data = Render(Snapshot() with
+        {
+            ResetCredits = new(1,
+            [
+                new("Full reset", status, Now.AddHours(2)),
+                new("Full reset", "available", Now.AddDays(19)),
+            ]),
+        });
+        var summary = data.RootElement.GetProperty("resetCreditsSummary").GetString()!;
+        Assert.Equal(urgent, summary.Contains("expires", StringComparison.Ordinal));
+        Assert.Equal(urgent ? "Warning" : "Default", data.RootElement.GetProperty("resetCreditsColor").GetString());
+    }
+
+    [Theory]
     [InlineData(19, "Default")]
     [InlineData(0.5, "Warning")]
     public void OnlyAnUpcomingResetCreditExpiryNeedsEmphasis(double days, string color)

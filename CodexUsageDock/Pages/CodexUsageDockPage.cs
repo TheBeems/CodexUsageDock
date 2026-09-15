@@ -68,7 +68,7 @@ internal sealed partial class CodexUsageDockPage : ContentPage, IDisposable
         var dataAvailable = IsDataAvailable(snapshot, freshness);
         var maximumSampleAge = TrendFreshness(refreshInterval);
         var notice = FormatDashboardNotice(snapshot, now, freshness);
-        var nextExpiry = snapshot.ResetCredits?.Credits?.Where(credit => credit.ExpiresAt > now)
+        var nextExpiry = snapshot.ResetCredits?.Credits?.Where(credit => credit is { IsAvailable: true } && credit.ExpiresAt > now)
             .MinBy(credit => credit.ExpiresAt)?.ExpiresAt;
         var urgentReset = nextExpiry is { } expiry && expiry - now <= TimeSpan.FromDays(1);
         var resetCount = snapshot.ResetCredits?.AvailableCount ?? 0;

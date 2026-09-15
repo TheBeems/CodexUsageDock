@@ -363,7 +363,7 @@ internal sealed class UsageAlertEvaluator
             .Where(credit => credit is not null
                 && credit.ExpiresAt is { } expiry
                 && expiry > now
-                && IsAvailableStatus(credit.Status))
+                && credit.IsAvailable)
             .Select(credit => credit.ExpiresAt!.Value)
             .GroupBy(expiry => expiry.UtcTicks)
             .OrderBy(group => group.Key)
@@ -397,9 +397,6 @@ internal sealed class UsageAlertEvaluator
             _state.ResetExpiries.Remove(key);
         }
     }
-
-    private static bool IsAvailableStatus(string? status) =>
-        status is null || string.Equals(status.Trim(), "available", StringComparison.OrdinalIgnoreCase);
 
     private static string GetWindowKey(WindowObservation observation) => observation.Key;
 
