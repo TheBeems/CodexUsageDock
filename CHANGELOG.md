@@ -10,7 +10,7 @@ Each entry links to the commit or pull request that introduced the change.
 
 ### Changed
 
-- Make weekly estimates conditional on at least 30 minutes of measurements, show their observation basis and remaining daily budget, and use representative recent history with less influence from short bursts further ahead. Break chart lines at measurement gaps and use the same adaptive model for weekly alerts. Add chronological synthetic forecast benchmarks.
+- Make weekly estimates conditional on at least 30 minutes of measurements, show their observation basis and remaining daily budget, and use representative recent history with less influence from short bursts further ahead. Break chart lines at measurement gaps and use the same adaptive model for weekly alerts. Add chronological synthetic forecast benchmarks. ([PR #26](https://github.com/TheBeems/CodexUsageDock/pull/26))
 - Explain where to set the optional Windows CLI path environment variable, its lookup priority, and how to apply changes after restarting PowerToys. ([commit c8c7628](https://github.com/TheBeems/CodexUsageDock/commit/c8c762852e66ed3be5411b4614516110ab8a98a4))
 - Simplify the README with a quick start, settings and troubleshooting tables, and a separate user guide for detailed usage and data handling. ([commit 84e04a4](https://github.com/TheBeems/CodexUsageDock/commit/84e04a4e0e38ecf15831175c65c6afb91d9b8bb8))
 
