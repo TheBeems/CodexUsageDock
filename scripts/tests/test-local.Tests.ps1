@@ -76,12 +76,46 @@ Describe 'Local test installation' {
         Assert-MockCalled -Scope It Install-LocalTestStore -Times 1 -Exactly
     }
 
+    It 'registers a development package without App Installer when no package is installed' {
+        Mock Get-AppxPackage {}
+        Mock Get-LocalTestWinget { throw 'App Installer unavailable' }
+        Invoke-LocalTest ARM64 -NoBuild
+        Assert-MockCalled -Scope It Get-LocalTestWinget -Times 0 -Exactly
+        Assert-MockCalled -Scope It Remove-AppxPackage -Times 0 -Exactly
+        Assert-MockCalled -Scope It Invoke-LocalTestPreflight -Times 1 -Exactly -ParameterFilter { $Register }
+    }
+
     It 'refreshes an existing repository development package in place' {
         $script:package.IsDevelopmentMode = $true
         $script:package.InstallLocation = Join-Path $localTestRepo 'CodexUsageDock/bin/ARM64/Debug'
+        Mock Get-LocalTestWinget { throw 'App Installer unavailable' }
         Invoke-LocalTest ARM64 -NoBuild
+        Assert-MockCalled -Scope It Get-LocalTestWinget -Times 0 -Exactly
         Assert-MockCalled -Scope It Remove-AppxPackage -Times 0 -Exactly
         Assert-MockCalled -Scope It Invoke-LocalTestPreflight -Times 1 -Exactly -ParameterFilter { $Register }
+    }
+
+    It 'requires App Installer before replacing the Store package' {
+        Mock Get-LocalTestWinget { throw 'App Installer unavailable' }
+        { Invoke-LocalTest ARM64 -NoBuild } | Should Throw 'App Installer unavailable'
+        Assert-MockCalled -Scope It Stop-LocalTestProvider -Times 0 -Exactly
+        Assert-MockCalled -Scope It Remove-AppxPackage -Times 0 -Exactly
+    }
+
+    It 'requires App Installer before removing a development package to restore the Store' {
+        $script:package.IsDevelopmentMode = $true
+        $script:package.InstallLocation = Join-Path $localTestRepo 'CodexUsageDock/bin/ARM64/Debug'
+        Mock Get-LocalTestWinget { throw 'App Installer unavailable' }
+        { Invoke-LocalTest ARM64 -UseStore } | Should Throw 'App Installer unavailable'
+        Assert-MockCalled -Scope It Stop-LocalTestProvider -Times 0 -Exactly
+        Assert-MockCalled -Scope It Remove-AppxPackage -Times 0 -Exactly
+    }
+
+    It 'requires App Installer to restore the Store with no registered package' {
+        Mock Get-AppxPackage {}
+        Mock Get-LocalTestWinget { throw 'App Installer unavailable' }
+        { Invoke-LocalTest ARM64 -UseStore } | Should Throw 'App Installer unavailable'
+        Assert-MockCalled -Scope It Install-LocalTestStore -Times 0 -Exactly
     }
 
     It 'refuses a development package from another checkout before mutation' {
@@ -102,7 +136,9 @@ Describe 'Local test installation' {
     }
 
     It 'does nothing when the Store version is already registered' {
+        Mock Get-LocalTestWinget { throw 'App Installer unavailable' }
         Invoke-LocalTest ARM64 -UseStore
+        Assert-MockCalled -Scope It Get-LocalTestWinget -Times 0 -Exactly
         Assert-MockCalled -Scope It Remove-AppxPackage -Times 0 -Exactly
         Assert-MockCalled -Scope It New-LocalTestBackup -Times 0 -Exactly
     }

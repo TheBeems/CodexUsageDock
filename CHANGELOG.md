@@ -16,6 +16,7 @@ the [changelog workflow](AGENTS.md#documentation-and-change-quality).
 
 ### Fixed
 
+- Require App Installer only when the local test workflow needs Store installation or recovery, and retain the latest observation and current-value label when weekly chart segments exceed the rendering budget. ([PR #29](https://github.com/TheBeems/CodexUsageDock/pull/29))
 - Detect Smart App Control enforcement before unsigned local-test installation or registration, preserving the current installation and explaining signed Store recovery. ([PR #29](https://github.com/TheBeems/CodexUsageDock/pull/29))
 - Deduplicate default quotas regardless of their API position, avoid narrow token-table cells that split full numbers, omit empty forecast sections, and use the same rounded forecast labels throughout the dashboard, chart, and information page. ([PR #29](https://github.com/TheBeems/CodexUsageDock/pull/29))
 

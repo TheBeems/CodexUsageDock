@@ -132,10 +132,12 @@ internal static class WeeklyUsageTrendChartRenderer
         var minimumPoints = segments.Select(segment => segment.Length > 1 ? 2 : 1).ToArray();
         if (minimumPoints.Sum() > MaximumRenderedPoints)
         {
-            return Enumerable.Range(0, MaximumRenderedPoints)
+            var selectedSegments = Math.Min(segments.Count, MaximumRenderedPoints);
+            return Enumerable.Range(0, selectedSegments)
                 .Select(slot =>
                 {
-                    var segment = segments[(int)(slot * segments.Count / (double)MaximumRenderedPoints)];
+                    // Include both endpoint segments so the current marker keeps the latest sample.
+                    var segment = segments[(int)(slot * (segments.Count - 1) / (double)(selectedSegments - 1))];
                     return new[] { segment[^1] };
                 })
                 .ToList();

@@ -122,8 +122,8 @@ function Invoke-LocalTest([string]$TargetArchitecture, [switch]$UseStore, [switc
         return
     }
     if (-not $UseStore) { Assert-LocalTestPolicy }
-    # Check that the Store recovery command is available before removing anything.
-    $winget = Get-LocalTestWinget
+    # Store installation or recovery must be available before replacing a package.
+    $winget = if ($UseStore -or ($null -ne $package -and -not $package.IsDevelopmentMode)) { Get-LocalTestWinget } else { $null }
     if (-not $UseStore) {
         if ($null -ne $package -and $package.IsDevelopmentMode) { Stop-LocalTestProvider $package }
         if (-not $NoBuild) { Invoke-LocalTestBuild $TargetArchitecture }

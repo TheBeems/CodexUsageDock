@@ -1079,6 +1079,48 @@ public sealed class UsageDataTests : IDisposable
         Assert.True(result.ImageUrl.Length < 80000, result.ImageUrl.Length.ToString(CultureInfo.InvariantCulture));
     }
 
+    [Theory]
+    [InlineData(181, 1)]
+    [InlineData(360, 1)]
+    [InlineData(100, 2)]
+    public void WeeklyTrendChartRetainsLatestObservationWhenSegmentsExceedPointBudget(int segmentCount, int samplesPerSegment)
+    {
+        var windowStart = new DateTimeOffset(2026, 7, 10, 9, 0, 0, TimeSpan.Zero);
+        var reset = windowStart.AddDays(7);
+        var sampleCount = segmentCount * samplesPerSegment;
+        var samples = Enumerable.Range(0, sampleCount)
+            .Select(index => new UsageHistoryEntry(
+                windowStart.AddMinutes(index / samplesPerSegment * 20 + index % samplesPerSegment),
+                100 - index * 100d / (sampleCount - 1)))
+            .ToArray();
+        var now = samples[^1].RecordedAt;
+        var chart = WeeklyUsageTrendChartRenderer.Create(
+            samples,
+            new RateLimitWindow(100, 10080, reset),
+            now,
+            TimeSpan.FromMinutes(5),
+            forecast: null,
+            culture: CultureInfo.InvariantCulture,
+            timeZone: TimeZoneInfo.Utc);
+
+        var result = Assert.IsType<WeeklyUsageTrendChart>(chart);
+        var svg = ParseSvg(result.ImageUrl);
+        var label = Assert.Single(svg.Descendants(Svg + "g"), group => group.Attribute("data-axis")?.Value == "current");
+        var circles = svg.Descendants(Svg + "circle").ToArray();
+        var latest = Assert.Single(circles, circle => circle.Attribute("r")?.Value == "3");
+        var nowMarker = Assert.Single(svg.Descendants(Svg + "line"), line => line.Attribute("data-marker")?.Value == "now");
+        var zeroGridline = Assert.Single(svg.Descendants(Svg + "line"), line => line.Attribute("data-grid")?.Value == "remaining-percent"
+            && line.Attribute("data-value")?.Value == "0");
+
+        Assert.Equal("0%", label.Attribute("data-axis-label")?.Value);
+        Assert.Equal(nowMarker.Attribute("x1")!.Value, latest.Attribute("cx")!.Value);
+        Assert.Equal(zeroGridline.Attribute("y1")!.Value, latest.Attribute("cy")!.Value);
+        Assert.Contains("100% to 0%", result.AltText, StringComparison.Ordinal);
+        Assert.Empty(svg.Descendants(Svg + "polyline"));
+        Assert.InRange(circles.Length, 2, WeeklyUsageTrendChartRenderer.MaximumRenderedPoints);
+        Assert.Equal(circles.Length, circles.Select(circle => circle.Attribute("cx")!.Value).Distinct().Count());
+    }
+
     [Fact]
     public void UsagePaceWarnsWhenAllowanceRunsFarAheadOfElapsedTime()
     {
