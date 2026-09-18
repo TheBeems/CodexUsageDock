@@ -96,7 +96,10 @@ public partial class CodexUsageDockCommandsProvider : CommandProvider
             },
             new CommandItem(_history) { Title = "Codex usage history", Subtitle = "Retained quota observations, CSV/JSON export, and deletion" },
             new CommandItem(_actions) { Title = "Codex task usage and earned resets", Subtitle = "Request a task estimate or explicitly use an earned reset" },
-            new CommandItem(_textUsage) { Title = "Codex usage in text", Subtitle = "Quota tables and measured values without charts or color cues" },
+            new CommandItem(_textUsage) { Title = "Codex usage in text", Subtitle = "Quotas and measured values without charts or color cues" },
+#if DEBUG
+            new CommandItem(new NavigationTestPage()) { Title = "Codex Usage navigation test", Subtitle = "Debug: reproduce missing footer actions after Back" },
+#endif
         ];
 
         _settings.Changed += OnSettingsChanged;

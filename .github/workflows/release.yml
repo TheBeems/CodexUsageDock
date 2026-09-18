@@ -35,6 +35,11 @@ jobs:
         run: dotnet restore ./CodexUsageDock.Tests/CodexUsageDock.Tests.csproj -p:Platform=x64 -r win-x64 -p:SelfContained=true
       - name: Test
         run: dotnet test ./CodexUsageDock.Tests/CodexUsageDock.Tests.csproj -c Debug -p:Platform=x64 -r win-x64 -p:SelfContained=true --no-restore
+      - name: Test local installation workflow
+        shell: powershell
+        run: |
+          Import-Module Pester -RequiredVersion 3.4.0
+          Invoke-Pester ./scripts/tests/test-local.Tests.ps1 -EnableExit
       - name: Build x64 Debug
         run: dotnet build ./CodexUsageDock/CodexUsageDock.csproj -c Debug -p:Platform=x64 -r win-x64 --self-contained true
       - name: Build ARM64 Debug

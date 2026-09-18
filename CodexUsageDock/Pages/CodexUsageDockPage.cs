@@ -13,18 +13,12 @@ internal sealed partial class CodexUsageDockPage : ContentPage, IDisposable
     private bool _disposed;
     private readonly CodexUsageService _usage;
     private readonly CodexUsageDockSettingsPage _settings;
-    private readonly UsageDashboardForm _mainContent;
-    private bool _showDetails;
-    private readonly Details _details = new()
-    {
-        Title = "Usage details",
-        Size = ContentSize.Medium,
-    };
+    private readonly FormContent _mainContent = new() { TemplateJson = UsageDashboardCard.TemplateJson };
+    private readonly UsageInformationPage _information = new();
 
     public CodexUsageDockPage(CodexUsageService usage, CodexUsageDockSettingsPage settings)
     {
         _usage = usage;
-        _mainContent = new UsageDashboardForm(ToggleDetails) { TemplateJson = UsageDashboardCard.TemplateJson };
         _settings = settings;
         _usage.Updated += OnUpdated;
         Id = "nl.mathijs.codexusage.details";
@@ -42,6 +36,7 @@ internal sealed partial class CodexUsageDockPage : ContentPage, IDisposable
                 Title = settings.Title,
                 Icon = settings.Icon,
             },
+            new CommandContextItem(_information) { Title = _information.Title },
         ];
         UpdatePresentation();
     }
@@ -61,8 +56,7 @@ internal sealed partial class CodexUsageDockPage : ContentPage, IDisposable
         TimeSpan refreshInterval,
         bool adaptiveWeeklyForecastEnabled = true,
         AdaptiveWeeklyUsageHistory? adaptiveWeeklyHistory = null,
-        LocalTokenUsageSnapshot? tokenUsage = null,
-        bool showDetails = false)
+        LocalTokenUsageSnapshot? tokenUsage = null)
     {
         var freshness = GetFreshnessState(snapshot, now, refreshInterval);
         var dataAvailable = IsDataAvailable(snapshot, freshness);
@@ -82,7 +76,6 @@ internal sealed partial class CodexUsageDockPage : ContentPage, IDisposable
                 ? $"{resetCount} reset credit{(resetCount == 1 ? string.Empty : "s")}{(urgentReset ? $" · expires {FormatRelativeTime(nextExpiry!.Value, now)}" : string.Empty)}"
                 : string.Empty,
             ["resetCreditsColor"] = urgentReset ? "Warning" : "Default",
-            ["detailsButtonTitle"] = showDetails ? "Hide details" : "Details",
             ["quotaGroups"] = CreateQuotaGroups(snapshot, now, dataAvailable),
             ["weeklyAvailable"] = UsageFreshness.IsValidWindow(snapshot.Secondary, now),
         };
@@ -95,10 +88,19 @@ internal sealed partial class CodexUsageDockPage : ContentPage, IDisposable
         data["weeklyBudget"] = snapshot.Secondary is { } weekly
             ? FormatWeeklyBudget(weekly, now, dataAvailable) : string.Empty;
         data["weeklyForecastSummary"] = FormatForecastSummary(weeklyTrend, now, dataAvailable, maximumSampleAge);
+        data["hasWeeklyForecast"] = UsageFreshness.IsValidWindow(snapshot.Secondary, now);
+        data["forecastColor"] = dataAvailable && weeklyTrend?.Forecast is { ReachesLimitBeforeReset: true }
+            ? "Warning" : "Default";
         AddWeeklyTrendData(
             data, snapshot.Secondary, weeklyHistory, weeklyTrend, dataAvailable,
             snapshot.Source is UsageDataSource.AppServer or UsageDataSource.LocalSession or UsageDataSource.LastConfirmed,
-            now, TrendMaximumGap(refreshInterval), showDetails ? tokenUsage : null);
+            now, TrendMaximumGap(refreshInterval), tokenUsage);
+        data["chartLegend"] = tokenUsage?.Status switch
+        {
+            LocalTokenUsageStatus.Complete => "Line: remaining % · bars: local tokens/day (right axis)",
+            LocalTokenUsageStatus.Partial => "Line: remaining % · bars: partial local tokens/day (right axis)",
+            _ => "Line: remaining % · local tokens unavailable",
+        };
         return data.ToJsonString();
     }
 
@@ -117,48 +119,18 @@ internal sealed partial class CodexUsageDockPage : ContentPage, IDisposable
             : status;
     }
 
-    private static JsonArray CreateQuotaGroups(CodexUsageSnapshot snapshot, DateTimeOffset now, bool fresh)
-    {
-        var groups = new JsonArray();
-        var defaultWindows = new List<(string Title, RateLimitWindow? Window)>
-        {
-            ("5-hour", snapshot.Primary),
-            ("Weekly", snapshot.Secondary),
-        };
-        foreach (var bucket in snapshot.Buckets ?? [])
-        {
-            if (!string.Equals(bucket.Id, snapshot.DefaultBucketId, StringComparison.Ordinal)) continue;
-            foreach (var window in new[] { bucket.Primary, bucket.Secondary })
-            {
-                if (window is not null && window != snapshot.Primary && window != snapshot.Secondary)
-                    defaultWindows.Add((FormatWindowDuration(window.WindowMinutes), window));
-            }
-        }
-        groups.Add((JsonNode)CreateQuotaGroup("Codex", defaultWindows, now, fresh));
-        foreach (var bucket in snapshot.Buckets ?? [])
-        {
-            if (string.Equals(bucket.Id, snapshot.DefaultBucketId, StringComparison.Ordinal)) continue;
-            var name = UsageText.SanitizeExternal(bucket.Name) ?? UsageText.SanitizeExternal(bucket.Id) ?? "Additional quota";
-            // Additional categories can use arbitrary durations in either slot.
-            var windows = new[] { bucket.Primary, bucket.Secondary }
-                .Where(window => window is not null)
-                .Select(window => ("Quota", window))
-                .ToArray();
-            groups.Add((JsonNode)CreateQuotaGroup(name,
-                windows.Length > 0 ? windows : [("Quota", null)], now, fresh));
-        }
-        return groups;
-    }
+    private static JsonArray CreateQuotaGroups(CodexUsageSnapshot snapshot, DateTimeOffset now, bool fresh) =>
+        new(UsageQuotaGroups.Create(snapshot).Select(group => (JsonNode)CreateQuotaGroup(group, now, fresh)).ToArray());
 
     private static JsonObject CreateQuotaGroup(
-        string name, IEnumerable<(string Title, RateLimitWindow? Window)> windows, DateTimeOffset now, bool fresh)
+        UsageQuotaGroup group, DateTimeOffset now, bool fresh)
     {
+        var name = group.Name;
+        var columns = group.Windows.Count(item => UsageFreshness.IsValidWindow(item.Window, now));
         var active = new JsonArray();
         var inactive = new List<string>();
-        foreach (var (fallbackTitle, window) in windows)
+        foreach (var (title, window) in group.Windows)
         {
-            var title = window is { WindowMinutes: > 0 } ? FormatWindowDuration(window.WindowMinutes) : fallbackTitle;
-            if (string.Equals(title, "weekly", StringComparison.Ordinal)) title = "Weekly";
             if (!UsageFreshness.IsValidWindow(window, now) || window is null)
             {
                 inactive.Add($"{title} · {(window is null ? "Not reported" : "Awaiting refresh")}");
@@ -171,29 +143,27 @@ internal sealed partial class CodexUsageDockPage : ContentPage, IDisposable
             active.Add((JsonNode)new JsonObject
             {
                 ["title"] = title,
-                ["usedPercent"] = $"{window.UsedPercent:0}%",
-                ["usedColor"] = !fresh ? "Default" : window.UsedPercent >= 90 ? "Attention"
+                ["showTitle"] = columns > 1,
+                ["remainingPercent"] = $"{window.RemainingPercent:0}%",
+                ["remainingColor"] = !fresh ? "Default" : window.UsedPercent >= 90 ? "Attention"
                     : window.UsedPercent >= 70 ? "Warning" : "Default",
-                ["usedBarUrl"] = UsageDashboardCard.CreateProgressBarImageUrl(window.UsedPercent, UsageBarPalette.Used),
-                ["usedBarAlt"] = $"{name}, {title}: {window.UsedPercent:0}% used{(fresh ? string.Empty : " at last observation")}.",
+                ["remainingSize"] = window.UsedPercent == 0 ? "default" : "large",
+                ["remainingBarUrl"] = UsageDashboardCard.CreateProgressBarImageUrl(window.RemainingPercent, UsageBarPalette.Remaining, columns),
+                ["remainingBarAlt"] = $"{name}, {title}: {window.RemainingPercent:0}% remaining{(fresh ? string.Empty : " at last observation")}.",
+                ["separate"] = active.Count > 0,
                 ["elapsedAvailable"] = elapsedAvailable,
                 ["elapsedPercent"] = elapsedAvailable ? $"{elapsed:0}%" : "—",
-                ["elapsedBarUrl"] = elapsedAvailable ? UsageDashboardCard.CreateProgressBarImageUrl(elapsed, UsageBarPalette.Time) : string.Empty,
+                ["elapsedBarUrl"] = elapsedAvailable ? UsageDashboardCard.CreateProgressBarImageUrl(elapsed, UsageBarPalette.Time, columns) : string.Empty,
                 ["elapsedBarAlt"] = elapsedAvailable ? $"{name}, {title}: {elapsed:0}% of time elapsed." : "Time comparison unavailable.",
-                ["reset"] = $"Resets {window.ResetsAt.ToLocalTime().ToString("ddd d MMM HH:mm", CultureInfo.InvariantCulture)}",
+                ["reset"] = $"Resets {FormatLocalTime(window.ResetsAt, "ddd d MMM HH:mm")}",
             });
         }
 
-        foreach (var window in active)
-        {
-            window!["showTitle"] = active.Count > 1;
-        }
-        var heading = active.Count == 1 ? $"{name} · {active[0]!["title"]!.GetValue<string>()}" : name;
         return new JsonObject
         {
             ["name"] = UsageText.EscapeMarkdown(name),
-            ["heading"] = UsageText.EscapeMarkdown(heading),
-            ["singleWindow"] = active.Count == 1,
+            ["heading"] = UsageText.EscapeMarkdown(columns == 1 ? $"{name} · {active[0]!["title"]!.GetValue<string>()}" : name),
+            ["isPrimary"] = group.IsPrimary,
             ["windows"] = active,
             ["inactiveWindows"] = string.Join(" · ", inactive),
             ["hasInactiveWindows"] = inactive.Count > 0,
@@ -215,7 +185,7 @@ internal sealed partial class CodexUsageDockPage : ContentPage, IDisposable
         if (trend?.Forecast is { } forecast)
             return forecast.ReachesLimitBeforeReset
                 ? $"Estimated limit · {UsageTrendAnalyzer.FormatWeeklyLimitEstimate(forecast.EndsAt, now, CultureInfo.InvariantCulture)}"
-                : $"Forecast · {100 - forecast.RemainingPercent:0}% used at reset";
+                : $"Forecast · {forecast.RemainingPercent:0}% remaining at reset";
         if (trend?.History is not { Length: > 0 } history) return "Forecast · collecting measurements";
         if (now - history[^1].RecordedAt > maximumSampleAge) return "Forecast paused · fresh measurement needed";
         var minutes = (history[^1].RecordedAt - history[0].RecordedAt).TotalMinutes;
@@ -237,8 +207,6 @@ internal sealed partial class CodexUsageDockPage : ContentPage, IDisposable
 
         {FormatRestorationDetails(snapshot.Secondary, weeklyHistory ?? [], now)}
 
-        {FormatAdditionalBucketDetails(snapshot, now)}
-
         ## Account and data
 
         - **Plan:** {FormatPlan(snapshot.PlanType)}
@@ -246,75 +214,6 @@ internal sealed partial class CodexUsageDockPage : ContentPage, IDisposable
         - **Source:** {snapshot.SourceDisplayName}
         {FormatError(snapshot)}
         """;
-
-    internal static string FormatAdditionalBucketDetails(CodexUsageSnapshot snapshot, DateTimeOffset now)
-    {
-        if (snapshot.Buckets is not { Count: > 0 } buckets)
-        {
-            return string.Empty;
-        }
-
-        var rows = new List<string>();
-        foreach (var bucket in buckets)
-        {
-            var label = UsageText.SanitizeExternal(bucket.Name)
-                ?? UsageText.SanitizeExternal(bucket.Id)
-                ?? "Additional quota";
-            var isDefaultBucket = string.Equals(bucket.Id, snapshot.DefaultBucketId, StringComparison.Ordinal);
-            AppendAdditionalBucketWindow(rows, label, "primary", bucket.Primary, snapshot, now, isDefaultBucket);
-            AppendAdditionalBucketWindow(rows, label, "secondary", bucket.Secondary, snapshot, now, isDefaultBucket);
-        }
-
-        return rows.Count == 0
-            ? string.Empty
-            : $"## Other quota windows\n\n{string.Join(Environment.NewLine, rows)}";
-    }
-
-    private static void AppendAdditionalBucketWindow(
-        List<string> rows,
-        string label,
-        string role,
-        RateLimitWindow? window,
-        CodexUsageSnapshot snapshot,
-        DateTimeOffset now,
-        bool skipKnownDefaultWindow)
-    {
-        if (window is null
-            || skipKnownDefaultWindow && (window == snapshot.Primary || window == snapshot.Secondary)
-            || !UsageFreshness.IsValidWindow(window, now))
-        {
-            return;
-        }
-
-        var safeLabel = UsageText.EscapeMarkdown(label);
-        var duration = FormatWindowDuration(window.WindowMinutes);
-        rows.Add($"- **{safeLabel} ({role}, {duration}):** {window.RemainingPercent:0}% available · resets {FormatRelativeTime(window.ResetsAt, now)}.");
-    }
-
-    private static string FormatWindowDuration(int windowMinutes)
-    {
-        if (windowMinutes == (int)TimeSpan.FromHours(5).TotalMinutes)
-        {
-            return "5-hour";
-        }
-
-        if (windowMinutes == (int)TimeSpan.FromDays(7).TotalMinutes)
-        {
-            return "weekly";
-        }
-
-        if (windowMinutes > 0 && windowMinutes % (int)TimeSpan.FromDays(1).TotalMinutes == 0)
-        {
-            return $"{windowMinutes / (int)TimeSpan.FromDays(1).TotalMinutes}-day";
-        }
-
-        if (windowMinutes > 0 && windowMinutes % 60 == 0)
-        {
-            return $"{windowMinutes / 60}-hour";
-        }
-
-        return $"{windowMinutes}-minute";
-    }
 
     internal static string FormatSummary(
         CodexUsageSnapshot snapshot,
@@ -510,7 +409,7 @@ internal sealed partial class CodexUsageDockPage : ContentPage, IDisposable
     {
         data["weeklyTrendAvailable"] = false;
         data["weeklyForecastStatus"] = trend?.ForecastStatus ?? "Forecast unavailable.";
-        data["weeklyTrendLegend"] = "Solid: used quota (%) · dashed: forecast · breaks: gaps or restored allowance. Token bars appear with Details; their scale is independent.";
+        data["weeklyTrendLegend"] = "Solid: remaining quota (%) · dashed: forecast · breaks: gaps or restored allowance. Bars: local tokens per day on an independent right-hand scale.";
         data["weeklyRestorationAvailable"] = false;
         if (window is not { } validWindow
             || !UsageFreshness.IsValidWindow(validWindow, now)
@@ -550,9 +449,9 @@ internal sealed partial class CodexUsageDockPage : ContentPage, IDisposable
             : "forecast pending sufficient fresh measurements";
         data["weeklyTrendLegend"] = tokenUsage?.Status switch
         {
-            LocalTokenUsageStatus.Complete => $"Solid: used quota (%) · breaks: gaps or restorations · {forecastLegend} · bars: local tokens per day · amber: detected restorations",
-            LocalTokenUsageStatus.Partial => $"Solid: used quota (%) · breaks: gaps or restorations · {forecastLegend} · bars: partial local tokens per day · amber: detected restorations",
-            _ => $"Solid: used quota (%) · breaks: gaps or restorations · {forecastLegend} · local token data unavailable · amber: detected restorations",
+            LocalTokenUsageStatus.Complete => $"Solid: remaining quota (%) · breaks: gaps or restorations · {forecastLegend} · bars: local tokens per day · amber: detected restorations",
+            LocalTokenUsageStatus.Partial => $"Solid: remaining quota (%) · breaks: gaps or restorations · {forecastLegend} · bars: partial local tokens per day · amber: detected restorations",
+            _ => $"Solid: remaining quota (%) · breaks: gaps or restorations · {forecastLegend} · local token data unavailable · amber: detected restorations",
         };
 
         var restorations = WeeklyAllowanceRestoration.Detect(history, validWindow, now);
@@ -792,7 +691,31 @@ internal sealed partial class CodexUsageDockPage : ContentPage, IDisposable
     }
 
     private static string FormatLocalTime(DateTimeOffset value, string format) =>
-        value.ToLocalTime().ToString(format, CultureInfo.CurrentCulture);
+        value.ToLocalTime().ToString(format, CultureInfo.InvariantCulture);
+
+    internal static string FormatForecastDetails(JsonElement data)
+    {
+        var body = new System.Text.StringBuilder("\n\n## Forecast and budget\n\n");
+        if (data.GetProperty("fiveHourProjection").GetString() is { Length: > 0 } fiveHour)
+            body.Append("### 5-hour\n\n").Append(fiveHour).Append("\n\n");
+        if (data.GetProperty("weeklyAvailable").GetBoolean())
+        {
+            body.Append("### Weekly\n\n").Append(data.GetProperty("weeklyProjection").GetString())
+                .Append("\n\n").Append(data.GetProperty("weeklyBudget").GetString())
+                .Append("\n\n").Append(data.GetProperty("weeklyForecastStatus").GetString()).Append("\n\n");
+        }
+        if (string.IsNullOrEmpty(data.GetProperty("fiveHourProjection").GetString())
+            && !data.GetProperty("weeklyAvailable").GetBoolean())
+            body.Append("No active quota windows reported.\n\n");
+        return body.Append("""
+            ## Chart guide
+
+            - **Line:** remaining allowance (%). Gaps break the line; amber marks restored allowance.
+            - **Bars:** local tokens per day, using the independent right axis. Tokens measure activity, not quota consumption.
+            - **Dashed line:** a conditional estimate. Weekly forecasts need 30 minutes of fresh, continuous data; gaps or restored allowance restart the series.
+            - Remaining allowance falls; elapsed time rises. Equal bar lengths do not indicate a sustainable pace.
+            """).ToString();
+    }
 
     private void UpdatePresentation()
     {
@@ -816,27 +739,15 @@ internal sealed partial class CodexUsageDockPage : ContentPage, IDisposable
                 _usage.RefreshInterval,
                 _settings.UseAdaptiveWeeklyForecast,
                 presentation.AdaptiveWeeklyHistory,
-                presentation.TokenUsage,
-                _showDetails);
+                presentation.TokenUsage);
             using var mainData = JsonDocument.Parse(_mainContent.DataJson);
             var data = mainData.RootElement;
-            _details.Body = FormatDetailsBody(snapshot, now, presentation.WeeklyHistory, _usage.RefreshInterval)
-                + $"\n\n## Forecast and budget\n\n### 5-hour\n\n{data.GetProperty("fiveHourProjection").GetString()}\n\n### Weekly\n\n{data.GetProperty("weeklyProjection").GetString()}\n\n{data.GetProperty("weeklyBudget").GetString()}\n\n{data.GetProperty("weeklyForecastStatus").GetString()}\n\n## Chart guide\n\n{data.GetProperty("weeklyTrendLegend").GetString()}\n\nTime elapsed is a comparison with an even budget, not a forecast. Forecasts are conditional estimates. Weekly forecasts need 30 minutes of recent, continuous measurements; a gap or restored allowance starts a new series. Local tokens describe activity, not quota consumption."
-                + (_usage.HistoryStorageError is { } error ? $"\n\n> **Local storage:** {error}" : string.Empty);
+            _information.Update(FormatDetailsBody(snapshot, now, presentation.WeeklyHistory, _usage.RefreshInterval)
+                + FormatForecastDetails(data)
+                + (_usage.HistoryStorageError is { } error ? $"\n\n> **Local storage:** {error}" : string.Empty));
         }
 
         RaiseItemsChanged(0);
-    }
-
-    private void ToggleDetails()
-    {
-        lock (_presentationLock)
-        {
-            if (_disposed) return;
-            _showDetails = !_showDetails;
-            Details = _showDetails ? _details : null;
-        }
-        UpdatePresentation();
     }
 
     private void OnUpdated(object? sender, EventArgs e) => UpdatePresentation();
@@ -855,20 +766,27 @@ internal sealed partial class CodexUsageDockPage : ContentPage, IDisposable
 }
 
 
-internal sealed partial class UsageDashboardForm(Action toggleDetails) : FormContent
+internal sealed partial class UsageInformationPage : ContentPage
 {
-    public override CommandResult SubmitForm(string payload)
+    private readonly object _contentLock = new();
+    private MarkdownContent _content = new(string.Empty);
+
+    internal UsageInformationPage()
     {
-        if (string.IsNullOrEmpty(payload) || payload.Length > 1024) return CommandResult.KeepOpen();
-        try
-        {
-            using var document = JsonDocument.Parse(payload, new JsonDocumentOptions { MaxDepth = 4 });
-            if (document.RootElement.ValueKind == JsonValueKind.Object
-                && document.RootElement.TryGetProperty("action", out var action)
-                && action.ValueKind == JsonValueKind.String && action.GetString() == "details")
-                toggleDetails();
-        }
-        catch (JsonException) { }
-        return CommandResult.KeepOpen();
+        Id = "nl.mathijs.codexusage.information";
+        Title = "Usage information";
+        Name = "Open";
+        Icon = new IconInfo("\uE946");
+    }
+
+    public override IContent[] GetContent()
+    {
+        lock (_contentLock) return [_content];
+    }
+
+    internal void Update(string body)
+    {
+        lock (_contentLock) _content = new MarkdownContent(body);
+        RaiseItemsChanged(0);
     }
 }

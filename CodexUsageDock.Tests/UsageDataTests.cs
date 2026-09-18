@@ -220,26 +220,25 @@ public sealed class UsageDataTests : IDisposable
         Assert.Collection(
             page.Commands,
             refresh => Assert.Equal("Refresh now", Assert.IsType<CommandContextItem>(refresh).Title),
-            settings => Assert.Equal("Codex Usage settings", Assert.IsType<CommandContextItem>(settings).Title));
+            settings => Assert.Equal("Codex Usage settings", Assert.IsType<CommandContextItem>(settings).Title),
+            information => Assert.Equal("Usage information", Assert.IsType<CommandContextItem>(information).Title));
     }
 
     [Fact]
-    public void DashboardKeepsDetailsCollapsedUntilRequested()
+    public void DashboardUsesFullWidthContentWithoutADetailsButton()
     {
         using var service = _environment.CreateService();
         using var page = new CodexUsageDockPage(service, _environment.CreateSettings());
 
         Assert.Null(page.Details);
         var main = Assert.IsAssignableFrom<FormContent>(Assert.Single(page.GetContent()));
-        main.SubmitForm("""{"action":"details"}""");
-        var details = Assert.IsType<Details>(page.Details);
         using var template = JsonDocument.Parse(main.TemplateJson);
 
-        Assert.Equal("Usage details", details.Title);
-        Assert.Equal(ContentSize.Medium, details.Size);
         Assert.Equal("AdaptiveCard", template.RootElement.GetProperty("type").GetString());
         Assert.Contains("\"type\": \"Image\"", main.TemplateJson, StringComparison.Ordinal);
-        Assert.Contains("Used", main.TemplateJson, StringComparison.Ordinal);
+        Assert.Contains("Remaining", main.TemplateJson, StringComparison.Ordinal);
+        Assert.DoesNotContain("Action.Submit", main.TemplateJson, StringComparison.Ordinal);
+        Assert.DoesNotContain("singleWindow", main.TemplateJson, StringComparison.Ordinal);
         Assert.Contains("Time elapsed", main.TemplateJson, StringComparison.Ordinal);
         Assert.Contains("weeklyTrendAvailable", main.TemplateJson, StringComparison.Ordinal);
         Assert.DoesNotContain("weeklyTrendLegend", main.TemplateJson, StringComparison.Ordinal);
@@ -273,20 +272,20 @@ public sealed class UsageDataTests : IDisposable
         var root = mainData.RootElement;
 
         Assert.False(root.GetProperty("hasNotice").GetBoolean());
-        Assert.Equal("20%", DashboardWindow(root, "5-hour").GetProperty("usedPercent").GetString());
+        Assert.Equal("80%", DashboardWindow(root, "5-hour").GetProperty("remainingPercent").GetString());
         Assert.Equal("20%", DashboardWindow(root, "5-hour").GetProperty("elapsedPercent").GetString());
-        Assert.Equal("2%", DashboardWindow(root, "Weekly").GetProperty("usedPercent").GetString());
+        Assert.Equal("98%", DashboardWindow(root, "Weekly").GetProperty("remainingPercent").GetString());
         Assert.Equal("14%", DashboardWindow(root, "Weekly").GetProperty("elapsedPercent").GetString());
-        Assert.StartsWith("data:image/svg+xml;utf8,", DashboardWindow(root, "5-hour").GetProperty("usedBarUrl").GetString(), StringComparison.Ordinal);
+        Assert.StartsWith("data:image/svg+xml;utf8,", DashboardWindow(root, "5-hour").GetProperty("remainingBarUrl").GetString(), StringComparison.Ordinal);
         Assert.StartsWith("data:image/svg+xml;utf8,", DashboardWindow(root, "5-hour").GetProperty("elapsedBarUrl").GetString(), StringComparison.Ordinal);
-        Assert.StartsWith("data:image/svg+xml;utf8,", DashboardWindow(root, "Weekly").GetProperty("usedBarUrl").GetString(), StringComparison.Ordinal);
+        Assert.StartsWith("data:image/svg+xml;utf8,", DashboardWindow(root, "Weekly").GetProperty("remainingBarUrl").GetString(), StringComparison.Ordinal);
         Assert.StartsWith("data:image/svg+xml;utf8,", DashboardWindow(root, "Weekly").GetProperty("elapsedBarUrl").GetString(), StringComparison.Ordinal);
         Assert.True(root.GetProperty("weeklyTrendAvailable").GetBoolean());
         Assert.StartsWith("data:image/svg+xml;utf8,", root.GetProperty("weeklyTrendChartUrl").GetString(), StringComparison.Ordinal);
         Assert.Contains("Solid line connects continuous measurements", root.GetProperty("weeklyTrendChartAlt").GetString(), StringComparison.Ordinal);
         Assert.StartsWith("Forecast: recent 6 h only.", root.GetProperty("weeklyForecastStatus").GetString(), StringComparison.Ordinal);
         Assert.DoesNotContain("On track", main, StringComparison.Ordinal);
-        Assert.Equal("Default", DashboardWindow(root, "Weekly").GetProperty("usedColor").GetString());
+        Assert.Equal("Default", DashboardWindow(root, "Weekly").GetProperty("remainingColor").GetString());
         Assert.Contains("Projected at reset", root.GetProperty("fiveHourProjection").GetString(), StringComparison.Ordinal);
         Assert.Contains("Projected at reset", root.GetProperty("weeklyProjection").GetString(), StringComparison.Ordinal);
         Assert.DoesNotContain("Resets and credits", main, StringComparison.Ordinal);
@@ -334,7 +333,7 @@ public sealed class UsageDataTests : IDisposable
             refreshInterval: TimeSpan.FromMinutes(1),
             tokenUsage: TokenUsage(
                 new DateOnly(2026, 7, 16), 250_000,
-                new DateOnly(2026, 7, 17), 500_000), showDetails: true);
+                new DateOnly(2026, 7, 17), 500_000));
 
         using var document = JsonDocument.Parse(data);
         var root = document.RootElement;
@@ -386,7 +385,7 @@ public sealed class UsageDataTests : IDisposable
     }
 
     [Fact]
-    public async Task DetailsPageRefreshUpdatesMainContentAndDetailsPane()
+    public async Task DashboardRefreshUpdatesMainContentAndInformationPage()
     {
         var now = DateTimeOffset.Now;
         var result = new TaskCompletionSource<CodexUsageSnapshot>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -395,8 +394,7 @@ public sealed class UsageDataTests : IDisposable
             () => throw new InvalidOperationException("Fallback should not run."));
         using var page = new CodexUsageDockPage(service, _environment.CreateSettings());
         var main = Assert.IsAssignableFrom<FormContent>(Assert.Single(page.GetContent()));
-        main.SubmitForm("""{"action":"details"}""");
-        var details = Assert.IsType<Details>(page.Details);
+        var information = Assert.IsType<UsageInformationPage>(Assert.IsType<CommandContextItem>(page.Commands[2]).Command);
 
         var refresh = service.RefreshAsync();
 
@@ -421,16 +419,17 @@ public sealed class UsageDataTests : IDisposable
         using (var refreshedData = JsonDocument.Parse(main.DataJson))
         {
             Assert.False(refreshedData.RootElement.GetProperty("isLoading").GetBoolean());
-            Assert.Equal("25%", DashboardWindow(refreshedData.RootElement, "5-hour").GetProperty("usedPercent").GetString());
+            Assert.Equal("75%", DashboardWindow(refreshedData.RootElement, "5-hour").GetProperty("remainingPercent").GetString());
             Assert.StartsWith(
                 "data:image/svg+xml;utf8,",
-                DashboardWindow(refreshedData.RootElement, "5-hour").GetProperty("usedBarUrl").GetString(),
+                DashboardWindow(refreshedData.RootElement, "5-hour").GetProperty("remainingBarUrl").GetString(),
                 StringComparison.Ordinal);
             Assert.Equal(
                 "Projection will appear after another measurement.",
                 refreshedData.RootElement.GetProperty("fiveHourProjection").GetString());
         }
 
+        var details = Assert.IsType<MarkdownContent>(Assert.Single(information.GetContent()));
         Assert.Contains("2 available", details.Body, StringComparison.Ordinal);
         Assert.Contains("Pro", details.Body, StringComparison.Ordinal);
         Assert.Contains("standalone Codex CLI app-server", details.Body, StringComparison.Ordinal);
@@ -478,7 +477,7 @@ public sealed class UsageDataTests : IDisposable
     [Fact]
     public void UsageProgressBarCreatesSvgDataUri()
     {
-        var bar = UsageDashboardCard.CreateProgressBarImageUrl(75, UsageBarPalette.Used);
+        var bar = UsageDashboardCard.CreateProgressBarImageUrl(75, UsageBarPalette.Remaining);
 
         Assert.StartsWith("data:image/svg+xml;utf8,", bar, StringComparison.Ordinal);
         Assert.Contains("%3Csvg", bar, StringComparison.OrdinalIgnoreCase);
@@ -488,7 +487,7 @@ public sealed class UsageDataTests : IDisposable
     [Fact]
     public void UsageProgressBarHandlesNonFinitePercentage()
     {
-        var bar = UsageDashboardCard.CreateProgressBarImageUrl(double.NaN, UsageBarPalette.Used);
+        var bar = UsageDashboardCard.CreateProgressBarImageUrl(double.NaN, UsageBarPalette.Remaining);
 
         Assert.StartsWith("data:image/svg+xml;utf8,", bar, StringComparison.Ordinal);
         Assert.DoesNotContain("NaN", bar, StringComparison.Ordinal);
@@ -562,7 +561,7 @@ public sealed class UsageDataTests : IDisposable
                 new UsageHistoryEntry(now, 80),
             ],
             refreshInterval: TimeSpan.FromMinutes(1),
-            tokenUsage: tokenUsage, showDetails: true);
+            tokenUsage: tokenUsage);
 
         using var document = JsonDocument.Parse(data);
         var root = document.RootElement;
@@ -839,7 +838,7 @@ public sealed class UsageDataTests : IDisposable
         Assert.Empty(root.Descendants(Svg + "text"));
         Assert.All(root.Descendants(Svg + "g").Where(group => group.Attribute("data-axis") is not null), group =>
             Assert.NotEmpty(group.Descendants(Svg + "path")));
-        Assert.Contains("left vertical scale is used quota", result.AltText, StringComparison.Ordinal);
+        Assert.Contains("left vertical scale is remaining quota", result.AltText, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -981,11 +980,11 @@ public sealed class UsageDataTests : IDisposable
         var root = Assert.IsType<XElement>(ParseSvg(result.ImageUrl).Root);
         var zeroGridline = Assert.Single(
             root.Descendants(Svg + "line"),
-            line => line.Attribute("data-grid")?.Value == "used-percent"
+            line => line.Attribute("data-grid")?.Value == "remaining-percent"
                 && line.Attribute("data-value")?.Value == "0");
         var zeroY = double.Parse(zeroGridline.Attribute("y1")!.Value, CultureInfo.InvariantCulture);
         var bottomGridY = root.Descendants(Svg + "line")
-            .Where(line => line.Attribute("data-grid")?.Value == "used-percent")
+            .Where(line => line.Attribute("data-grid")?.Value == "remaining-percent")
             .Max(line => double.Parse(line.Attribute("y1")!.Value, CultureInfo.InvariantCulture));
         var dailyTokenBar = Assert.Single(
             root.Descendants(Svg + "rect"),
@@ -1100,10 +1099,10 @@ public sealed class UsageDataTests : IDisposable
             refreshInterval: TimeSpan.FromMinutes(1));
         using var document = JsonDocument.Parse(data);
 
-        Assert.Equal("70%", DashboardWindow(document.RootElement, "5-hour").GetProperty("usedPercent").GetString());
+        Assert.Equal("30%", DashboardWindow(document.RootElement, "5-hour").GetProperty("remainingPercent").GetString());
         Assert.Equal("20%", DashboardWindow(document.RootElement, "5-hour").GetProperty("elapsedPercent").GetString());
         Assert.DoesNotContain("Limit may be reached before reset", data, StringComparison.Ordinal);
-        Assert.Equal("Warning", DashboardWindow(document.RootElement, "5-hour").GetProperty("usedColor").GetString());
+        Assert.Equal("Warning", DashboardWindow(document.RootElement, "5-hour").GetProperty("remainingColor").GetString());
     }
 
     [Theory]
@@ -1906,7 +1905,7 @@ public sealed class UsageDataTests : IDisposable
     [Fact]
     public void WeeklyTrendIncludesDateWhenTheEstimatedLimitIsNotToday()
     {
-        var now = DateTimeOffset.Now;
+        var now = new DateTimeOffset(2026, 9, 16, 0, 0, 0, TimeSpan.Zero);
         var estimated = now.AddHours(99);
         var trend = CodexUsageDockPage.FormatTrend(
             "Weekly usage trend",
@@ -1916,7 +1915,7 @@ public sealed class UsageDataTests : IDisposable
             dataAvailable: true,
             maximumSampleAge: TimeSpan.FromMinutes(5));
 
-        Assert.Contains($"limit may be reached around {estimated.ToLocalTime():ddd d MMM}.", trend, StringComparison.Ordinal);
+        Assert.Contains($"limit may be reached around {estimated.ToLocalTime().ToString("ddd d MMM", CultureInfo.InvariantCulture)}.", trend, StringComparison.Ordinal);
     }
 
     [Fact]
