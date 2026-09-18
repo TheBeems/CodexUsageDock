@@ -11,18 +11,18 @@ the [changelog workflow](AGENTS.md#documentation-and-change-quality).
 
 ### Changed
 
-- Show remaining allowance in dashboard bars and the weekly chart, restore daily token bars and their right-hand axis by default, and stop forecasts at the estimated limit. Prioritize weekly status and the chart, use full-width single windows, improve column separation and chart labels, and replace the Details toggle with Usage information in the More menu.
-- Compact dashboard headings and spacing, match single-window bar thickness to paired windows, and shorten Usage information. Use readable text rows with shared quota names and consistent English local dates in the text alternative.
+- Show remaining allowance in dashboard bars and the weekly chart, restore daily token bars and their right-hand axis by default, and stop forecasts at the estimated limit. Prioritize weekly status and the chart, use full-width single windows, improve column separation and chart labels, and replace the Details toggle with Usage information in the More menu. ([PR #29](https://github.com/TheBeems/CodexUsageDock/pull/29))
+- Compact dashboard headings and spacing, match single-window bar thickness to paired windows, and shorten Usage information. Use readable text rows with shared quota names and consistent English local dates in the text alternative. ([PR #29](https://github.com/TheBeems/CodexUsageDock/pull/29))
 
 ### Fixed
 
-- Detect Smart App Control enforcement before unsigned local-test installation or registration, preserving the current installation and explaining signed Store recovery.
-- Deduplicate default quotas regardless of their API position, avoid narrow token-table cells that split full numbers, omit empty forecast sections, and use the same rounded forecast labels throughout the dashboard, chart, and information page.
+- Detect Smart App Control enforcement before unsigned local-test installation or registration, preserving the current installation and explaining signed Store recovery. ([PR #29](https://github.com/TheBeems/CodexUsageDock/pull/29))
+- Deduplicate default quotas regardless of their API position, avoid narrow token-table cells that split full numbers, omit empty forecast sections, and use the same rounded forecast labels throughout the dashboard, chart, and information page. ([PR #29](https://github.com/TheBeems/CodexUsageDock/pull/29))
 
 ### Added
 
-- Add a Debug-only navigation test page, automated action-contract checks, and a repeatable host UI procedure for disappearing footer actions after Back.
-- Add a one-command local test workflow for the current Windows account, with data backups, validated development registration, and a command to return to Microsoft Store.
+- Add a Debug-only navigation test page, automated action-contract checks, and a repeatable host UI procedure for disappearing footer actions after Back. ([PR #29](https://github.com/TheBeems/CodexUsageDock/pull/29))
+- Add a one-command local test workflow for the current Windows account, with data backups, validated development registration, and a command to return to Microsoft Store. ([PR #29](https://github.com/TheBeems/CodexUsageDock/pull/29))
 
 ## [0.8.1] - 2026-09-15
 
