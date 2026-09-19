@@ -13,7 +13,7 @@ the [changelog workflow](AGENTS.md#documentation-and-change-quality).
 
 ### Changed
 
-- Release version 0.8.2 with the remaining-allowance dashboard and chart improvements.
+- Release version 0.8.2 with the remaining-allowance dashboard and chart improvements. ([commit](https://github.com/TheBeems/CodexUsageDock/commit/46e4a985ce288ff6a3cbc1ada64471716598850b))
 - Show remaining allowance in dashboard bars and the weekly chart, restore daily token bars and their right-hand axis by default, and stop forecasts at the estimated limit. Prioritize weekly status and the chart, use full-width single windows, improve column separation and chart labels, and replace the Details toggle with Usage information in the More menu. ([PR #29](https://github.com/TheBeems/CodexUsageDock/pull/29))
 - Compact dashboard headings and spacing, match single-window bar thickness to paired windows, and shorten Usage information. Use readable text rows with shared quota names and consistent English local dates in the text alternative. ([PR #29](https://github.com/TheBeems/CodexUsageDock/pull/29))
 
@@ -230,7 +230,9 @@ the [changelog workflow](AGENTS.md#documentation-and-change-quality).
 - Initial release of the Windows Command Palette extension for viewing local Codex usage. [commit ac72fe5](https://github.com/TheBeems/CodexUsageDock/commit/ac72fe50fcd1af36f41cda896f1d792899573351)
 - Automated release installer creation and smoke-test handling. [commit 64a3305](https://github.com/TheBeems/CodexUsageDock/commit/64a33058b7486dea12f026561c545b362eb2d622), [commit 21790a1](https://github.com/TheBeems/CodexUsageDock/commit/21790a1ea60a9bfec14ec578d77356c5576472fb)
 
-[Unreleased]: https://github.com/TheBeems/CodexUsageDock/compare/v0.8.0...main
+[Unreleased]: https://github.com/TheBeems/CodexUsageDock/compare/46e4a985ce288ff6a3cbc1ada64471716598850b...main
+[0.8.2]: https://github.com/TheBeems/CodexUsageDock/compare/4fe435e6a03a790cffe5b03384ff4f2436e206d3...46e4a985ce288ff6a3cbc1ada64471716598850b
+[0.8.1]: https://github.com/TheBeems/CodexUsageDock/pull/28
 [0.8.0]: https://github.com/TheBeems/CodexUsageDock/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/TheBeems/CodexUsageDock/compare/v0.6.1...v0.7.0
 [0.6.1]: https://github.com/TheBeems/CodexUsageDock/compare/v0.6.0...v0.6.1
