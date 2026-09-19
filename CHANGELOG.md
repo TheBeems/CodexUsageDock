@@ -9,8 +9,11 @@ the [changelog workflow](AGENTS.md#documentation-and-change-quality).
 
 ## [Unreleased]
 
+## [0.8.2] - 2026-09-19
+
 ### Changed
 
+- Release version 0.8.2 with the remaining-allowance dashboard and chart improvements.
 - Show remaining allowance in dashboard bars and the weekly chart, restore daily token bars and their right-hand axis by default, and stop forecasts at the estimated limit. Prioritize weekly status and the chart, use full-width single windows, improve column separation and chart labels, and replace the Details toggle with Usage information in the More menu. ([PR #29](https://github.com/TheBeems/CodexUsageDock/pull/29))
 - Compact dashboard headings and spacing, match single-window bar thickness to paired windows, and shorten Usage information. Use readable text rows with shared quota names and consistent English local dates in the text alternative. ([PR #29](https://github.com/TheBeems/CodexUsageDock/pull/29))
 

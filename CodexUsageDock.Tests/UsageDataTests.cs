@@ -207,7 +207,7 @@ public sealed class UsageDataTests : IDisposable
         using var service = _environment.CreateService();
         using var page = new CodexUsageDockPage(service, _environment.CreateSettings());
 
-        Assert.Equal("0.8.1", CodexUsageDockMetadata.Version);
+        Assert.Equal("0.8.2", CodexUsageDockMetadata.Version);
         Assert.Equal($"Codex Usage - {CodexUsageDockMetadata.Version}", page.Title);
     }
 
