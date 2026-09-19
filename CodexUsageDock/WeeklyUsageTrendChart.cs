@@ -18,7 +18,7 @@ internal static class WeeklyUsageTrendChartRenderer
     private const double TrendBottom = 207;
     private const double TrendHeight = TrendBottom - TrendTop;
     private const double DayLabelTop = 219;
-    private const string AxisLabelFill = "#888888";
+    private const string AxisLabelFill = "#D0D0D0";
     private static readonly XNamespace Svg = "http://www.w3.org/2000/svg";
     internal static WeeklyUsageTrendChart? Create(
         IReadOnlyList<UsageHistoryEntry> history,
@@ -73,7 +73,7 @@ internal static class WeeklyUsageTrendChartRenderer
         AddNowMarker(document, windowStart, window.ResetsAt, effectiveNow, calendarScale);
         AddRestorationMarkers(document, restorations, calendarScale);
         AddObservedLines(document, renderedSegments, calendarScale);
-        AddForecastLine(document, forecastSegment, usableForecast, window.ResetsAt, calendarScale);
+        AddForecastLine(document, forecastSegment, usableForecast, window.ResetsAt, now, calendarScale, displayCulture, displayTimeZone);
 
         var first = samples[0];
         var last = samples[^1];
@@ -99,7 +99,10 @@ internal static class WeeklyUsageTrendChartRenderer
         new XAttribute("width", Width),
         new XAttribute("height", Height),
         new XAttribute("viewBox", $"0 0 {Width} {Height}"),
-        new XAttribute("role", "img"));
+        new XAttribute("role", "img"),
+        // A fixed plot background keeps the axes readable in both host themes.
+        new XElement(Svg + "rect", new XAttribute("width", Width), new XAttribute("height", Height),
+            new XAttribute("rx", "4"), new XAttribute("fill", "#202020")));
 
     private static UsageHistoryEntry[] Normalize(
         IReadOnlyList<UsageHistoryEntry> history,
@@ -129,10 +132,12 @@ internal static class WeeklyUsageTrendChartRenderer
         var minimumPoints = segments.Select(segment => segment.Length > 1 ? 2 : 1).ToArray();
         if (minimumPoints.Sum() > MaximumRenderedPoints)
         {
-            return Enumerable.Range(0, MaximumRenderedPoints)
+            var selectedSegments = Math.Min(segments.Count, MaximumRenderedPoints);
+            return Enumerable.Range(0, selectedSegments)
                 .Select(slot =>
                 {
-                    var segment = segments[(int)(slot * segments.Count / (double)MaximumRenderedPoints)];
+                    // Include both endpoint segments so the current marker keeps the latest sample.
+                    var segment = segments[(int)(slot * (segments.Count - 1) / (double)(selectedSegments - 1))];
                     return new[] { segment[^1] };
                 })
                 .ToList();
@@ -317,7 +322,7 @@ internal static class WeeklyUsageTrendChartRenderer
     {
         foreach (var percent in new[] { 100, 50, 0 })
         {
-            var y = GetTrendY(100 - percent);
+            var y = GetTrendY(percent);
             document.Add(
                 new XElement(
                     Svg + "line",
@@ -328,7 +333,7 @@ internal static class WeeklyUsageTrendChartRenderer
                     new XAttribute("stroke", "#7A7A7A"),
                     new XAttribute("stroke-opacity", "0.42"),
                     new XAttribute("stroke-width", "1"),
-                    new XAttribute("data-grid", "used-percent"),
+                    new XAttribute("data-grid", "remaining-percent"),
                     new XAttribute("data-value", percent)));
             AddChartLabel(
                 document,
@@ -593,6 +598,10 @@ internal static class WeeklyUsageTrendChartRenderer
                     new XAttribute("fill", "#5C9EFA"),
                     new XAttribute("stroke", "#121212"),
                     new XAttribute("stroke-width", "1")));
+            var labelX = Math.Clamp(calendarScale.GetX(latest.RecordedAt) - 8, Left + 45, Width - Right - 8);
+            AddChartLabel(document, $"{latest.RemainingPercent:0}%", labelX,
+                Math.Clamp(GetTrendY(latest.RemainingPercent) - ChartLabelHeight - 8, TrendTop + 4, TrendBottom - ChartLabelHeight),
+                ChartLabelAlignment.End, "current");
         }
     }
 
@@ -601,7 +610,10 @@ internal static class WeeklyUsageTrendChartRenderer
         UsageHistoryEntry[]? latestSegment,
         UsageTrendForecast? forecast,
         DateTimeOffset windowEnd,
-        CalendarDayScale calendarScale)
+        DateTimeOffset now,
+        CalendarDayScale calendarScale,
+        CultureInfo culture,
+        TimeZoneInfo timeZone)
     {
         if (latestSegment is null || forecast is null)
         {
@@ -629,11 +641,6 @@ internal static class WeeklyUsageTrendChartRenderer
             points.Add(new UsageHistoryEntry(end, forecast.RemainingPercent));
         }
 
-        if (forecast.ReachesLimitBeforeReset && end < windowEnd)
-        {
-            points.Add(new UsageHistoryEntry(windowEnd, 0));
-        }
-
         document.Add(
             new XElement(
                 Svg + "polyline",
@@ -645,6 +652,17 @@ internal static class WeeklyUsageTrendChartRenderer
                 new XAttribute("stroke-linejoin", "round"),
                 new XAttribute("stroke-dasharray", "5 4"),
                 new XAttribute("stroke-opacity", "0.9")));
+        if (forecast.ReachesLimitBeforeReset)
+        {
+            var x = calendarScale.GetX(end);
+            document.Add(new XElement(Svg + "circle", new XAttribute("cx", Format(x)),
+                new XAttribute("cy", Format(GetTrendY(0))), new XAttribute("r", "3"),
+                new XAttribute("fill", "#5C9EFA"), new XAttribute("data-marker", "estimated-limit")));
+            var label = UsageTrendAnalyzer.FormatWeeklyLimitEstimate(end, now, culture, timeZone);
+            var labelWidth = MeasureChartLabel(NormalizeChartLabel(label));
+            AddChartLabel(document, label, Math.Clamp(x, Left + labelWidth / 2, Width - Right - labelWidth / 2),
+                TrendBottom - ChartLabelHeight - 8, ChartLabelAlignment.Center, "estimated-limit");
+        }
     }
 
     private static void AddDailyTokenBars(
@@ -716,13 +734,13 @@ internal static class WeeklyUsageTrendChartRenderer
         var forecastText = forecast switch
         {
             { ReachesLimitBeforeReset: true } => $" Estimated limit: {UsageTrendAnalyzer.FormatWeeklyLimitEstimate(forecast.EndsAt, now, culture, timeZone)}; actual usage may differ.",
-            { } => $" Forecast reaches about {100 - forecast.RemainingPercent:0}% used at reset; actual usage may differ.",
+            { } => $" Forecast reaches about {forecast.RemainingPercent:0}% remaining at reset; actual usage may differ.",
             null => " Forecast is unavailable.",
         };
         var restorationText = restorations.Length > 0
             ? $" {restorations.Length} allowance restoration{(restorations.Length == 1 ? " was" : "s were")} detected; the latest at {TimeZoneInfo.ConvertTime(restorations[^1].DetectedAt, timeZone).ToString("ddd d MMM HH:mm", culture)} increased remaining allowance from {restorations[^1].PreviousRemainingPercent:0}% to {restorations[^1].CurrentRemainingPercent:0}%. Amber markers show detected restorations."
             : " No allowance restorations were detected in this window.";
-        return $"Weekly quota trend from {period}. Used quota changed from {100 - first.RemainingPercent:0}% to {100 - last.RemainingPercent:0}% across {sampleCount} observations. The left vertical scale is used quota from 0% to 100%.{(tokenUsage is null ? string.Empty : " The independent right scale is locally observed total tokens per calendar day.")} Horizontal labels are local calendar dates, and reset markers bound the quota window. Solid line connects continuous measurements; gaps and allowance increases break the line; dashed line is a conditional forecast.{restorationText}{forecastText} {daily}";
+        return $"Weekly quota trend from {period}. Remaining quota changed from {first.RemainingPercent:0}% to {last.RemainingPercent:0}% across {sampleCount} observations. The left vertical scale is remaining quota from 0% to 100%.{(tokenUsage is null ? string.Empty : " The independent right scale is locally observed total tokens per calendar day.")} Horizontal labels are local calendar dates, and reset markers bound the quota window. Solid line connects continuous measurements; gaps and allowance increases break the line; dashed line is a conditional forecast.{restorationText}{forecastText} {daily}";
     }
 
     private static string FormatDailyTokenAltText(
@@ -771,7 +789,7 @@ internal static class WeeklyUsageTrendChartRenderer
             points.Select(point => $"{Format(calendarScale.GetX(point.RecordedAt))},{Format(GetTrendY(point.RemainingPercent))}"));
 
     private static double GetTrendY(double remainingPercent) =>
-        TrendTop + Math.Clamp(remainingPercent, 0, 100) / 100 * TrendHeight;
+        TrendTop + (100 - Math.Clamp(remainingPercent, 0, 100)) / 100 * TrendHeight;
 
     private static string Format(double value) => value.ToString("0.##", CultureInfo.InvariantCulture);
 

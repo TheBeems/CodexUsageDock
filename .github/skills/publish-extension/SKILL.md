@@ -27,7 +27,7 @@ Use [DEVELOPMENT.md](../../../DEVELOPMENT.md) as the canonical source for comman
 
 ## Invariants and completion
 
-- Microsoft Store is the production and update channel. Do not install unsigned Actions artifacts, introduce self-signing, or replace a production Store registration with a development build.
+- Microsoft Store is the production and update channel. Do not install unsigned Actions artifacts or introduce self-signing. Replacing a Store registration for explicitly requested local testing uses the backed-up `scripts/test-local.ps1` workflow in `DEVELOPMENT.md`; it is not a production release.
 - Preserve the assigned Store identity, COM registration, capabilities, self-contained x64/ARM64 layout, and older releases. A change to these needs explicit task scope.
 - Prefer the existing GitHub CLI/workflow and package scripts for deterministic operations; use the supported browser for Partner Center when no suitable API is configured. Follow repository escalation instructions. Never store credentials in Git or release records.
 - Distinguish **committed**, **pushed/merged**, **package validated**, **submitted**, **certified**, **published**, **installed**, and **functionally verified**. Claim each only with evidence. A successful build does not prove installation; an old public Store listing does not prove the new version is available.

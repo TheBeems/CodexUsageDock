@@ -59,7 +59,7 @@ Use the [setup instructions](DEVELOPMENT.md#prerequisites) and [verification com
 For changes affecting registration or Command Palette behavior:
 
 1. After building, run `scripts/test-integration.ps1` with the matching `-Architecture` and without `-Register`. This checks build outputs and existing registration without changing installation.
-2. Registration is a separate installation action: use `-Register` only within authorized scope and in the isolated environment required by [DEVELOPMENT.md](DEVELOPMENT.md#integration-smoke-test). It can close the running extension; never replace a production Store installation with a development package. A missing registration is not permission to install.
+2. Registration is a separate installation action: use `-Register` only within authorized scope. Prefer an isolated environment. When the user explicitly requests testing in their current account, use the backed-up `scripts/test-local.ps1` workflow in [DEVELOPMENT.md](DEVELOPMENT.md#test-in-your-current-windows-account); it may replace the Store registration and closes the running extension. A missing registration is not permission to install.
 3. For authorized integration work, complete **Reload Command Palette Extension** and the applicable functional checks in DEVELOPMENT.md. Report preflight warnings and unavailable UI checks explicitly. A passing build or preflight does not establish successful COM activation or working UI behavior.
 
 ## Security and Privacy

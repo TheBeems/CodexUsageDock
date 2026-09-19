@@ -27,50 +27,55 @@ internal sealed partial class CodexUsageTablePage : ContentPage, IDisposable
 
     public override IContent[] GetContent() { lock (_gate) { return [_content]; } }
 
-    internal static string Format(UsagePresentation view, DateTimeOffset now, TimeSpan interval)
+    internal static string Format(UsagePresentation view, DateTimeOffset now, TimeSpan interval, TimeZoneInfo? timeZone = null)
     {
+        var displayTimeZone = timeZone ?? TimeZoneInfo.Local;
         var snapshot = view.Usage;
         var freshness = snapshot.Source is UsageDataSource.Initializing or UsageDataSource.Unavailable
             ? "Unavailable" : UsageFreshness.Classify(snapshot.UpdatedAt, now, interval, snapshot.Source == UsageDataSource.LastConfirmed).ToString();
-        var body = new StringBuilder("# Codex usage in text\n\nA text alternative to the dashboard charts.\n\n")
+        var body = new StringBuilder("# Codex usage in text\n\n")
             .Append("Status: ").Append(freshness).Append(view.IsLoading ? "; refreshing" : string.Empty)
             .Append(". Source: ").Append(snapshot.SourceDisplayName).Append(".\n\n");
         if (snapshot.Source is not (UsageDataSource.Initializing or UsageDataSource.Unavailable))
-            body.Append("Observed UTC: ").Append(Utc(snapshot.UpdatedAt)).Append(". Percentages below describe that observation.\n\n");
+            body.Append("Observed: ").Append(LocalTime(snapshot.UpdatedAt, displayTimeZone))
+                .Append(". Percentages describe that observation.\n\n");
+        body.Append("Times are local (").Append(UsageText.EscapeMarkdown(displayTimeZone.Id)).Append(").\n\n");
         if (snapshot.OrdinaryUsageAllowed == false) body.Append("**Ordinary usage was reported blocked.**\n\n");
-        body.Append("| Quota category / window | Remaining at observation | Reset UTC | Window state now |\n| --- | ---: | --- | --- |\n");
-        AppendWindow(body, "Default five-hour", snapshot.Primary, now);
-        AppendWindow(body, "Default weekly", snapshot.Secondary, now);
-        foreach (var bucket in snapshot.Buckets?.Take(32) ?? [])
+        foreach (var group in UsageQuotaGroups.Create(snapshot))
         {
-            var label = UsageText.SanitizeExternal(bucket.Name, 70) ?? UsageText.SanitizeExternal(bucket.Id, 70) ?? "Additional category";
-            if (bucket.Id != snapshot.DefaultBucketId || bucket.Primary != snapshot.Primary) AppendWindow(body, label + " primary", bucket.Primary, now);
-            if (bucket.Id != snapshot.DefaultBucketId || bucket.Secondary != snapshot.Secondary) AppendWindow(body, label + " secondary", bucket.Secondary, now);
+            body.Append("## ").Append(UsageText.EscapeMarkdown(group.Name)).Append("\n\n");
+            foreach (var item in group.Windows) AppendWindow(body, item.Title, item.Window, now, displayTimeZone);
+            body.Append('\n');
         }
         body.Append("\nAvailable earned resets at observation: ").Append(snapshot.ResetCredits?.AvailableCount.ToString(CultureInfo.InvariantCulture) ?? "Not reported")
-            .Append(".\n\n## Recent weekly observations\n\nUp to 20 measured points, without projected values.\n\n| Observed UTC | Remaining |\n| --- | ---: |\n");
+            .Append(".\n\n## Recent weekly observations\n\nLast 20 measurements; remaining allowance.\n\n");
         foreach (var point in view.WeeklyHistory.TakeLast(20))
-            body.Append("| ").Append(Utc(point.RecordedAt)).Append(" | ").Append(point.RemainingPercent.ToString("0.#", CultureInfo.InvariantCulture)).Append("% |\n");
+            body.Append("- ").Append(LocalTime(point.RecordedAt, displayTimeZone)).Append(": **")
+                .Append(point.RemainingPercent.ToString("0.#", CultureInfo.InvariantCulture)).Append("%**\n");
         body.Append("\n## Locally observed daily tokens\n\nThese are local activity totals, not account-wide billing or quota percentages.\n\n");
-        body.Append("Availability: ").Append(view.TokenUsage.Status).Append(".\n\n| Local calendar date | Tokens |\n| --- | ---: |\n");
+        body.Append("Availability: ").Append(view.TokenUsage.Status).Append(".\n\n");
+        // Full-width text rows avoid the host Markdown table's narrow numeric cells.
         foreach (var day in view.TokenUsage.Days.TakeLast(8))
-            body.Append("| ").Append(day.Date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)).Append(" | ")
-                .Append(day.TotalTokens.ToString("N0", CultureInfo.InvariantCulture)).Append(" |\n");
+            body.Append("- ").Append(day.Date.ToString("ddd d MMM yyyy", CultureInfo.InvariantCulture)).Append(": **")
+                .Append(day.TotalTokens.ToString("N0", CultureInfo.InvariantCulture)).Append("** tokens\n");
         return body.ToString();
     }
 
-    private static void AppendWindow(StringBuilder body, string label, RateLimitWindow? window, DateTimeOffset now)
+    private static void AppendWindow(StringBuilder body, string label, RateLimitWindow? window, DateTimeOffset now, TimeZoneInfo timeZone)
     {
-        body.Append("| ").Append(UsageText.EscapeMarkdown(label));
-        if (window is null) { body.Append(" | Not reported | Not reported | Unknown |\n"); return; }
-        var valid = double.IsFinite(window.UsedPercent) && window.UsedPercent is >= 0 and <= 100 && window.WindowMinutes > 0;
-        body.Append(" (").Append(window.WindowMinutes.ToString(CultureInfo.InvariantCulture)).Append(" minutes) | ")
-            .Append(valid ? window.RemainingPercent.ToString("0.#", CultureInfo.InvariantCulture) + "%" : "Invalid")
-            .Append(" | ").Append(Utc(window.ResetsAt)).Append(" | ")
-            .Append(!valid ? "Invalid" : window.ResetsAt <= now ? "Reset passed; refresh required" : "Active window").Append(" |\n");
+        body.Append("- **").Append(UsageText.EscapeMarkdown(label)).Append(":** ");
+        if (window is null) { body.Append("Not reported\n"); return; }
+        var valid = double.IsFinite(window.UsedPercent) && window.UsedPercent is >= 0 and <= 100
+            && window.WindowMinutes > 0
+            && (long)window.WindowMinutes * TimeSpan.TicksPerMinute <= Math.Min(window.ResetsAt.Ticks, window.ResetsAt.UtcTicks);
+        body.Append(valid ? window.RemainingPercent.ToString("0.#", CultureInfo.InvariantCulture) + "% remaining" : "Invalid")
+            .Append(" · resets ").Append(LocalTime(window.ResetsAt, timeZone));
+        if (window.ResetsAt <= now) body.Append(" · Reset passed; refresh required");
+        body.Append('\n');
     }
 
-    private static string Utc(DateTimeOffset time) => time.UtcDateTime.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture);
+    private static string LocalTime(DateTimeOffset time, TimeZoneInfo timeZone) =>
+        TimeZoneInfo.ConvertTime(time, timeZone).ToString("ddd d MMM yyyy HH:mm", CultureInfo.InvariantCulture);
     private void Refresh()
     {
         lock (_gate)

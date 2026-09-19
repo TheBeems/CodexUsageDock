@@ -36,7 +36,7 @@ After every build and registration:
 2. Run **Reload Command Palette Extension**.
 3. Open **Settings > Extensions** and confirm that **Codex Usage** is enabled.
 
-Do not register a development manifest over a Microsoft Store installation. Use an isolated Windows user or test VM for development package registration.
+The low-level registration command refuses to replace a Microsoft Store installation. Use an isolated Windows user or test VM, or explicitly choose the current-account workflow below.
 
 Development RID builds are self-contained. Do not override `SelfContained=false`: MSIX tooling places app-local .NET host files in the output, and combining those files with a framework-dependent runtime configuration prevents the host from finding either an app-local or machine-wide framework.
 
@@ -82,9 +82,51 @@ By default, the script only reads the source and generated manifests, verifies t
 .\scripts\test-integration.ps1 -Architecture ARM64 -Register
 ```
 
-`-Register` never removes or replaces a non-development Store installation. It refreshes or switches an existing development package under this repository's `CodexUsageDock/bin` tree in place with `ForceUpdateFromAnyVersion`, so a failed update leaves the prior registration intact. A development registration from any other location is refused. Windows may close a running Codex Usage Dock process during this refresh. On Windows builds older than 26100, the script cannot use the synchronous `AppExtensionCatalog.FindAll()` API and reports that discovery still needs manual verification. It never automates Command Palette UI input. After it completes, run **Reload Command Palette Extension** manually.
+`-Register` never removes or replaces a non-development Store installation. It refreshes or switches an existing development package under this repository's `CodexUsageDock/bin` tree in place with `ForceUpdateFromAnyVersion`, so a failed update leaves the prior registration intact. A development registration from any other location is refused. Windows may close a running Codex Usage Dock process during this refresh. On Windows builds older than 26100, the script cannot use the synchronous `AppExtensionCatalog.FindAll()` API and reports that discovery still needs manual verification. It never automates Command Palette UI input. After it completes, run **Reload Command Palette Extension** manually. `-ArtifactsOnly` checks build outputs without registration or activation checks and cannot be combined with `-Register`.
+
+### Test in your current Windows account
+
+For explicitly requested local testing with your existing settings, usage history, and Codex sign-in, run from the repository root:
+
+```powershell
+.\scripts\test-local.ps1
+```
+
+The workflow first checks Smart App Control. When enforcement is enabled, it stops before building, stopping the extension, or changing registration because these local builds are unsigned. The low-level `test-integration.ps1 -Register` command applies the same check. Read-only integration preflight reports this incompatibility as a failure; `-ArtifactsOnly` still validates build outputs independently of host policy. Store recovery remains available.
+
+This builds Debug for the host architecture, validates the artifacts, stops only this account's registered extension process, backs up application settings and history under `%LOCALAPPDATA%\CodexUsageDock-development-backups`, and switches the current-user registration to the local build. A Store installation is removed only after the build, artifact checks, and backup succeed. Repeating the command rebuilds and refreshes the development registration in place. `-SkipBuild` reuses existing artifacts only if they pass freshness checks; `-Architecture x64` or `-Architecture ARM64` overrides the default.
+
+Afterward, run **Reload Command Palette Extension** and open **Codex Usage**. The local build uses the same data and extension identity. It remains registered to this checkout, so keep the build directory available. A development package from another checkout is refused. This workflow does not change Windows Developer Mode or signing policy; Windows may require development registration to be permitted on the machine.
+
+Return to the version currently available through Microsoft Store with:
+
+```powershell
+.\scripts\test-local.ps1 -RestoreStore
+```
+
+The return command backs up the current data, unregisters the development build with data preservation, and installs the official Store product using App Installer (`winget`). It verifies the Store signature and package health. It needs Store/network access and does not promise the exact version installed before testing. App Installer is also required before replacing a Store installation so recovery is available; registering a development build with no installed package or refreshing this checkout's development registration does not require it. A failed switch attempts recovery when no package remains registered; the backup is retained even if recovery fails. If a package is already registered after a partial failure, it is left in place for inspection.
+
+Settings and history remain shared with the Store version; these backups do not include Codex credentials or session logs. Test migrations against isolated data first. [Windows only supports `-PreserveApplicationData` for development registrations](https://learn.microsoft.com/en-us/powershell/module/appx/remove-appxpackage#-preserveapplicationdata), so the Store-to-development switch explicitly backs up and restores the application's data directories.
+
+Script regression tests use mocked package operations and isolated Pester storage:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy RemoteSigned -Command "Import-Module Pester -RequiredVersion 3.4.0; Invoke-Pester .\scripts\tests\test-local.Tests.ps1 -EnableExit"
+```
+
+### Smart App Control
+
+A healthy development registration does not prove that Windows will load the extension. Smart App Control can block the unsigned `CodexUsageDock.dll` after the COM-server executable starts. Developer Mode permits development registration but does not supply a trusted code signature. Check **Event Viewer > Applications and Services Logs > Microsoft > Windows > CodeIntegrity > Operational** for enforcement events (3077) naming the extension.
+
+The current local workflow intentionally refuses development registration when `VerifiedAndReputablePolicyState` is `1` (enforcement). This is a compatibility check for the unsigned workflow, not a complete signature or reputation validator. Evaluation mode may allow a build now and later switch to enforcement; managed application-control policies can also block execution. Successful registration and artifact checks still require a functional UI test.
+
+For an immediately usable installation, run `scripts/test-local.ps1 -RestoreStore` to restore the Microsoft-signed Store version with a data backup. Local source changes remain in the checkout but are not present in the Store build. Test unreleased code in a compatible isolated development environment or establish signing through a trusted provider. Self-signing or reinstalling the same unsigned files does not establish Smart App Control trust. These scripts do not change security policy, certificates, or Defender exclusions.
+
+References: [Smart App Control signing requirements](https://learn.microsoft.com/en-us/windows/apps/develop/smart-app-control/code-signing-for-smart-app-control), [policy states and event logs](https://learn.microsoft.com/en-us/windows/apps/develop/smart-app-control/test-your-app-with-smart-app-control).
 
 ### Pre-Store x64 and ARM64 matrix
+
+For missing footer actions after navigating Back, use the [navigation reproduction test](docs/navigation-reproduction.md). Debug builds expose **Codex Usage navigation test** with fixed content and harmless actions. The automated `NavigationContractTests` check extension state; the documented host UI steps are required to verify navigation and rendering.
 
 Complete every row on a clean x64 environment and a separate clean ARM64 environment. Record the Windows and PowerToys versions, package version, date, result, and supporting screenshot or diagnostic output. Do not test both architectures by repeatedly replacing packages in a production user profile.
 
@@ -96,7 +138,7 @@ Complete every row on a clean x64 environment and a separate clean ARM64 environ
 | Automated preflight | Required | Required | `test-integration.ps1` passes manifest, package, CLSID, COM, and AppExtension checks. |
 | Start-menu visibility | Required | Required | Codex Usage does not appear as a standalone app in Start; it is activated only by Command Palette through its packaged COM registration. |
 | Discovery and reload | Required | Required | After **Reload Command Palette Extension**, **Codex Usage** appears once under **Settings > Extensions** and can be enabled. |
-| Dashboard and Details | Required | Required | Opening **Codex Usage** starts with Details collapsed. Codex, Spark, and other reported categories share Used/time bars with actual window durations, one local reset date, and large used percentages; missing/expired windows take a compact text row and never become zero. Verify that high usage remains visible, stale/last-confirmed observations keep their age and suppress time comparisons, and local fallback remains labeled. **Details** opens and closes the native pane and survives refresh without losing focus or scroll unnecessarily. It contains reset-credit expirations, credit balance, account/source status, forecast basis, remaining daily/hourly budget, chart explanation, and restoration history. The main chart uses a 0–100% used-quota axis, smooth readable labels, solid observations, conditional dashed forecasts, reset/current-time markers, and amber restorations. Increased usage moves upward; restored allowance moves downward and breaks the line. Gaps also break the line; isolated samples remain visible. The compact forecast status explains the recent continuous-data requirement and becomes an estimate only after its gates pass. Local token bars and their independent right-hand axis appear only while Details is open and must identify partial coverage; they use local calendar days, including partial boundary days. Verify narrow/wide layouts, light/dark/high-contrast themes, label contrast, keyboard access to Details, and refresh without clipping or freezing. |
+| Dashboard and information | Required | Required | Opening **Codex Usage** shows remaining allowance, with no Details button. Verify that 0% used gives a full 100% remaining bar and exhausted quota gives an empty bar, while elapsed time fills upward. Codex and Spark share model/window headings; a single active window uses full width, and missing/expired states remain explicit. The weekly forecast status precedes quotas and the graph precedes additional categories. The graph falls with consumption, rises and breaks at restorations, preserves gaps and isolated points, labels the latest observation, and never invents an earlier 100% reading. Its dashed forecast stops at the estimated zero point with a date label. Local daily token bars and the right axis appear by default, with partial/unavailable coverage identified. **More > Usage information** must open through native command navigation and show credits, source, forecast basis, budgets, chart guide and history; verify back navigation and live refresh on that page. Check narrow/wide layouts, light/dark/high-contrast themes, the fixed dark chart background, labels, keyboard focus, and refresh without clipping or freezing. Stale observations retain age and suppress forecasts and time comparisons. |
 | Dock band | Required | Required | The band can be added, each enabled item opens details, and values update while Command Palette remains responsive. |
 | Settings | Required | Required | Visibility, reset-time, refresh-interval, and adaptive-forecast choices apply immediately and persist after restarting Command Palette. Verify that disabling pauses learning without replaying measurements collected while paused, retains history, and that deleting learned history requires confirmation. |
 | Live app-server | Required | Required | With a signed-in standalone Codex CLI, the details page identifies the CLI app-server as the source and refreshes live data. |

@@ -6,11 +6,22 @@ param(
     [ValidateSet("Debug", "Release")]
     [string]$Configuration = "Debug",
 
-    [switch]$Register
+    [switch]$Register,
+
+    [switch]$ArtifactsOnly
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
+
+if ($ArtifactsOnly -and $Register) {
+    throw '-ArtifactsOnly cannot be combined with -Register.'
+}
+
+if ($Register) {
+    . (Join-Path $PSScriptRoot 'local-test-policy.ps1')
+    Assert-LocalTestPolicy
+}
 
 $failures = [System.Collections.Generic.List[string]]::new()
 $warnings = [System.Collections.Generic.List[string]]::new()
@@ -470,6 +481,20 @@ elseif ($null -ne $sourceFacts) {
 }
 else {
     $null
+}
+
+if ($ArtifactsOnly) {
+    if ($failures.Count -gt 0) {
+        throw "$($failures.Count) build artifact check(s) failed."
+    }
+    Write-Check -Status PASS -Message 'Build artifacts passed. Registration and activation were not checked.'
+    exit 0
+}
+
+if (-not $Register) {
+    . (Join-Path $PSScriptRoot 'local-test-policy.ps1')
+    try { Assert-LocalTestPolicy }
+    catch { Add-Failure $_.Exception.Message }
 }
 
 if ($Register) {

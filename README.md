@@ -61,11 +61,11 @@ GitHub releases identify source versions and may differ from the version availab
 | `2 resets · 10.00` | Two earned resets are available; `10.00` is the reported credits balance. |
 | `Reset - …` / `Expires - …` | The next quota reset or earned-reset expiry, using your local time zone and regional date format. |
 
-Dock-band percentages show **remaining allowance**. Open **Codex Usage** for a compact dashboard: Codex and additional categories such as Spark use the same **Used** and **Time elapsed** bars. Dashboard percentages and the weekly line show **usage consumed**, on a 0–100% scale. Missing windows are marked **Not reported** or **Awaiting refresh**, never shown as zero.
+Dock-band and dashboard percentages show **remaining allowance**. Codex and additional categories such as Spark use the same **Remaining** and **Time elapsed** bars: allowance drains from 100% toward 0%, while elapsed time increases toward 100%. Missing windows are marked **Not reported** or **Awaiting refresh**, never shown as zero.
 
-Values refresh every minute by default. **Details** opens the data source, measurement time, reset-credit expirations, credits balance, and explanatory text; it starts collapsed. During an outage, **Last confirmed** retains the previous observation with its age and pauses time comparisons and forecasts. Local fallback data remains labeled.
+Values refresh every minute by default. Open **Usage information** from the dashboard's **More** menu for the data source, measurement time, reset-credit expirations, credits balance, and explanatory text. During an outage, **Last confirmed** retains the previous observation with its age and pauses time comparisons and forecasts. Local fallback data remains labeled.
 
-The weekly graph shows one short forecast status. Forecasts require at least 30 minutes of fresh, continuous measurements; their basis and the remaining daily budget are under **Details**. Adaptive estimates use sufficiently observed recent weeks, with less influence from a short burst further ahead. Daily token bars appear only while **Details** is open; they reflect local session activity and are **not an exact measure of quota consumption**.
+The weekly forecast status appears above the quotas, and the graph appears before additional categories. The line shows remaining allowance; a forecast that reaches zero ends at its estimated limit time. Forecasts require at least 30 minutes of fresh, continuous measurements; their basis and the daily budget are under **Usage information**. Adaptive estimates use sufficiently observed recent weeks, with less influence from a short burst further ahead. Daily token bars and their independent right-hand axis appear by default when available; they reflect local session activity and are **not an exact measure of quota consumption**.
 
 See the [user guide](USER_GUIDE.md#charts-and-forecasts) for chart legends, adaptive forecasts, and data handling.
 
@@ -94,7 +94,7 @@ These pages are available in Command Palette:
 
 | Page | Purpose |
 | --- | --- |
-| **Codex usage in text** | Read quotas, reset times, trends, and token totals without relying on charts or color. Also available from Details. |
+| **Codex usage in text** | Read quotas, reset times, trends, and token totals without relying on charts or color. |
 | **Codex account activity** | View account-wide token summaries and up to 30 recent server-calendar days on compatible CLI versions. |
 | **Codex usage history** | Browse retained quota observations and export CSV or JSON files. |
 | **Codex task usage and earned resets** | Request server usage estimates for a task ID or use an existing earned reset on compatible CLI versions. |

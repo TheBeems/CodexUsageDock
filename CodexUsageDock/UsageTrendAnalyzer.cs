@@ -166,7 +166,7 @@ internal static class UsageTrendAnalyzer
     internal static string FormatWeeklyLimitEstimate(DateTimeOffset estimated, DateTimeOffset now,
         CultureInfo? culture = null, TimeZoneInfo? timeZone = null)
     {
-        var displayCulture = culture ?? CultureInfo.CurrentCulture;
+        var displayCulture = culture ?? CultureInfo.InvariantCulture;
         var displayTimeZone = timeZone ?? TimeZoneInfo.Local;
         var local = TimeZoneInfo.ConvertTime(estimated, displayTimeZone);
         if (estimated - now >= TimeSpan.FromDays(1))
@@ -184,7 +184,7 @@ internal static class UsageTrendAnalyzer
 
     private static string FormatLimitEstimate(DateTimeOffset estimated, DateTimeOffset now) =>
         estimated.ToLocalTime().Date == now.ToLocalTime().Date
-            ? estimated.ToLocalTime().ToString("HH:mm", CultureInfo.CurrentCulture)
-            : estimated.ToLocalTime().ToString("ddd d MMM HH:mm", CultureInfo.CurrentCulture);
+            ? estimated.ToLocalTime().ToString("HH:mm", CultureInfo.InvariantCulture)
+            : estimated.ToLocalTime().ToString("ddd d MMM HH:mm", CultureInfo.InvariantCulture);
 
 }

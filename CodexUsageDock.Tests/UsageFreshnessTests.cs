@@ -135,17 +135,18 @@ public sealed class UsageFreshnessTests
             DefaultBucketId = "default",
         };
 
-        var details = CodexUsageDockPage.FormatAdditionalBucketDetails(snapshot, Now);
+        var view = new UsagePresentation(snapshot, [], [], new([], null), LocalTokenUsageSnapshot.Unavailable, false);
+        var details = CodexUsageTablePage.Format(view, Now, TimeSpan.FromMinutes(1));
 
-        Assert.Contains("Other quota windows", details, StringComparison.Ordinal);
+        Assert.DoesNotContain("Other quota windows", CodexUsageDockPage.FormatDetailsBody(snapshot, Now), StringComparison.Ordinal);
         Assert.Contains("Coding \\<quota\\>", details, StringComparison.Ordinal);
         Assert.Contains("15-minute", details, StringComparison.Ordinal);
         Assert.Contains("90-minute", details, StringComparison.Ordinal);
-        Assert.Contains("Default", details, StringComparison.Ordinal);
+        Assert.Contains("Codex", details, StringComparison.Ordinal);
         Assert.Contains("1-hour", details, StringComparison.Ordinal);
-        Assert.Contains("75% available", details, StringComparison.Ordinal);
-        Assert.Contains("50% available", details, StringComparison.Ordinal);
-        Assert.Equal(2, details.Split("75% available", StringSplitOptions.None).Length - 1);
+        Assert.Contains("75% remaining", details, StringComparison.Ordinal);
+        Assert.Contains("50% remaining", details, StringComparison.Ordinal);
+        Assert.Equal(2, details.Split("75% remaining", StringSplitOptions.None).Length - 1);
     }
 
     [Fact]

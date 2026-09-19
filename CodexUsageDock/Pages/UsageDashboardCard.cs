@@ -5,7 +5,7 @@ namespace CodexUsageDock;
 
 internal enum UsageBarPalette
 {
-    Used,
+    Remaining,
     Time,
 }
 
@@ -15,138 +15,103 @@ internal static class UsageDashboardCard
     internal const int BarWidth = 536;
 
 
-    internal const string TemplateJson = """
+    // Reuse the same windows before and after the primary chart.
+    private const string QuotaGroupTemplate = """
+        {
+          "type": "Container", "$data": "${quotaGroups}", "$when": "${isPrimary}",
+          "spacing": "small",
+          "items": [
+            { "type": "TextBlock", "text": "${heading}", "weight": "bolder", "wrap": true },
+            {
+              "type": "ColumnSet", "spacing": "none",
+              "columns": [
+                {
+                  "type": "Column", "width": "stretch", "$data": "${windows}",
+                  "spacing": "extraLarge", "separator": "${separate}",
+                  "items": [
+                    { "type": "TextBlock", "text": "${title}", "weight": "bolder", "wrap": true, "$when": "${showTitle}" },
+                    {
+                      "type": "ColumnSet", "spacing": "none",
+                      "columns": [
+                        {
+                          "type": "Column", "width": "stretch",
+                          "items": [ { "type": "TextBlock", "text": "Remaining", "isSubtle": true } ]
+                        },
+                        {
+                          "type": "Column", "width": "auto",
+                          "items": [
+                            {
+                              "type": "TextBlock", "text": "${remainingPercent}",
+                              "size": "${remainingSize}", "weight": "bolder", "color": "${remainingColor}",
+                              "horizontalAlignment": "right"
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "type": "Image", "url": "${remainingBarUrl}", "altText": "${remainingBarAlt}",
+                      "size": "stretch", "spacing": "none"
+                    },
+                    {
+                      "type": "ColumnSet", "spacing": "none",
+                      "columns": [
+                        {
+                          "type": "Column", "width": "stretch",
+                          "items": [ { "type": "TextBlock", "text": "Time elapsed", "isSubtle": true } ]
+                        },
+                        {
+                          "type": "Column", "width": "auto",
+                          "items": [ { "type": "TextBlock", "text": "${elapsedPercent}", "horizontalAlignment": "right" } ]
+                        }
+                      ]
+                    },
+                    {
+                      "type": "Image", "url": "${elapsedBarUrl}", "altText": "${elapsedBarAlt}",
+                      "size": "stretch", "spacing": "none", "$when": "${elapsedAvailable}"
+                    },
+                    { "type": "TextBlock", "text": "${reset}", "isSubtle": true, "size": "small", "spacing": "none", "wrap": true }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "TextBlock", "text": "${inactiveWindows}", "isSubtle": true,
+              "size": "small", "spacing": "small", "wrap": true, "$when": "${hasInactiveWindows}"
+            }
+          ]
+        }
+        """;
+
+    internal static readonly string TemplateJson = $$"""
         {
           "type": "AdaptiveCard",
           "body": [
+            { "type": "TextBlock", "text": "${notice}", "wrap": true, "color": "Warning", "$when": "${hasNotice}" },
             {
-              "type": "ColumnSet",
-              "columns": [
-                {
-                  "type": "Column", "width": "stretch",
-                  "items": [
-                    {
-                      "type": "TextBlock", "text": "${notice}",
-                      "wrap": true, "color": "Warning", "$when": "${hasNotice}"
-                    },
-                    {
-                      "type": "TextBlock", "text": "${resetCreditsSummary}",
-                      "wrap": true, "color": "${resetCreditsColor}",
-                      "$when": "${hasResetCredits}"
-                    },
-                    {
-                      "type": "TextBlock", "text": "Refreshing…",
-                      "isSubtle": true, "$when": "${isLoading}"
-                    }
-                  ]
-                },
-                {
-                  "type": "Column", "width": "auto",
-                  "items": [
-                    {
-                      "type": "ActionSet",
-                      "actions": [
-                        {
-                          "type": "Action.Submit", "title": "${detailsButtonTitle}",
-                          "data": { "action": "details" }
-                        }
-                      ]
-                    }
-                  ]
-                }
-              ]
+              "type": "TextBlock", "text": "${weeklyForecastSummary}", "wrap": true,
+              "weight": "bolder", "color": "${forecastColor}", "spacing": "small", "$when": "${hasWeeklyForecast}"
             },
+            { "type": "TextBlock", "text": "Refreshing…", "isSubtle": true, "$when": "${isLoading}" },
+            {{QuotaGroupTemplate}},
             {
-              "type": "Container",
-              "$data": "${quotaGroups}",
-              "spacing": "medium", "separator": true,
+              "type": "Container", "spacing": "small", "$when": "${weeklyTrendAvailable}",
               "items": [
-                { "type": "TextBlock", "text": "${heading}", "weight": "bolder", "wrap": true },
-                {
-                  "type": "TextBlock", "text": "${inactiveWindows}",
-                  "isSubtle": true, "spacing": "small", "wrap": true,
-                  "$when": "${hasInactiveWindows}"
-                },
-                {
-                  "type": "ColumnSet", "spacing": "small",
-                  "columns": [
-                    {
-                      "type": "Column", "width": "stretch", "$data": "${windows}",
-                      "items": [
-                        {
-                          "type": "TextBlock", "text": "${title}", "weight": "bolder", "wrap": true,
-                          "$when": "${showTitle}"
-                        },
-                        {
-                          "type": "ColumnSet", "spacing": "small",
-                          "columns": [
-                            {
-                              "type": "Column", "width": "stretch",
-                              "items": [ { "type": "TextBlock", "text": "Used", "isSubtle": true } ]
-                            },
-                            {
-                              "type": "Column", "width": "auto",
-                              "items": [
-                                {
-                                  "type": "TextBlock", "text": "${usedPercent}",
-                                  "size": "large", "weight": "bolder", "color": "${usedColor}",
-                                  "horizontalAlignment": "right"
-                                }
-                              ]
-                            }
-                          ]
-                        },
-                        {
-                          "type": "Image", "url": "${usedBarUrl}", "altText": "${usedBarAlt}",
-                          "size": "stretch", "height": "12px", "spacing": "none"
-                        },
-                        {
-                          "type": "ColumnSet", "spacing": "small",
-                          "columns": [
-                            {
-                              "type": "Column", "width": "stretch",
-                              "items": [ { "type": "TextBlock", "text": "Time elapsed", "isSubtle": true } ]
-                            },
-                            {
-                              "type": "Column", "width": "auto",
-                              "items": [
-                                { "type": "TextBlock", "text": "${elapsedPercent}", "horizontalAlignment": "right" }
-                              ]
-                            }
-                          ]
-                        },
-                        {
-                          "type": "Image", "url": "${elapsedBarUrl}", "altText": "${elapsedBarAlt}",
-                          "size": "stretch", "height": "12px", "spacing": "none", "$when": "${elapsedAvailable}"
-                        },
-                        {
-                          "type": "TextBlock", "text": "${reset}",
-                          "isSubtle": true, "spacing": "small", "wrap": true
-                        }
-                      ]
-                    },
-                    {
-                      "type": "Column", "width": "stretch", "items": [],
-                      "$when": "${singleWindow}"
-                    }
-                  ]
-                }
-              ]
-            },
-            {
-              "type": "Container", "separator": true, "spacing": "medium",
-              "$when": "${weeklyAvailable}",
-              "items": [
-                { "type": "TextBlock", "text": "Codex · weekly usage", "weight": "bolder" },
+                { "type": "TextBlock", "text": "Codex · weekly remaining", "weight": "bolder" },
                 {
                   "type": "Image", "url": "${weeklyTrendChartUrl}", "altText": "${weeklyTrendChartAlt}",
-                  "size": "stretch", "spacing": "small", "$when": "${weeklyTrendAvailable}"
+                  "size": "stretch", "spacing": "small"
                 },
                 {
-                  "type": "TextBlock", "text": "${weeklyForecastSummary}",
-                  "isSubtle": true, "wrap": true, "spacing": "small"
+                  "type": "TextBlock", "text": "${chartLegend} · dashed: estimate",
+                  "isSubtle": true, "size": "small", "wrap": true, "spacing": "small"
                 }
               ]
+            },
+            {{QuotaGroupTemplate.Replace("${isPrimary}", "${!isPrimary}", StringComparison.Ordinal)}},
+            {
+              "type": "TextBlock", "text": "${resetCreditsSummary}", "wrap": true,
+              "size": "small", "color": "${resetCreditsColor}", "$when": "${hasResetCredits}", "spacing": "medium"
             }
           ],
           "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
@@ -154,10 +119,13 @@ internal static class UsageDashboardCard
         }
         """;
 
-    internal static string CreateProgressBarImageUrl(double percent, UsageBarPalette palette)
+    internal static string CreateProgressBarImageUrl(double percent, UsageBarPalette palette, int columns = 2)
     {
+        // The host preserves SVG aspect ratio. Match intrinsic width to each column's share
+        // so a full-width window does not render a bar twice as thick as paired windows.
+        var width = BarWidth * 2d / Math.Max(1, columns);
         var normalized = double.IsFinite(percent) ? Math.Clamp(percent, 0, 100) : 0;
-        var progressWidth = (BarWidth - 2d) * normalized / 100;
+        var progressWidth = (width - 2d) * normalized / 100;
         var fillColor = palette switch
         {
             UsageBarPalette.Time => "#8A8A8A",
@@ -167,14 +135,14 @@ internal static class UsageDashboardCard
         XNamespace svg = "http://www.w3.org/2000/svg";
         var document = new XElement(
             svg + "svg",
-            new XAttribute("width", BarWidth),
+            new XAttribute("width", width),
             new XAttribute("height", BarHeight),
-            new XAttribute("viewBox", $"0 0 {BarWidth} {BarHeight}"),
+            new XAttribute("viewBox", FormattableString.Invariant($"0 0 {width} {BarHeight}")),
             new XElement(
                 svg + "rect",
                 new XAttribute("x", "0.5"),
                 new XAttribute("y", "0.5"),
-                new XAttribute("width", BarWidth - 1),
+                new XAttribute("width", width - 1),
                 new XAttribute("height", BarHeight - 1),
                 new XAttribute("rx", "4.5"),
                 new XAttribute("fill", "#7A7A7A"),
