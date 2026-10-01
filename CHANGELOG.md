@@ -13,7 +13,7 @@ the [changelog workflow](AGENTS.md#documentation-and-change-quality).
 
 ### Changed
 
-- Connect recorded weekly quota measurements across gaps for a continuous historical line, while retaining breaks at restored allowance and continuous-measurement requirements for forecasts. Update the chart guide and accessibility text.
+- Connect recorded weekly quota measurements across gaps for a continuous historical line, while retaining breaks at restored allowance and continuous-measurement requirements for forecasts. Update the chart guide and accessibility text. ([PR #30](https://github.com/TheBeems/CodexUsageDock/pull/30))
 
 ## [0.8.2] - 2026-09-19
 
