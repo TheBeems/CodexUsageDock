@@ -207,7 +207,7 @@ public sealed class UsageDataTests : IDisposable
         using var service = _environment.CreateService();
         using var page = new CodexUsageDockPage(service, _environment.CreateSettings());
 
-        Assert.Equal("0.8.2", CodexUsageDockMetadata.Version);
+        Assert.Equal("0.8.3", CodexUsageDockMetadata.Version);
         Assert.Equal($"Codex Usage - {CodexUsageDockMetadata.Version}", page.Title);
     }
 
@@ -282,7 +282,7 @@ public sealed class UsageDataTests : IDisposable
         Assert.StartsWith("data:image/svg+xml;utf8,", DashboardWindow(root, "Weekly").GetProperty("elapsedBarUrl").GetString(), StringComparison.Ordinal);
         Assert.True(root.GetProperty("weeklyTrendAvailable").GetBoolean());
         Assert.StartsWith("data:image/svg+xml;utf8,", root.GetProperty("weeklyTrendChartUrl").GetString(), StringComparison.Ordinal);
-        Assert.Contains("Solid line connects continuous measurements", root.GetProperty("weeklyTrendChartAlt").GetString(), StringComparison.Ordinal);
+        Assert.Contains("Solid line connects sampled values across measurement gaps", root.GetProperty("weeklyTrendChartAlt").GetString(), StringComparison.Ordinal);
         Assert.StartsWith("Forecast: recent 6 h only.", root.GetProperty("weeklyForecastStatus").GetString(), StringComparison.Ordinal);
         Assert.DoesNotContain("On track", main, StringComparison.Ordinal);
         Assert.Equal("Default", DashboardWindow(root, "Weekly").GetProperty("remainingColor").GetString());
@@ -349,7 +349,8 @@ public sealed class UsageDataTests : IDisposable
 
         Assert.True(root.GetProperty("weeklyTrendAvailable").GetBoolean());
         Assert.Equal("250000", thursdayTokenBar.Attribute("data-tokens")?.Value);
-        Assert.Equal(3, observedLines.Length);
+        Assert.Equal(2, observedLines.Length);
+        Assert.Equal([2, 4], observedLines.Select(line => line.Attribute("points")!.Value.Split(' ', StringSplitOptions.RemoveEmptyEntries).Length));
     }
 
     [Fact]
@@ -528,7 +529,7 @@ public sealed class UsageDataTests : IDisposable
         Assert.Equal(["1M", "500K"], root.Descendants(Svg + "g")
             .Where(group => group.Attribute("data-axis")?.Value == "tokens")
             .Select(group => group.Attribute("data-axis-label")!.Value));
-        Assert.Contains("Solid line connects continuous measurements", result.AltText, StringComparison.Ordinal);
+        Assert.Contains("Solid line connects sampled values across measurement gaps", result.AltText, StringComparison.Ordinal);
         Assert.Contains("locally observed total tokens", result.AltText, StringComparison.Ordinal);
         Assert.DoesNotContain("NaN", result.ImageUrl, StringComparison.Ordinal);
         Assert.DoesNotContain("Infinity", result.ImageUrl, StringComparison.Ordinal);
@@ -598,8 +599,10 @@ public sealed class UsageDataTests : IDisposable
         Assert.Contains("Local token data is unavailable", result.AltText, StringComparison.Ordinal);
     }
 
-    [Fact]
-    public void WeeklyTrendChartBreaksAllowanceGapsWithoutChangingDailyTokens()
+    [Theory]
+    [InlineData(90, 60)]
+    [InlineData(90, 90)]
+    public void WeeklyTrendChartConnectsAllowanceGapsWithoutChangingDailyTokens(double remainingBeforeGap, double remainingAfterGap)
     {
         var windowStart = new DateTimeOffset(2026, 7, 10, 9, 0, 0, TimeSpan.Zero);
         var reset = windowStart.AddDays(7);
@@ -607,8 +610,8 @@ public sealed class UsageDataTests : IDisposable
         var chart = WeeklyUsageTrendChartRenderer.Create(
             [
                 new UsageHistoryEntry(windowStart.AddMinutes(1), 100),
-                new UsageHistoryEntry(windowStart.AddMinutes(5), 90),
-                new UsageHistoryEntry(windowStart.AddDays(1).AddMinutes(1), 60),
+                new UsageHistoryEntry(windowStart.AddMinutes(5), remainingBeforeGap),
+                new UsageHistoryEntry(windowStart.AddDays(1).AddMinutes(1), remainingAfterGap),
                 new UsageHistoryEntry(windowStart.AddDays(1).AddMinutes(5), 50),
             ],
             new RateLimitWindow(50, 10080, reset),
@@ -621,15 +624,12 @@ public sealed class UsageDataTests : IDisposable
         var svg = ParseSvg(result.ImageUrl);
         var root = svg.Root;
         Assert.NotNull(root);
-        var observedLines = root!.Descendants(Svg + "polyline")
-            .Where(line => line.Attribute("stroke-dasharray") is null)
-            .ToArray();
+        var observedLine = Assert.Single(root!.Descendants(Svg + "polyline"), line => line.Attribute("stroke-dasharray") is null);
         var tokenBar = Assert.Single(
             root.Descendants(Svg + "rect"),
             bar => bar.Attribute("data-series")?.Value == "daily-tokens");
 
-        Assert.Equal(2, observedLines.Length);
-        Assert.All(observedLines, line => Assert.Equal(2, line.Attribute("points")!.Value.Split(' ', StringSplitOptions.RemoveEmptyEntries).Length));
+        Assert.Equal(4, observedLine.Attribute("points")!.Value.Split(' ', StringSplitOptions.RemoveEmptyEntries).Length);
         Assert.Equal("250000", tokenBar.Attribute("data-tokens")?.Value);
     }
 
@@ -665,7 +665,7 @@ public sealed class UsageDataTests : IDisposable
 
         Assert.Equal(2, observedLines.Length);
         Assert.Equal("125000", dailyTokenBar.Attribute("data-tokens")?.Value);
-        Assert.Contains("gaps and allowance increases break the line", result.AltText, StringComparison.Ordinal);
+        Assert.Contains("allowance increases break the line", result.AltText, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -794,7 +794,8 @@ public sealed class UsageDataTests : IDisposable
         var result = Assert.IsType<WeeklyUsageTrendChart>(chart);
         var svg = ParseSvg(result.ImageUrl);
 
-        Assert.Single(svg.Descendants(Svg + "polyline"), line => line.Attribute("stroke-dasharray") is null);
+        var observedLine = Assert.Single(svg.Descendants(Svg + "polyline"), line => line.Attribute("stroke-dasharray") is null);
+        Assert.Equal(3, observedLine.Attribute("points")!.Value.Split(' ', StringSplitOptions.RemoveEmptyEntries).Length);
         Assert.DoesNotContain(svg.Descendants(Svg + "polyline"), line => line.Attribute("stroke-dasharray") is not null);
         Assert.Contains("Forecast is unavailable", result.AltText, StringComparison.Ordinal);
     }
@@ -1005,7 +1006,7 @@ public sealed class UsageDataTests : IDisposable
     }
 
     [Fact]
-    public void WeeklyTrendChartShowsGapIsolatedObservationsAsPoints()
+    public void WeeklyTrendChartConnectsGapIsolatedObservations()
     {
         var windowStart = new DateTimeOffset(2026, 7, 10, 9, 0, 0, TimeSpan.Zero);
         var reset = windowStart.AddDays(7);
@@ -1023,8 +1024,9 @@ public sealed class UsageDataTests : IDisposable
         var result = Assert.IsType<WeeklyUsageTrendChart>(chart);
         var svg = ParseSvg(result.ImageUrl);
 
-        Assert.Empty(svg.Descendants(Svg + "polyline"));
-        Assert.Equal(2, svg.Descendants(Svg + "circle").Count());
+        var observedLine = Assert.Single(svg.Descendants(Svg + "polyline"));
+        Assert.Equal(2, observedLine.Attribute("points")!.Value.Split(' ', StringSplitOptions.RemoveEmptyEntries).Length);
+        Assert.Single(svg.Descendants(Svg + "circle"));
     }
 
     [Fact]
@@ -1088,10 +1090,12 @@ public sealed class UsageDataTests : IDisposable
         var windowStart = new DateTimeOffset(2026, 7, 10, 9, 0, 0, TimeSpan.Zero);
         var reset = windowStart.AddDays(7);
         var sampleCount = segmentCount * samplesPerSegment;
+        // Restorations keep these segments separate even when measurement gaps are connected.
         var samples = Enumerable.Range(0, sampleCount)
             .Select(index => new UsageHistoryEntry(
                 windowStart.AddMinutes(index / samplesPerSegment * 20 + index % samplesPerSegment),
-                100 - index * 100d / (sampleCount - 1)))
+                1 + index / samplesPerSegment * 98d / (segmentCount - 1) - index % samplesPerSegment))
+            .Append(new UsageHistoryEntry(windowStart.AddMinutes(segmentCount * 20), 0))
             .ToArray();
         var now = samples[^1].RecordedAt;
         var chart = WeeklyUsageTrendChartRenderer.Create(
@@ -1106,7 +1110,7 @@ public sealed class UsageDataTests : IDisposable
         var result = Assert.IsType<WeeklyUsageTrendChart>(chart);
         var svg = ParseSvg(result.ImageUrl);
         var label = Assert.Single(svg.Descendants(Svg + "g"), group => group.Attribute("data-axis")?.Value == "current");
-        var circles = svg.Descendants(Svg + "circle").ToArray();
+        var circles = svg.Descendants(Svg + "circle").Where(circle => circle.Attribute("data-marker") is null).ToArray();
         var latest = Assert.Single(circles, circle => circle.Attribute("r")?.Value == "3");
         var nowMarker = Assert.Single(svg.Descendants(Svg + "line"), line => line.Attribute("data-marker")?.Value == "now");
         var zeroGridline = Assert.Single(svg.Descendants(Svg + "line"), line => line.Attribute("data-grid")?.Value == "remaining-percent"
@@ -1115,7 +1119,7 @@ public sealed class UsageDataTests : IDisposable
         Assert.Equal("0%", label.Attribute("data-axis-label")?.Value);
         Assert.Equal(nowMarker.Attribute("x1")!.Value, latest.Attribute("cx")!.Value);
         Assert.Equal(zeroGridline.Attribute("y1")!.Value, latest.Attribute("cy")!.Value);
-        Assert.Contains("100% to 0%", result.AltText, StringComparison.Ordinal);
+        Assert.Contains("1% to 0%", result.AltText, StringComparison.Ordinal);
         Assert.Empty(svg.Descendants(Svg + "polyline"));
         Assert.InRange(circles.Length, 2, WeeklyUsageTrendChartRenderer.MaximumRenderedPoints);
         Assert.Equal(circles.Length, circles.Select(circle => circle.Attribute("cx")!.Value).Distinct().Count());

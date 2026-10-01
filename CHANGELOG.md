@@ -9,6 +9,12 @@ the [changelog workflow](AGENTS.md#documentation-and-change-quality).
 
 ## [Unreleased]
 
+## [0.8.3] - 2026-10-01
+
+### Changed
+
+- Connect recorded weekly quota measurements across gaps for a continuous historical line, while retaining breaks at restored allowance and continuous-measurement requirements for forecasts. Update the chart guide and accessibility text.
+
 ## [0.8.2] - 2026-09-19
 
 ### Changed
