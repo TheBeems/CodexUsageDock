@@ -56,8 +56,7 @@ internal static class WeeklyUsageTrendChartRenderer
         var tokenScaleMaximum = GetTokenScaleMaximum(dailyUse);
         var calendarScale = new CalendarDayScale(dailyUse);
         var renderedSegments = DownsampleSegments(SplitAtDiscontinuities(samples,
-            (previous, current) => WeeklyAllowanceRestoration.IsIncrease(previous, current)
-                || current.RecordedAt - previous.RecordedAt > maximumGap), windowStart, window.ResetsAt);
+            WeeklyAllowanceRestoration.IsIncrease), windowStart, window.ResetsAt);
         var latestSegment = UsageTrendHistory.LatestSegment(samples, windowStart, window.ResetsAt, effectiveNow, maximumGap);
         var forecastSegment = latestSegment is { Length: >= 2 } ? latestSegment : null;
         var usableForecast = forecastSegment is not null && forecast is { } candidate && candidate.EndsAt > forecastSegment[^1].RecordedAt
@@ -740,7 +739,7 @@ internal static class WeeklyUsageTrendChartRenderer
         var restorationText = restorations.Length > 0
             ? $" {restorations.Length} allowance restoration{(restorations.Length == 1 ? " was" : "s were")} detected; the latest at {TimeZoneInfo.ConvertTime(restorations[^1].DetectedAt, timeZone).ToString("ddd d MMM HH:mm", culture)} increased remaining allowance from {restorations[^1].PreviousRemainingPercent:0}% to {restorations[^1].CurrentRemainingPercent:0}%. Amber markers show detected restorations."
             : " No allowance restorations were detected in this window.";
-        return $"Weekly quota trend from {period}. Remaining quota changed from {first.RemainingPercent:0}% to {last.RemainingPercent:0}% across {sampleCount} observations. The left vertical scale is remaining quota from 0% to 100%.{(tokenUsage is null ? string.Empty : " The independent right scale is locally observed total tokens per calendar day.")} Horizontal labels are local calendar dates, and reset markers bound the quota window. Solid line connects continuous measurements; gaps and allowance increases break the line; dashed line is a conditional forecast.{restorationText}{forecastText} {daily}";
+        return $"Weekly quota trend from {period}. Remaining quota changed from {first.RemainingPercent:0}% to {last.RemainingPercent:0}% across {sampleCount} observations. The left vertical scale is remaining quota from 0% to 100%.{(tokenUsage is null ? string.Empty : " The independent right scale is locally observed total tokens per calendar day.")} Horizontal labels are local calendar dates, and reset markers bound the quota window. Solid line connects sampled values across measurement gaps; allowance increases break the line; dashed line is a conditional forecast.{restorationText}{forecastText} {daily}";
     }
 
     private static string FormatDailyTokenAltText(

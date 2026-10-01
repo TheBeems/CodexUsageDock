@@ -409,7 +409,7 @@ internal sealed partial class CodexUsageDockPage : ContentPage, IDisposable
     {
         data["weeklyTrendAvailable"] = false;
         data["weeklyForecastStatus"] = trend?.ForecastStatus ?? "Forecast unavailable.";
-        data["weeklyTrendLegend"] = "Solid: remaining quota (%) · dashed: forecast · breaks: gaps or restored allowance. Bars: local tokens per day on an independent right-hand scale.";
+        data["weeklyTrendLegend"] = "Solid: remaining quota (%) · dashed: forecast · breaks: restored allowance. Bars: local tokens per day on an independent right-hand scale.";
         data["weeklyRestorationAvailable"] = false;
         if (window is not { } validWindow
             || !UsageFreshness.IsValidWindow(validWindow, now)
@@ -449,9 +449,9 @@ internal sealed partial class CodexUsageDockPage : ContentPage, IDisposable
             : "forecast pending sufficient fresh measurements";
         data["weeklyTrendLegend"] = tokenUsage?.Status switch
         {
-            LocalTokenUsageStatus.Complete => $"Solid: remaining quota (%) · breaks: gaps or restorations · {forecastLegend} · bars: local tokens per day · amber: detected restorations",
-            LocalTokenUsageStatus.Partial => $"Solid: remaining quota (%) · breaks: gaps or restorations · {forecastLegend} · bars: partial local tokens per day · amber: detected restorations",
-            _ => $"Solid: remaining quota (%) · breaks: gaps or restorations · {forecastLegend} · local token data unavailable · amber: detected restorations",
+            LocalTokenUsageStatus.Complete => $"Solid: remaining quota (%) · breaks: restorations · {forecastLegend} · bars: local tokens per day · amber: detected restorations",
+            LocalTokenUsageStatus.Partial => $"Solid: remaining quota (%) · breaks: restorations · {forecastLegend} · bars: partial local tokens per day · amber: detected restorations",
+            _ => $"Solid: remaining quota (%) · breaks: restorations · {forecastLegend} · local token data unavailable · amber: detected restorations",
         };
 
         var restorations = WeeklyAllowanceRestoration.Detect(history, validWindow, now);
@@ -710,7 +710,7 @@ internal sealed partial class CodexUsageDockPage : ContentPage, IDisposable
         return body.Append("""
             ## Chart guide
 
-            - **Line:** remaining allowance (%). Gaps break the line; amber marks restored allowance.
+            - **Line:** remaining allowance (%), connecting measurements across gaps. The timing of consumption within gaps is unknown. Restored allowance breaks the line and is marked in amber.
             - **Bars:** local tokens per day, using the independent right axis. Tokens measure activity, not quota consumption.
             - **Dashed line:** a conditional estimate. Weekly forecasts need 30 minutes of fresh, continuous data; gaps or restored allowance restart the series.
             - Remaining allowance falls; elapsed time rises. Equal bar lengths do not indicate a sustainable pace.
