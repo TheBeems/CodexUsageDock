@@ -30,8 +30,6 @@ internal sealed class AdaptiveWeeklyUsageStore
     internal const int BucketCount = 28;
     internal static readonly TimeSpan BucketDuration = TimeSpan.FromHours(6);
 
-    // The app-server may report the same reset a few seconds apart on successive refreshes.
-    private static readonly TimeSpan ResetTimeJitterTolerance = TimeSpan.FromMinutes(1);
     private const string FileName = "adaptive-weekly-forecast.json";
     private readonly string _path;
     private AdaptiveWeeklyUsageState _state;
@@ -131,7 +129,8 @@ internal sealed class AdaptiveWeeklyUsageStore
         samples = weeklyHistory
             .Where(sample => sample.RecordedAt >= windowStart
                 && sample.RecordedAt <= window.ResetsAt
-                && IsValidSample(sample))
+                && IsValidSample(sample)
+                && WeeklyAllowanceRestoration.IsInCycle(sample, window.ResetsAt, window.WindowMinutes))
             .OrderBy(sample => sample.RecordedAt)
             .DistinctBy(sample => sample.RecordedAt)
             .ToArray();
@@ -183,7 +182,9 @@ internal sealed class AdaptiveWeeklyUsageStore
         }
 
         var interval = sample.RecordedAt - previous.RecordedAt;
-        if (interval <= maximumGap && sample.RemainingPercent <= previous.RemainingPercent)
+        if (interval <= maximumGap
+            && !WeeklyAllowanceRestoration.IsDiscontinuity(previous, sample)
+            && WeeklyAllowanceRestoration.IsInCycle(previous, active.ResetsAt, active.WindowMinutes))
         {
             active = AddObservation(active, previous, sample);
         }
@@ -349,7 +350,7 @@ internal sealed class AdaptiveWeeklyUsageStore
         DateTimeOffset resetsAt,
         int windowMinutes) =>
         cycle.WindowMinutes == windowMinutes
-        && Math.Abs((cycle.ResetsAt - resetsAt).TotalSeconds) < ResetTimeJitterTolerance.TotalSeconds;
+        && (cycle.ResetsAt - resetsAt).Duration() <= WeeklyAllowanceRestoration.ResetCycleTolerance;
 
     private static bool IsValidSample(UsageHistoryEntry sample) =>
         double.IsFinite(sample.RemainingPercent) && sample.RemainingPercent is >= 0 and <= 100;
@@ -373,26 +374,48 @@ internal static class AdaptiveWeeklyForecast
         AdaptiveWeeklyUsageHistory? history,
         TimeSpan? recentDuration = null)
     {
-        var basis = recentDuration is { } duration
-            ? duration.TotalHours < 1 ? $"recent {duration.TotalMinutes:0} min" : $"recent {duration.TotalHours:0.#} h"
-            : "current pace";
-        var profiles = enabled && history is not null
-            ? history.CompletedCycles
-                .Where(cycle => IsRepresentative(cycle)
-                    && cycle.ResetsAt <= windowStart.AddMinutes(1)
-                    && windowStart - cycle.ResetsAt <= MaximumHistoryAge)
-                .OrderByDescending(cycle => cycle.ResetsAt)
-                .DistinctBy(cycle => cycle.ResetsAt)
-                .Take(AdaptiveWeeklyUsageStore.MaximumCompletedCycles)
-                .ToArray()
-            : [];
+        var profiles = SelectProfiles(windowStart, enabled ? history : null);
         if (profiles.Length == 0)
         {
             var reason = enabled ? " Weekly history is insufficient or outdated." : string.Empty;
             return new(ProjectAtCurrentRate(latest, resetsAt, currentRatePerMinute),
-                $"Forecast: {basis} only.{reason}");
+                $"Forecast: {FormatRecentBasis(recentDuration)} only.{reason}");
         }
 
+        return ProjectUsingProfiles(latest, windowStart, resetsAt, currentRatePerMinute, profiles, recentDuration);
+    }
+
+    internal static AdaptiveWeeklyForecastProjection? ProjectFromHistory(
+        UsageHistoryEntry latest,
+        DateTimeOffset windowStart,
+        DateTimeOffset resetsAt,
+        AdaptiveWeeklyUsageHistory history)
+    {
+        var profiles = SelectProfiles(windowStart, history);
+        return profiles.Length == 0
+            ? null
+            : ProjectUsingProfiles(latest, windowStart, resetsAt, null, profiles, null);
+    }
+
+    private static AdaptiveWeeklyUsageCycle[] SelectProfiles(
+        DateTimeOffset windowStart, AdaptiveWeeklyUsageHistory? history) =>
+        history is null ? [] : history.CompletedCycles
+            .Where(cycle => IsRepresentative(cycle)
+                && cycle.ResetsAt <= windowStart + WeeklyAllowanceRestoration.ResetCycleTolerance
+                && windowStart - cycle.ResetsAt <= MaximumHistoryAge)
+            .OrderByDescending(cycle => cycle.ResetsAt)
+            .DistinctBy(cycle => cycle.ResetsAt)
+            .Take(AdaptiveWeeklyUsageStore.MaximumCompletedCycles)
+            .ToArray();
+
+    private static AdaptiveWeeklyForecastProjection ProjectUsingProfiles(
+        UsageHistoryEntry latest,
+        DateTimeOffset windowStart,
+        DateTimeOffset resetsAt,
+        double? currentRatePerMinute,
+        AdaptiveWeeklyUsageCycle[] profiles,
+        TimeSpan? recentDuration)
+    {
         var totalWeight = profiles.Sum(cycle => Weight(cycle, windowStart));
         var coverage = profiles.Sum(cycle => Coverage(cycle) * Weight(cycle, windowStart)) / totalWeight;
         // Limited coverage or history depth slows the transition from recent pace to the historical baseline.
@@ -410,7 +433,9 @@ internal static class AdaptiveWeeklyForecast
             var horizon = (cursor - latest.RecordedAt + (end - cursor) / 2).TotalMinutes;
             var historyWeight = 1 - Math.Exp(-horizon * historyInfluence / RecentInfluenceDuration.TotalMinutes);
             var bucketRate = BucketRate(profiles, index, windowStart) ?? historicalRate;
-            var rate = currentRatePerMinute * (1 - historyWeight) + bucketRate * historyWeight;
+            var rate = currentRatePerMinute is { } currentRate
+                ? currentRate * (1 - historyWeight) + bucketRate * historyWeight
+                : bucketRate;
             var consumed = rate * (end - cursor).TotalMinutes;
             if (consumed >= remaining && rate > 0)
             {
@@ -427,9 +452,15 @@ internal static class AdaptiveWeeklyForecast
         return Result(new(resetsAt, remaining, false, points));
 
         AdaptiveWeeklyForecastProjection Result(UsageTrendForecast forecast) => new(forecast,
-            $"Forecast: {basis} + {profiles.Length} usable week{(profiles.Length == 1 ? string.Empty : "s")} ({coverage:P0} observed). Historical influence grows further ahead; estimate only.",
+            currentRatePerMinute.HasValue
+                ? $"Forecast: {FormatRecentBasis(recentDuration)} + {profiles.Length} usable week{(profiles.Length == 1 ? string.Empty : "s")} ({coverage:P0} observed). Historical influence grows further ahead; estimate only."
+                : $"Forecast: historical usage only, based on {profiles.Length} usable week{(profiles.Length == 1 ? string.Empty : "s")} ({coverage:P0} observed); estimate only.",
             UsesHistory: true);
     }
+
+    private static string FormatRecentBasis(TimeSpan? recentDuration) => recentDuration is { } duration
+        ? duration.TotalHours < 1 ? $"recent {duration.TotalMinutes:0} min" : $"recent {duration.TotalHours:0.#} h"
+        : "current pace";
 
     private static bool IsRepresentative(AdaptiveWeeklyUsageCycle cycle) =>
         cycle.WindowMinutes == 10080

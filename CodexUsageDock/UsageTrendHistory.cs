@@ -28,7 +28,7 @@ internal static class UsageTrendHistory
         for (var index = 1; index < samples.Length; index++)
         {
             if (samples[index].RecordedAt - samples[index - 1].RecordedAt > maximumGap
-                || WeeklyAllowanceRestoration.IsIncrease(samples[index - 1], samples[index]))
+                || WeeklyAllowanceRestoration.IsDiscontinuity(samples[index - 1], samples[index]))
             {
                 start = index;
             }

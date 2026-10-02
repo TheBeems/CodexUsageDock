@@ -25,13 +25,13 @@ internal static class UsageTrendAnalyzer
             return new(currentWindow, null, "Projection paused because the latest measurement is too old.", false, null, "Forecast: waiting for a fresh measurement.");
         }
 
-        if (currentWindow.Length < 2)
+        if (currentWindow.Length == 0)
         {
-            return new(currentWindow, null, "Projection will appear after another measurement.", false, null, "Forecast: waiting for another measurement.");
+            return WaitingForMeasurement(currentWindow);
         }
 
         var samples = currentWindow.Length <= 5 ? currentWindow : currentWindow.Where((_, index) => index % Math.Max(1, currentWindow.Length / 4) == 0).Take(4).Append(currentWindow[^1]).ToArray();
-        var values = string.Join(" → ", samples.Select(sample => $"{sample.RemainingPercent:0}%"));
+        var values = currentWindow.Length < 2 ? null : string.Join(" → ", samples.Select(sample => $"{sample.RemainingPercent:0}%"));
         var first = currentWindow[0];
         var last = currentWindow[^1];
         var isWeekly = resetsAt - windowStartsAt == TimeSpan.FromDays(7);
@@ -39,6 +39,11 @@ internal static class UsageTrendAnalyzer
         {
             return AnalyzeWeekly(currentWindow, values, windowStartsAt!.Value, resetsAt!.Value, now,
                 adaptiveWeeklyForecastEnabled, adaptiveWeeklyHistory);
+        }
+
+        if (currentWindow.Length < 2)
+        {
+            return WaitingForMeasurement(currentWindow);
         }
 
         var elapsedMinutes = (last.RecordedAt - first.RecordedAt).TotalMinutes;
@@ -119,8 +124,11 @@ internal static class UsageTrendAnalyzer
         UsageTrendForecast? Forecast,
         string ForecastStatus);
 
+    private static TrendAnalysis WaitingForMeasurement(UsageHistoryEntry[] segment) =>
+        new(segment, null, "Projection will appear after another measurement.", false, null, "Forecast: waiting for another measurement.");
+
     private static TrendAnalysis AnalyzeWeekly(
-        UsageHistoryEntry[] segment, string values, DateTimeOffset start, DateTimeOffset reset, DateTimeOffset now,
+        UsageHistoryEntry[] segment, string? values, DateTimeOffset start, DateTimeOffset reset, DateTimeOffset now,
         bool adaptiveEnabled, AdaptiveWeeklyUsageHistory? history)
     {
         var last = segment[^1];
@@ -143,6 +151,24 @@ internal static class UsageTrendAnalyzer
         var duration = last.RecordedAt - first.RecordedAt;
         if (duration < TimeSpan.FromMinutes(30))
         {
+            var historical = adaptiveEnabled && history is not null && reset > now
+                && WeeklyAllowanceRestoration.IsInCycle(last, reset, 10080)
+                ? AdaptiveWeeklyForecast.ProjectFromHistory(last, start, reset, history)
+                : null;
+            if (historical is not null)
+            {
+                historical = historical with
+                {
+                    Status = $"{historical.Status} Collecting current measurements ({duration.TotalMinutes:0}/30 minutes).",
+                };
+                return CreateWeeklyAnalysis(segment, values, now, historical, "Based on observed history");
+            }
+
+            if (segment.Length < 2)
+            {
+                return WaitingForMeasurement(segment);
+            }
+
             return new(segment, values, "Weekly projection needs at least 30 minutes of continuous measurements.", false, null,
                 $"Forecast: collecting measurements ({duration.TotalMinutes:0}/30 minutes).");
         }
@@ -156,6 +182,13 @@ internal static class UsageTrendAnalyzer
         }
 
         var condition = projection.UsesHistory ? "With recent usage and observed history" : "If this recent pace continues";
+        return CreateWeeklyAnalysis(segment, values, now, projection, condition);
+    }
+
+    private static TrendAnalysis CreateWeeklyAnalysis(
+        UsageHistoryEntry[] segment, string? values, DateTimeOffset now,
+        AdaptiveWeeklyForecastProjection projection, string condition)
+    {
         var forecast = projection.Forecast;
         var message = forecast.ReachesLimitBeforeReset
             ? $"{condition}, the limit may be reached around {FormatWeeklyLimitEstimate(forecast.EndsAt, now)}."

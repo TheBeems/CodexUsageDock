@@ -97,9 +97,9 @@ internal sealed partial class CodexUsageDockPage : ContentPage, IDisposable
             now, TrendMaximumGap(refreshInterval), tokenUsage);
         data["chartLegend"] = tokenUsage?.Status switch
         {
-            LocalTokenUsageStatus.Complete => "Line: remaining % · bars: local tokens/day (right axis)",
-            LocalTokenUsageStatus.Partial => "Line: remaining % · bars: partial local tokens/day (right axis)",
-            _ => "Line: remaining % · local tokens unavailable",
+            LocalTokenUsageStatus.Complete => "Line: remaining % · amber: reset/restoration · bars: local tokens/day (right axis)",
+            LocalTokenUsageStatus.Partial => "Line: remaining % · amber: reset/restoration · bars: partial local tokens/day (right axis)",
+            _ => "Line: remaining % · amber: reset/restoration · local tokens unavailable",
         };
         return data.ToJsonString();
     }
@@ -409,7 +409,7 @@ internal sealed partial class CodexUsageDockPage : ContentPage, IDisposable
     {
         data["weeklyTrendAvailable"] = false;
         data["weeklyForecastStatus"] = trend?.ForecastStatus ?? "Forecast unavailable.";
-        data["weeklyTrendLegend"] = "Solid: remaining quota (%) · dashed: forecast · breaks: restored allowance. Bars: local tokens per day on an independent right-hand scale.";
+        data["weeklyTrendLegend"] = "Solid: remaining quota (%) · dashed: forecast · amber and breaks: resets/restored allowance. Bars: local tokens per day on an independent right-hand scale.";
         data["weeklyRestorationAvailable"] = false;
         if (window is not { } validWindow
             || !UsageFreshness.IsValidWindow(validWindow, now)
@@ -421,13 +421,6 @@ internal sealed partial class CodexUsageDockPage : ContentPage, IDisposable
         data["weeklyForecastStatus"] = dataAvailable && trend is not null
             ? trend.ForecastStatus
             : "Forecast unavailable until usage data is refreshed.";
-
-        var windowStartsAt = validWindow.ResetsAt - TimeSpan.FromMinutes(validWindow.WindowMinutes);
-        var chartHistory = history.Where(sample => sample.RecordedAt >= windowStartsAt).ToArray();
-        if (chartHistory.Length < 2)
-        {
-            return;
-        }
 
         var chart = WeeklyUsageTrendChartRenderer.Create(
             history,
@@ -449,9 +442,9 @@ internal sealed partial class CodexUsageDockPage : ContentPage, IDisposable
             : "forecast pending sufficient fresh measurements";
         data["weeklyTrendLegend"] = tokenUsage?.Status switch
         {
-            LocalTokenUsageStatus.Complete => $"Solid: remaining quota (%) · breaks: restorations · {forecastLegend} · bars: local tokens per day · amber: detected restorations",
-            LocalTokenUsageStatus.Partial => $"Solid: remaining quota (%) · breaks: restorations · {forecastLegend} · bars: partial local tokens per day · amber: detected restorations",
-            _ => $"Solid: remaining quota (%) · breaks: restorations · {forecastLegend} · local token data unavailable · amber: detected restorations",
+            LocalTokenUsageStatus.Complete => $"Solid: remaining quota (%) · breaks: resets/restorations · {forecastLegend} · bars: local tokens per day · amber: detected resets/restorations",
+            LocalTokenUsageStatus.Partial => $"Solid: remaining quota (%) · breaks: resets/restorations · {forecastLegend} · bars: partial local tokens per day · amber: detected resets/restorations",
+            _ => $"Solid: remaining quota (%) · breaks: resets/restorations · {forecastLegend} · local token data unavailable · amber: detected resets/restorations",
         };
 
         var restorations = WeeklyAllowanceRestoration.Detect(history, validWindow, now);
@@ -581,13 +574,13 @@ internal sealed partial class CodexUsageDockPage : ContentPage, IDisposable
             maximumSampleAge,
             adaptiveWeeklyForecastEnabled,
             adaptiveWeeklyHistory);
-        if (analysis.HistoryValues is null)
-        {
-            return analysis.Message;
-        }
-
         var message = analysis.IsEstimate ? $"*{analysis.Message}*" : analysis.Message;
         var basis = resetsAt - windowStartsAt == TimeSpan.FromDays(7) ? $"  \n{analysis.ForecastStatus}" : string.Empty;
+        if (analysis.HistoryValues is null)
+        {
+            return analysis.IsEstimate ? $"{message}{basis}" : analysis.Message;
+        }
+
         return $"{analysis.HistoryValues}  \n{message}{basis}";
     }
 
@@ -710,9 +703,9 @@ internal sealed partial class CodexUsageDockPage : ContentPage, IDisposable
         return body.Append("""
             ## Chart guide
 
-            - **Line:** remaining allowance (%), connecting measurements across gaps. The timing of consumption within gaps is unknown. Restored allowance breaks the line and is marked in amber.
+            - **Line:** remaining allowance (%) over the past seven days, retained across resets. The timing of consumption within gaps is unknown. Resets and restored allowance break the line and are marked in amber.
             - **Bars:** local tokens per day, using the independent right axis. Tokens measure activity, not quota consumption.
-            - **Dashed line:** a conditional estimate. Weekly forecasts need 30 minutes of fresh, continuous data; gaps or restored allowance restart the series.
+            - **Dashed line:** a conditional estimate. Usable learned history can start a forecast from a fresh measurement after a reset or gap. Recent pace joins after 30 minutes of continuous measurements.
             - Remaining allowance falls; elapsed time rises. Equal bar lengths do not indicate a sustainable pace.
             """).ToString();
     }

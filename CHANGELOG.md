@@ -9,6 +9,12 @@ the [changelog workflow](AGENTS.md#documentation-and-change-quality).
 
 ## [Unreleased]
 
+## [0.8.4] - 2026-10-03
+
+### Changed
+
+- Keep seven days of weekly chart observations and token bars visible across quota resets, mark detected resets and restorations, and start forecasts from usable learned history while new continuous measurements accumulate. Prevent learning consumption across changed quota cycles and preserve freshness, account isolation, and historical coverage requirements.
+
 ## [0.8.3] - 2026-10-01
 
 ### Changed
