@@ -65,7 +65,7 @@ Dock-band and dashboard percentages show **remaining allowance**. Codex and addi
 
 Values refresh every minute by default. Open **Usage information** from the dashboard's **More** menu for the data source, measurement time, reset-credit expirations, credits balance, and explanatory text. During an outage, **Last confirmed** retains the previous observation with its age and pauses time comparisons and forecasts. Local fallback data remains labeled.
 
-The weekly forecast status appears above the quotas, and the graph appears before additional categories. The line shows remaining allowance; a forecast that reaches zero ends at its estimated limit time. Forecasts require at least 30 minutes of fresh, continuous measurements; their basis and the daily budget are under **Usage information**. Adaptive estimates use sufficiently observed recent weeks, with less influence from a short burst further ahead. Daily token bars and their independent right-hand axis appear by default when available; they reflect local session activity and are **not an exact measure of quota consumption**.
+The weekly forecast status appears above the quotas, and the graph appears before additional categories. The line shows remaining allowance and keeps the past seven days visible across resets, with amber reset/restoration markers. A forecast that reaches zero ends at its estimated limit time. With usable learned history, a fresh measurement can start a historical forecast immediately after a reset or gap; recent pace joins after 30 minutes of continuous measurements. Without usable history, those 30 minutes and a meaningful decrease are required. The forecast basis and daily budget are under **Usage information**. Adaptive estimates use sufficiently observed recent weeks, with less influence from a short burst further ahead. Daily token bars and their independent right-hand axis appear by default when available; they reflect local session activity and are **not an exact measure of quota consumption**.
 
 See the [user guide](USER_GUIDE.md#charts-and-forecasts) for chart legends, adaptive forecasts, and data handling.
 
@@ -110,7 +110,7 @@ The [user guide](USER_GUIDE.md) explains availability, exports, retention, and r
 | Extension not visible | Confirm PowerToys meets the requirements and Command Palette is running. Run **Reload Command Palette Extension**, then check **Settings > Extensions > Codex Usage**. |
 | Only fallback data, or no usage | Check the standalone CLI requirement above and confirm Codex is signed in. Restart PowerToys after changing the CLI path. Start Codex once if local account and session metadata are missing. |
 | Old values or **Last confirmed** | Check the measurement time and latest refresh attempt in diagnostics, then retry a refresh. |
-| Forecast unavailable | Allow at least 30 minutes of fresh, continuous weekly measurements to accumulate after a gap or allowance increase. Without usable history, a meaningful decrease is also needed. |
+| Forecast unavailable | Refresh usage data. With adaptive forecasting enabled and usable learned history, one fresh weekly measurement is enough for a historical estimate. Otherwise, allow at least 30 minutes of continuous measurements and a meaningful decrease after a reset or gap. |
 | Dock items missing after changing modes | Open Dock customization and add the bands for the selected combined or separate mode. |
 | Settings not saved | Read the error on the settings page and retry saving. Until saving succeeds, changes apply only to the running session. |
 

@@ -10,10 +10,13 @@ internal sealed record AllowanceRestoration(
 
 internal static class WeeklyAllowanceRestoration
 {
+    internal static readonly TimeSpan ResetCycleTolerance = TimeSpan.FromMinutes(1);
+
     internal static AllowanceRestoration[] Detect(
         IReadOnlyList<UsageHistoryEntry> history,
         RateLimitWindow window,
-        DateTimeOffset now)
+        DateTimeOffset now,
+        DateTimeOffset? retainedFrom = null)
     {
         if (window.WindowMinutes <= 0)
         {
@@ -34,20 +37,19 @@ internal static class WeeklyAllowanceRestoration
             var previous = samples[index - 1];
             var current = samples[index];
             if (!IsIncrease(previous, current)
-                || current.RecordedAt < windowStart
+                || current.RecordedAt < (retainedFrom ?? windowStart)
                 || current.RecordedAt > now
                 || current.RecordedAt > window.ResetsAt)
             {
                 continue;
             }
 
-            var isKnownWindowTransition = previous.ResetsAt.HasValue
-                && current.ResetsAt.HasValue
-                && previous.ResetsAt.Value != current.ResetsAt.Value;
+            var isKnownWindowTransition = IsCycleChange(previous, current);
             var isScheduledRollover = isKnownWindowTransition
                 && current.RecordedAt >= previous.ResetsAt!.Value;
             var isLegacyCrossBoundary = !isKnownWindowTransition
-                && previous.RecordedAt < windowStart;
+                && previous.RecordedAt < windowStart
+                && current.RecordedAt >= windowStart;
             if (isScheduledRollover || isLegacyCrossBoundary)
             {
                 continue;
@@ -64,6 +66,18 @@ internal static class WeeklyAllowanceRestoration
 
     internal static bool IsIncrease(UsageHistoryEntry previous, UsageHistoryEntry current) =>
         current.RemainingPercent > previous.RemainingPercent;
+
+    internal static bool IsCycleChange(UsageHistoryEntry previous, UsageHistoryEntry current) =>
+        previous.ResetsAt.HasValue
+        && current.ResetsAt.HasValue
+        && (current.ResetsAt.Value - previous.ResetsAt.Value).Duration() > ResetCycleTolerance;
+
+    internal static bool IsInCycle(UsageHistoryEntry sample, DateTimeOffset resetsAt, int windowMinutes) =>
+        (!sample.WindowMinutes.HasValue || sample.WindowMinutes.Value == windowMinutes)
+        && (!sample.ResetsAt.HasValue || (sample.ResetsAt.Value - resetsAt).Duration() <= ResetCycleTolerance);
+
+    internal static bool IsDiscontinuity(UsageHistoryEntry previous, UsageHistoryEntry current) =>
+        IsIncrease(previous, current) || IsCycleChange(previous, current);
 
     private static bool IsValid(UsageHistoryEntry sample) =>
         double.IsFinite(sample.RemainingPercent)

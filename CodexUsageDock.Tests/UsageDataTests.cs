@@ -207,7 +207,7 @@ public sealed class UsageDataTests : IDisposable
         using var service = _environment.CreateService();
         using var page = new CodexUsageDockPage(service, _environment.CreateSettings());
 
-        Assert.Equal("0.8.3", CodexUsageDockMetadata.Version);
+        Assert.Equal("0.8.4", CodexUsageDockMetadata.Version);
         Assert.Equal($"Codex Usage - {CodexUsageDockMetadata.Version}", page.Title);
     }
 
@@ -775,7 +775,7 @@ public sealed class UsageDataTests : IDisposable
     }
 
     [Fact]
-    public void WeeklyTrendChartOmitsForecastWhenLatestObservationIsGapIsolated()
+    public void WeeklyTrendChartRendersSuppliedProjectionFromLatestGapIsolatedObservation()
     {
         var windowStart = new DateTimeOffset(2026, 7, 10, 9, 0, 0, TimeSpan.Zero);
         var reset = windowStart.AddDays(7);
@@ -796,8 +796,9 @@ public sealed class UsageDataTests : IDisposable
 
         var observedLine = Assert.Single(svg.Descendants(Svg + "polyline"), line => line.Attribute("stroke-dasharray") is null);
         Assert.Equal(3, observedLine.Attribute("points")!.Value.Split(' ', StringSplitOptions.RemoveEmptyEntries).Length);
-        Assert.DoesNotContain(svg.Descendants(Svg + "polyline"), line => line.Attribute("stroke-dasharray") is not null);
-        Assert.Contains("Forecast is unavailable", result.AltText, StringComparison.Ordinal);
+        var projection = Assert.Single(svg.Descendants(Svg + "polyline"), line => line.Attribute("stroke-dasharray") is not null);
+        Assert.Equal(observedLine.Attribute("points")!.Value.Split(' ')[^1], projection.Attribute("points")!.Value.Split(' ')[0]);
+        Assert.Contains("Forecast reaches", result.AltText, StringComparison.Ordinal);
     }
 
     [Fact]

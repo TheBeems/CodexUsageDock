@@ -514,10 +514,13 @@ internal sealed partial class CodexUsageService : IDisposable
 
         var windowStart = weekly.ResetsAt - TimeSpan.FromMinutes(weekly.WindowMinutes);
         var now = _clock();
+        // The chart retains seven days across resets, so its token bars need the same observed horizon.
+        var retainedStart = now.AddDays(-7);
+        var scanStart = windowStart < retainedStart ? windowStart : retainedStart;
         var windowEnd = now < weekly.ResetsAt ? now : weekly.ResetsAt;
         try
         {
-            return await reader(windowStart, windowEnd, TimeZoneInfo.Local, cancellationToken).ConfigureAwait(false);
+            return await reader(scanStart, windowEnd, TimeZoneInfo.Local, cancellationToken).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {

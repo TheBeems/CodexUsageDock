@@ -44,21 +44,25 @@ internal static class WeeklyUsageTrendChartRenderer
 
         var displayCulture = culture ?? CultureInfo.InvariantCulture;
         var displayTimeZone = timeZone ?? TimeZoneInfo.Local;
-        var restorations = WeeklyAllowanceRestoration.Detect(history, window, effectiveNow);
-        var samples = Normalize(history, windowStart, effectiveNow);
-        if (samples.Length < 2)
+        var samples = Normalize(history, effectiveNow.AddDays(-7), effectiveNow);
+        if (samples.Length == 0)
         {
             return null;
         }
 
-        var dailyUse = CreateCalendarDays(windowStart, window.ResetsAt, effectiveNow, displayTimeZone);
+        var plotStart = samples[0].RecordedAt < windowStart ? samples[0].RecordedAt : windowStart;
+        var resets = DetectResets(samples, windowStart);
+        var restorations = WeeklyAllowanceRestoration.Detect(samples, window, effectiveNow, plotStart);
+        var dailyUse = CreateCalendarDays(plotStart, window.ResetsAt, effectiveNow, displayTimeZone);
         ApplyDailyTokens(dailyUse, tokenUsage);
         var tokenScaleMaximum = GetTokenScaleMaximum(dailyUse);
         var calendarScale = new CalendarDayScale(dailyUse);
         var renderedSegments = DownsampleSegments(SplitAtDiscontinuities(samples,
-            WeeklyAllowanceRestoration.IsIncrease), windowStart, window.ResetsAt);
+            (previous, current) => WeeklyAllowanceRestoration.IsDiscontinuity(previous, current)
+                || IsLegacyRollover(previous, current, windowStart)), plotStart, window.ResetsAt);
         var latestSegment = UsageTrendHistory.LatestSegment(samples, windowStart, window.ResetsAt, effectiveNow, maximumGap);
-        var forecastSegment = latestSegment is { Length: >= 2 } ? latestSegment : null;
+        // The analyzer owns observation-quality gates and may supply a history-based projection after one fresh sample.
+        var forecastSegment = latestSegment is { Length: > 0 } ? latestSegment : null;
         var usableForecast = forecastSegment is not null && forecast is { } candidate && candidate.EndsAt > forecastSegment[^1].RecordedAt
             ? candidate
             : null;
@@ -69,7 +73,8 @@ internal static class WeeklyUsageTrendChartRenderer
         AddCalendarDayGrid(document, dailyUse, calendarScale);
         AddDailyTokenBars(document, dailyUse, calendarScale, displayCulture, tokenScaleMaximum);
         AddResetMarkers(document, windowStart, window.ResetsAt, calendarScale);
-        AddNowMarker(document, windowStart, window.ResetsAt, effectiveNow, calendarScale);
+        AddNowMarker(document, plotStart, window.ResetsAt, effectiveNow, calendarScale);
+        AddDetectedResetMarkers(document, resets, calendarScale, displayCulture, displayTimeZone);
         AddRestorationMarkers(document, restorations, calendarScale);
         AddObservedLines(document, renderedSegments, calendarScale);
         AddForecastLine(document, forecastSegment, usableForecast, window.ResetsAt, now, calendarScale, displayCulture, displayTimeZone);
@@ -82,7 +87,8 @@ internal static class WeeklyUsageTrendChartRenderer
             samples.Length,
             usableForecast,
             restorations,
-            windowStart,
+            resets,
+            plotStart,
             window.ResetsAt,
             effectiveNow,
             dailyUse,
@@ -108,7 +114,7 @@ internal static class WeeklyUsageTrendChartRenderer
         DateTimeOffset windowStart,
         DateTimeOffset now) =>
         history
-            .Where(sample => sample.RecordedAt >= windowStart
+            .Where(sample => sample is not null && sample.RecordedAt >= windowStart
                 && sample.RecordedAt <= now
                 && double.IsFinite(sample.RemainingPercent)
                 && sample.RemainingPercent is >= 0 and <= 100)
@@ -116,6 +122,21 @@ internal static class WeeklyUsageTrendChartRenderer
             .GroupBy(sample => sample.RecordedAt)
             .Select(group => group.Last())
             .ToArray();
+
+    private static QuotaCycleChange[] DetectResets(UsageHistoryEntry[] samples, DateTimeOffset windowStart) =>
+        samples.Zip(samples.Skip(1))
+            .Where(pair => WeeklyAllowanceRestoration.IsCycleChange(pair.First, pair.Second)
+                || IsLegacyRollover(pair.First, pair.Second, windowStart))
+            .Select(pair => new QuotaCycleChange(pair.First.RecordedAt, pair.Second.RecordedAt))
+            .ToArray();
+
+    private static bool IsLegacyRollover(
+        UsageHistoryEntry previous,
+        UsageHistoryEntry current,
+        DateTimeOffset windowStart) =>
+        (!previous.ResetsAt.HasValue || !current.ResetsAt.HasValue)
+        && previous.RecordedAt < windowStart
+        && current.RecordedAt >= windowStart;
 
     private static List<UsageHistoryEntry[]> DownsampleSegments(
         List<UsageHistoryEntry[]> segments,
@@ -553,6 +574,36 @@ internal static class WeeklyUsageTrendChartRenderer
         }
     }
 
+    private static void AddDetectedResetMarkers(
+        XElement document,
+        QuotaCycleChange[] resets,
+        CalendarDayScale calendarScale,
+        CultureInfo culture,
+        TimeZoneInfo timeZone)
+    {
+        foreach (var reset in resets)
+        {
+            var x = calendarScale.GetX(reset.DetectedAt);
+            var label = FormatResetDetection(reset, culture, timeZone);
+            document.Add(new XElement(
+                Svg + "line",
+                new XAttribute("x1", Format(x)),
+                new XAttribute("x2", Format(x)),
+                new XAttribute("y1", TrendTop),
+                new XAttribute("y2", TrendBottom),
+                new XAttribute("stroke", "#F2C94C"),
+                new XAttribute("stroke-opacity", "0.8"),
+                new XAttribute("stroke-width", "1.5"),
+                new XAttribute("stroke-dasharray", "3 2"),
+                new XAttribute("data-marker", "quota-reset"),
+                new XAttribute("data-previous-observed-at", reset.PreviousObservedAt.ToString("O", CultureInfo.InvariantCulture)),
+                new XAttribute("data-detected-at", reset.DetectedAt.ToString("O", CultureInfo.InvariantCulture)),
+                new XElement(Svg + "title", label)));
+            var labelX = Math.Clamp(x, Left + 22, Width - Right - 22);
+            AddChartLabel(document, "RESET", labelX, TrendTop + 3, ChartLabelAlignment.Center, "reset-detected");
+        }
+    }
+
     private static void AddObservedLines(
         XElement document,
         IReadOnlyList<UsageHistoryEntry[]> segments,
@@ -719,6 +770,7 @@ internal static class WeeklyUsageTrendChartRenderer
         int sampleCount,
         UsageTrendForecast? forecast,
         AllowanceRestoration[] restorations,
+        QuotaCycleChange[] resets,
         DateTimeOffset windowStart,
         DateTimeOffset windowEnd,
         DateTimeOffset now,
@@ -738,9 +790,15 @@ internal static class WeeklyUsageTrendChartRenderer
         };
         var restorationText = restorations.Length > 0
             ? $" {restorations.Length} allowance restoration{(restorations.Length == 1 ? " was" : "s were")} detected; the latest at {TimeZoneInfo.ConvertTime(restorations[^1].DetectedAt, timeZone).ToString("ddd d MMM HH:mm", culture)} increased remaining allowance from {restorations[^1].PreviousRemainingPercent:0}% to {restorations[^1].CurrentRemainingPercent:0}%. Amber markers show detected restorations."
-            : " No allowance restorations were detected in this window.";
-        return $"Weekly quota trend from {period}. Remaining quota changed from {first.RemainingPercent:0}% to {last.RemainingPercent:0}% across {sampleCount} observations. The left vertical scale is remaining quota from 0% to 100%.{(tokenUsage is null ? string.Empty : " The independent right scale is locally observed total tokens per calendar day.")} Horizontal labels are local calendar dates, and reset markers bound the quota window. Solid line connects sampled values across measurement gaps; allowance increases break the line; dashed line is a conditional forecast.{restorationText}{forecastText} {daily}";
+            : " No allowance restorations were detected in the retained observations.";
+        var resetText = resets.Length > 0
+            ? $" {resets.Length} quota reset or reset-schedule change{(resets.Length == 1 ? " was" : "s were")} detected. {string.Join(" ", resets.Select(reset => FormatResetDetection(reset, culture, timeZone)))} Markers show detection times; the precise event time between observations is unknown."
+            : " No quota reset or reset-schedule changes were detected in the retained observations.";
+        return $"Weekly quota trend from {period}. Recorded observations from the preceding seven days are retained across quota resets. Remaining quota changed from {first.RemainingPercent:0}% to {last.RemainingPercent:0}% across {sampleCount} observation{(sampleCount == 1 ? string.Empty : "s")}. The left vertical scale is remaining quota from 0% to 100%.{(tokenUsage is null ? string.Empty : " The independent right scale is locally observed total tokens per calendar day.")} Horizontal labels are local calendar dates, and reset boundary markers show the current quota window. Solid line connects sampled values across measurement gaps; allowance increases break the line, as do quota cycle changes; dashed line is a conditional forecast.{restorationText}{resetText}{forecastText} {daily}";
     }
+
+    private static string FormatResetDetection(QuotaCycleChange reset, CultureInfo culture, TimeZoneInfo timeZone) =>
+        $"Quota reset or changed reset schedule observed between {TimeZoneInfo.ConvertTime(reset.PreviousObservedAt, timeZone).ToString("ddd d MMM HH:mm", culture)} and {TimeZoneInfo.ConvertTime(reset.DetectedAt, timeZone).ToString("ddd d MMM HH:mm", culture)}.";
 
     private static string FormatDailyTokenAltText(
         IReadOnlyList<DailyUsage> days,
@@ -798,6 +856,8 @@ internal static class WeeklyUsageTrendChartRenderer
         Center,
         End,
     }
+
+    private sealed record QuotaCycleChange(DateTimeOffset PreviousObservedAt, DateTimeOffset DetectedAt);
 
     private sealed class DailyUsage(
         DateOnly date,

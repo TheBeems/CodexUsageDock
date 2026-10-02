@@ -9,6 +9,12 @@ the [changelog workflow](AGENTS.md#documentation-and-change-quality).
 
 ## [Unreleased]
 
+## [0.8.4] - 2026-10-03
+
+### Changed
+
+- Keep seven days of weekly chart observations and token bars visible across quota resets, mark detected resets and restorations, and start forecasts from usable learned history while new continuous measurements accumulate. Prevent learning consumption across changed quota cycles and preserve freshness, account isolation, and historical coverage requirements. ([PR #31](https://github.com/TheBeems/CodexUsageDock/pull/31))
+
 ## [0.8.3] - 2026-10-01
 
 ### Changed
@@ -236,7 +242,8 @@ the [changelog workflow](AGENTS.md#documentation-and-change-quality).
 - Initial release of the Windows Command Palette extension for viewing local Codex usage. [commit ac72fe5](https://github.com/TheBeems/CodexUsageDock/commit/ac72fe50fcd1af36f41cda896f1d792899573351)
 - Automated release installer creation and smoke-test handling. [commit 64a3305](https://github.com/TheBeems/CodexUsageDock/commit/64a33058b7486dea12f026561c545b362eb2d622), [commit 21790a1](https://github.com/TheBeems/CodexUsageDock/commit/21790a1ea60a9bfec14ec578d77356c5576472fb)
 
-[Unreleased]: https://github.com/TheBeems/CodexUsageDock/compare/ef7046cdd5a1478b452c29cfd0c6e2fd94134ab9...main
+[Unreleased]: https://github.com/TheBeems/CodexUsageDock/compare/a73b904...main
+[0.8.4]: https://github.com/TheBeems/CodexUsageDock/pull/31
 [0.8.3]: https://github.com/TheBeems/CodexUsageDock/compare/46e4a985ce288ff6a3cbc1ada64471716598850b...ef7046cdd5a1478b452c29cfd0c6e2fd94134ab9
 [0.8.2]: https://github.com/TheBeems/CodexUsageDock/compare/4fe435e6a03a790cffe5b03384ff4f2436e206d3...46e4a985ce288ff6a3cbc1ada64471716598850b
 [0.8.1]: https://github.com/TheBeems/CodexUsageDock/pull/28
