@@ -95,12 +95,6 @@ internal sealed partial class CodexUsageDockPage : ContentPage, IDisposable
             data, snapshot.Secondary, weeklyHistory, weeklyTrend, dataAvailable,
             snapshot.Source is UsageDataSource.AppServer or UsageDataSource.LocalSession or UsageDataSource.LastConfirmed,
             now, TrendMaximumGap(refreshInterval), tokenUsage);
-        data["chartLegend"] = tokenUsage?.Status switch
-        {
-            LocalTokenUsageStatus.Complete => "Line: remaining % · amber: reset/restoration · bars: local tokens/day (right axis)",
-            LocalTokenUsageStatus.Partial => "Line: remaining % · amber: reset/restoration · bars: partial local tokens/day (right axis)",
-            _ => "Line: remaining % · amber: reset/restoration · local tokens unavailable",
-        };
         return data.ToJsonString();
     }
 
@@ -438,13 +432,13 @@ internal sealed partial class CodexUsageDockPage : ContentPage, IDisposable
         data["weeklyTrendChartUrl"] = chart.ImageUrl;
         data["weeklyTrendChartAlt"] = chart.AltText;
         var forecastLegend = dataAvailable && trend?.Forecast is not null
-            ? "dashed: forecast"
-            : "forecast pending sufficient fresh measurements";
+            ? "dashed: estimate"
+            : "forecast pending";
         data["weeklyTrendLegend"] = tokenUsage?.Status switch
         {
-            LocalTokenUsageStatus.Complete => $"Solid: remaining quota (%) · breaks: resets/restorations · {forecastLegend} · bars: local tokens per day · amber: detected resets/restorations",
-            LocalTokenUsageStatus.Partial => $"Solid: remaining quota (%) · breaks: resets/restorations · {forecastLegend} · bars: partial local tokens per day · amber: detected resets/restorations",
-            _ => $"Solid: remaining quota (%) · breaks: resets/restorations · {forecastLegend} · local token data unavailable · amber: detected resets/restorations",
+            LocalTokenUsageStatus.Complete => $"Line: remaining % · amber: reset/restoration · bars: local tokens/day (right axis) · {forecastLegend}",
+            LocalTokenUsageStatus.Partial => $"Line: remaining % · amber: reset/restoration · bars: partial local tokens per day (right axis) · {forecastLegend}",
+            _ => $"Line: remaining % · amber: reset/restoration · local token data unavailable · {forecastLegend}",
         };
 
         var restorations = WeeklyAllowanceRestoration.Detect(history, validWindow, now);

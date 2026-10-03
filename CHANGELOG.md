@@ -9,6 +9,12 @@ the [changelog workflow](AGENTS.md#documentation-and-change-quality).
 
 ## [Unreleased]
 
+## [0.8.5] - 2026-10-03
+
+### Fixed
+
+- Avoid false reset markers and broken history lines when an unused quota's estimated reset time moves with each reading. Keep real reset events, remove duplicate restoration lines, and prevent chart labels from overlapping. Show compact billion-token labels and the forecast basis beside the chart, with a legend that reflects the available data.
+
 ## [0.8.4] - 2026-10-03
 
 ### Changed

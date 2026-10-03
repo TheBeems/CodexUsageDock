@@ -103,7 +103,11 @@ internal static class UsageDashboardCard
                   "size": "stretch", "spacing": "small"
                 },
                 {
-                  "type": "TextBlock", "text": "${chartLegend} · dashed: estimate",
+                  "type": "TextBlock", "text": "${weeklyTrendLegend}",
+                  "isSubtle": true, "size": "small", "wrap": true, "spacing": "small"
+                },
+                {
+                  "type": "TextBlock", "text": "${weeklyForecastStatus}",
                   "isSubtle": true, "size": "small", "wrap": true, "spacing": "small"
                 }
               ]

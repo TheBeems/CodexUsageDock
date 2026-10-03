@@ -207,7 +207,7 @@ public sealed class UsageDataTests : IDisposable
         using var service = _environment.CreateService();
         using var page = new CodexUsageDockPage(service, _environment.CreateSettings());
 
-        Assert.Equal("0.8.4", CodexUsageDockMetadata.Version);
+        Assert.Equal("0.8.5", CodexUsageDockMetadata.Version);
         Assert.Equal($"Codex Usage - {CodexUsageDockMetadata.Version}", page.Title);
     }
 
@@ -241,7 +241,8 @@ public sealed class UsageDataTests : IDisposable
         Assert.DoesNotContain("singleWindow", main.TemplateJson, StringComparison.Ordinal);
         Assert.Contains("Time elapsed", main.TemplateJson, StringComparison.Ordinal);
         Assert.Contains("weeklyTrendAvailable", main.TemplateJson, StringComparison.Ordinal);
-        Assert.DoesNotContain("weeklyTrendLegend", main.TemplateJson, StringComparison.Ordinal);
+        Assert.Contains("weeklyTrendLegend", main.TemplateJson, StringComparison.Ordinal);
+        Assert.Contains("weeklyForecastStatus", main.TemplateJson, StringComparison.Ordinal);
         Assert.Same(Assert.Single(page.GetContent()), Assert.Single(page.GetContent()));
     }
 
