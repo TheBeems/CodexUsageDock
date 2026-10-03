@@ -11,7 +11,7 @@ the [changelog workflow](AGENTS.md#documentation-and-change-quality).
 
 ### Changed
 
-- Clarify forecast retention and the privacy-policy date, document Store updates when WinGet cannot determine a version, and correct the chart description.
+- Clarify forecast retention and the privacy-policy date, document Store updates when WinGet cannot determine a version, and correct the chart description. ([commit 533695b](https://github.com/TheBeems/CodexUsageDock/commit/533695bfee3661dc98efffd7f58844cf433ed09a))
 
 ## [0.8.5] - 2026-10-03
 
