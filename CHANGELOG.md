@@ -9,6 +9,12 @@ the [changelog workflow](AGENTS.md#documentation-and-change-quality).
 
 ## [Unreleased]
 
+## [0.8.5] - 2026-10-03
+
+### Fixed
+
+- Avoid false reset markers and broken history lines when an unused quota's estimated reset time moves with each reading. Keep real reset events, remove duplicate restoration lines, and prevent chart labels from overlapping. Show compact billion-token labels and the forecast basis beside the chart, with a legend that reflects the available data. ([commit e9baaa7](https://github.com/TheBeems/CodexUsageDock/commit/e9baaa73ac545e8d1855cddb774c75c544a458b5))
+
 ## [0.8.4] - 2026-10-03
 
 ### Changed
@@ -242,7 +248,8 @@ the [changelog workflow](AGENTS.md#documentation-and-change-quality).
 - Initial release of the Windows Command Palette extension for viewing local Codex usage. [commit ac72fe5](https://github.com/TheBeems/CodexUsageDock/commit/ac72fe50fcd1af36f41cda896f1d792899573351)
 - Automated release installer creation and smoke-test handling. [commit 64a3305](https://github.com/TheBeems/CodexUsageDock/commit/64a33058b7486dea12f026561c545b362eb2d622), [commit 21790a1](https://github.com/TheBeems/CodexUsageDock/commit/21790a1ea60a9bfec14ec578d77356c5576472fb)
 
-[Unreleased]: https://github.com/TheBeems/CodexUsageDock/compare/v0.8.4...main
+[Unreleased]: https://github.com/TheBeems/CodexUsageDock/compare/e9baaa73ac545e8d1855cddb774c75c544a458b5...main
+[0.8.5]: https://github.com/TheBeems/CodexUsageDock/compare/v0.8.4...e9baaa73ac545e8d1855cddb774c75c544a458b5
 [0.8.4]: https://github.com/TheBeems/CodexUsageDock/releases/tag/v0.8.4
 [0.8.3]: https://github.com/TheBeems/CodexUsageDock/compare/46e4a985ce288ff6a3cbc1ada64471716598850b...ef7046cdd5a1478b452c29cfd0c6e2fd94134ab9
 [0.8.2]: https://github.com/TheBeems/CodexUsageDock/compare/4fe435e6a03a790cffe5b03384ff4f2436e206d3...46e4a985ce288ff6a3cbc1ada64471716598850b

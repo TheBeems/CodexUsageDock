@@ -65,7 +65,7 @@ public sealed class WeeklyResetIntegrationTests : IDisposable
         var observed = Assert.Single(chart.Descendants(Svg + "polyline"), line => line.Attribute("stroke-dasharray") is null);
         Assert.Equal(2, observed.Attribute("points")!.Value.Split(' ').Length);
         Assert.Single(chart.Descendants(Svg + "polyline"), line => line.Attribute("stroke-dasharray") is not null);
-        Assert.Contains("amber: reset/restoration", data.GetProperty("chartLegend").GetString(), StringComparison.Ordinal);
+        Assert.Contains("amber: reset/restoration", data.GetProperty("weeklyTrendLegend").GetString(), StringComparison.Ordinal);
 
         var otherAccount = afterReset with { AccountKey = "other-account" };
         restarted.RecordHistory(otherAccount, now);

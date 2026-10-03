@@ -70,7 +70,25 @@ internal static class WeeklyAllowanceRestoration
     internal static bool IsCycleChange(UsageHistoryEntry previous, UsageHistoryEntry current) =>
         previous.ResetsAt.HasValue
         && current.ResetsAt.HasValue
-        && (current.ResetsAt.Value - previous.ResetsAt.Value).Duration() > ResetCycleTolerance;
+        && (current.ResetsAt.Value - previous.ResetsAt.Value).Duration() > ResetCycleTolerance
+        && !IsUnusedResetEstimate(previous, current);
+
+    private static bool IsUnusedResetEstimate(UsageHistoryEntry previous, UsageHistoryEntry current)
+    {
+        if (previous.RemainingPercent != 100
+            || previous.WindowMinutes is not > 0
+            || current.WindowMinutes != previous.WindowMinutes)
+        {
+            return false;
+        }
+
+        // Before first consumption, the server can report a deadline one full window from each reading.
+        // The deadline may settle between readings when usage starts; neither change proves a reset.
+        var duration = TimeSpan.FromMinutes(previous.WindowMinutes.Value);
+        return (previous.ResetsAt!.Value - previous.RecordedAt - duration).Duration() <= ResetCycleTolerance
+            && current.ResetsAt!.Value - previous.RecordedAt - duration >= -ResetCycleTolerance
+            && current.ResetsAt.Value - current.RecordedAt - duration <= ResetCycleTolerance;
+    }
 
     internal static bool IsInCycle(UsageHistoryEntry sample, DateTimeOffset resetsAt, int windowMinutes) =>
         (!sample.WindowMinutes.HasValue || sample.WindowMinutes.Value == windowMinutes)
