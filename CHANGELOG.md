@@ -9,11 +9,15 @@ the [changelog workflow](AGENTS.md#documentation-and-change-quality).
 
 ## [Unreleased]
 
+### Changed
+
+- Clarify forecast retention and the privacy-policy date, document Store updates when WinGet cannot determine a version, and correct the chart description.
+
 ## [0.8.5] - 2026-10-03
 
 ### Fixed
 
-- Avoid false reset markers and broken history lines when an unused quota's estimated reset time moves with each reading. Keep real reset events, remove duplicate restoration lines, and prevent chart labels from overlapping. Show compact billion-token labels and the forecast basis beside the chart, with a legend that reflects the available data. ([commit e9baaa7](https://github.com/TheBeems/CodexUsageDock/commit/e9baaa73ac545e8d1855cddb774c75c544a458b5))
+- Avoid false reset markers and broken history lines when an unused quota's estimated reset time moves with each reading. Keep real reset events, remove duplicate restoration lines, and prevent chart labels from overlapping. Show compact billion-token labels and the forecast basis below the chart, with a legend that reflects the available data. ([commit e9baaa7](https://github.com/TheBeems/CodexUsageDock/commit/e9baaa73ac545e8d1855cddb774c75c544a458b5))
 
 ## [0.8.4] - 2026-10-03
 

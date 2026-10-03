@@ -114,6 +114,22 @@ Script regression tests use mocked package operations and isolated Pester storag
 powershell.exe -NoProfile -ExecutionPolicy RemoteSigned -Command "Import-Module Pester -RequiredVersion 3.4.0; Invoke-Pester .\scripts\tests\test-local.Tests.ps1 -EnableExit"
 ```
 
+### Update an existing Store installation
+
+Check **Microsoft Store > Library** for updates. The Store source can expose `Version: Unknown` to WinGet, and `winget install` or `winget upgrade` may report no available update even after publication. If the intended update is confirmed published, request the official package again through App Installer:
+
+```powershell
+$storeWinget = Join-Path (Get-AppxPackage Microsoft.DesktopAppInstaller | Select-Object -First 1).InstallLocation 'winget.exe'
+& $storeWinget install --id 9NFCPJXQG9FG --exact --source msstore --force --accept-source-agreements --accept-package-agreements --disable-interactivity
+
+Get-AppxPackage -Name TheBeems.CodexUsageDock |
+    Select-Object Version, Architecture, SignatureKind, IsDevelopmentMode, Status
+```
+
+This requests the latest package offered to the current Windows account. Verify that `Version` matches the intended release, `SignatureKind` is `Store`, `IsDevelopmentMode` is `False`, and `Status` is `Ok`. A successful installer message or an unknown WinGet version does not establish the installed version. If the old version remains, the update may still be rolling out; retry through Microsoft Store when it becomes available.
+
+After updating, run **Reload Command Palette Extension** and open **Codex Usage** to check activation and the changed behavior. Package health and extension discovery alone do not verify live UI behavior.
+
 ### Smart App Control
 
 A healthy development registration does not prove that Windows will load the extension. Smart App Control can block the unsigned `CodexUsageDock.dll` after the COM-server executable starts. Developer Mode permits development registration but does not supply a trusted code signature. Check **Event Viewer > Applications and Services Logs > Microsoft > Windows > CodeIntegrity > Operational** for enforcement events (3077) naming the extension.

@@ -120,7 +120,7 @@ Open **Codex Usage diagnostics** for the running build, source, measurement time
 
 The extension processes usage locally through the Codex CLI app-server and local session metadata. It has no developer-operated telemetry service and does not retain conversation content for token analysis. Codex's own service communication is governed by its policies.
 
-Local storage includes settings, up to seven days of weekly trend data, and up to eight learned forecast profiles. Optional usage history retains 7, 30, or 90 days. Exported files remain after retained history is deleted. Account activity and task estimates stay in memory; pending earned-reset requests use a local recovery record.
+Local storage includes settings, up to seven days of weekly trend data, and up to eight completed forecast profiles plus the active cycle. Optional usage history retains 7, 30, or 90 days. Exported files remain after retained history is deleted. Account activity and task estimates stay in memory; pending earned-reset requests use a local recovery record.
 
 See the [Privacy Policy](PRIVACY.md) for full storage and communication details.
 
