@@ -58,6 +58,10 @@ Always specify both `Platform` and its matching RID. Omitting `-r win-x64` or `-
 
 Tests must use `TestEnvironment` or explicitly inject both history stores and a temporary settings path. Only the production parameterless service constructor selects the current user's storage. Never instantiate it in a unit test. Each test owns and deletes its unique temporary directory; synthetic quota events must never reach real user history. Token tests await `TokenRefreshTask` separately because `RefreshAsync` completes when limits are published. Forecast arithmetic fixtures should use continuous measurements; gap and stale-data scenarios are tested separately.
 
+### Dock notifications
+
+`DockNotificationTests` covers a remaining-allowance change from 93% to 86% with a failing host subscriber, permanent disconnection cleanup, transient recovery, and subscription through the WinRT interface. The pinned SDK stops multicast delivery after the first failing subscriber; `UsageDockListItem` bridges those notifications and isolates each recipient, matching the [upstream SDK fix](https://github.com/microsoft/PowerToys/blob/main/src/modules/cmdpal/extensionsdk/Microsoft.CommandPalette.Extensions.Toolkit/EventHelpers.cs). Preserve stable item and band identities and avoid provider catalog invalidation on routine refreshes. These tests verify notification delivery; use the integration matrix to verify the installed Dock rendering.
+
 ### Chart labels
 
 The chart uses baked Segoe UI outlines because the Windows SVG image renderer does not support SVG text. `CodexUsageDock/ChartLabelGlyphs.cs` is generated source; regenerate it on Windows with `scripts/generate-chart-labels.ps1` and review the visual result. Runtime builds use the checked-in outlines and need no font loading or drawing dependency.
@@ -158,6 +162,7 @@ Complete every row on a clean x64 environment and a separate clean ARM64 environ
 | Dock band | Required | Required | The band can be added, each enabled item opens details, and values update while Command Palette remains responsive. |
 | Settings | Required | Required | Visibility, reset-time, refresh-interval, and adaptive-forecast choices apply immediately and persist after restarting Command Palette. Verify that disabling pauses learning without replaying measurements collected while paused, retains history, and that deleting learned history requires confirmation. |
 | Live app-server | Required | Required | With a signed-in standalone Codex CLI, the details page identifies the CLI app-server as the source and refreshes live data. |
+| Dock refresh | Required | Required | Pin the weekly Dock item and compare its percentage with the dashboard after manual and automatic refreshes that change the allowance. Repeat after **Reload Command Palette Extension** and leave the Dock running through several refreshes. The percentage keeps matching the dashboard without removing or repinning the band. |
 | Local fallback | Required | Required | In an isolated test account with local session metadata but no launchable standalone CLI, fallback data appears and is identified as local session data. Do not rename or delete a real CLI installation to create this state. |
 | No-data failure | Required | Required | In an isolated account with neither a CLI nor session data, the extension shows a bounded unavailable/error state and does not crash or loop. |
 
