@@ -9,6 +9,12 @@ the [changelog workflow](AGENTS.md#documentation-and-change-quality).
 
 ## [Unreleased]
 
+## [0.8.6] - 2026-10-04
+
+### Fixed
+
+- Keep Dock percentages updating when an old Command Palette notification subscriber disconnects. Deliver display changes independently to each subscriber, remove permanently disconnected subscribers, and retain transient failures for the next refresh. ([PR #33](https://github.com/TheBeems/CodexUsageDock/pull/33))
+
 ### Changed
 
 - Clarify forecast retention and the privacy-policy date, document Store updates when WinGet cannot determine a version, and correct the chart description. ([commit 533695b](https://github.com/TheBeems/CodexUsageDock/commit/533695bfee3661dc98efffd7f58844cf433ed09a))
