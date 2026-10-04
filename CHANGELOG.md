@@ -13,7 +13,7 @@ the [changelog workflow](AGENTS.md#documentation-and-change-quality).
 
 ### Fixed
 
-- Keep Dock percentages updating when an old Command Palette notification subscriber disconnects. Deliver display changes independently to each subscriber, remove permanently disconnected subscribers, and retain transient failures for the next refresh.
+- Keep Dock percentages updating when an old Command Palette notification subscriber disconnects. Deliver display changes independently to each subscriber, remove permanently disconnected subscribers, and retain transient failures for the next refresh. ([PR #33](https://github.com/TheBeems/CodexUsageDock/pull/33))
 
 ### Changed
 
