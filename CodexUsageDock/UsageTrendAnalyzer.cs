@@ -197,12 +197,12 @@ internal static class UsageTrendAnalyzer
     }
 
     internal static string FormatWeeklyLimitEstimate(DateTimeOffset estimated, DateTimeOffset now,
-        CultureInfo? culture = null, TimeZoneInfo? timeZone = null)
+        CultureInfo? culture = null, TimeZoneInfo? timeZone = null, bool includeDate = false)
     {
         var displayCulture = culture ?? CultureInfo.InvariantCulture;
         var displayTimeZone = timeZone ?? TimeZoneInfo.Local;
         var local = TimeZoneInfo.ConvertTime(estimated, displayTimeZone);
-        if (estimated - now >= TimeSpan.FromDays(1))
+        if (!includeDate && estimated - now >= TimeSpan.FromDays(1))
         {
             return local.ToString("ddd d MMM", displayCulture);
         }
@@ -210,7 +210,7 @@ internal static class UsageTrendAnalyzer
         // Round only the presentation; alert thresholds and chart points retain the calculated instant.
         var quarter = TimeSpan.FromMinutes(15).Ticks;
         var rounded = local.AddTicks((quarter - local.Ticks % quarter) % quarter);
-        return rounded.Date == TimeZoneInfo.ConvertTime(now, displayTimeZone).Date
+        return !includeDate && rounded.Date == TimeZoneInfo.ConvertTime(now, displayTimeZone).Date
             ? rounded.ToString("HH:mm", displayCulture)
             : rounded.ToString("ddd d MMM HH:mm", displayCulture);
     }

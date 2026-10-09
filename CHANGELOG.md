@@ -9,6 +9,20 @@ the [changelog workflow](AGENTS.md#documentation-and-change-quality).
 
 ## [Unreleased]
 
+## [0.8.7] - 2026-10-09
+
+### Added
+
+- Add a separate Time remaining bar that counts from 100% down to 0% until the scheduled quota reset, independently of remaining allowance.
+
+### Changed
+
+- Group allowance, conditional weekly forecast and Next scheduled reset into a compact dashboard. Keep the contrasting dated estimate above the chart, its quota forecast basis below it, and local token-log details in Usage information.
+
+### Fixed
+
+- Apply Show five-hour limit to dashboard windows and missing-data messages. Improve chart legends, punctuation, independent scales, reset markers and token-bar contrast; keep the dated forecast endpoint from obscuring the plot.
+
 ## [0.8.6] - 2026-10-04
 
 ### Fixed

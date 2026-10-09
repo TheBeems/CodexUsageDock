@@ -10,6 +10,47 @@ public sealed class ProviderDockTests : IDisposable
     private readonly TestEnvironment _environment = new();
     public void Dispose() => _environment.Dispose();
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task FiveHourSettingUpdatesDashboardImmediatelyWithoutReadingUsageAgain(bool reported)
+    {
+        var now = DateTimeOffset.UtcNow;
+        var reads = 0;
+        var snapshot = new CodexUsageSnapshot(reported ? new(25, 300, now.AddHours(4)) : null,
+            new(33, 10080, now.AddDays(6)), null, null, null, now, UsageDataSource.AppServer, null);
+        using var service = _environment.CreateService(_ =>
+        {
+            Interlocked.Increment(ref reads);
+            return Task.FromResult(snapshot);
+        }, () => CodexUsageSnapshot.Loading, clock: () => now);
+        var settings = _environment.CreateSettings();
+        using var provider = new CodexUsageDockCommandsProvider(service, settings, _ => { }, () => now);
+        await service.RefreshAsync().WaitAsync(TimeSpan.FromSeconds(5));
+        var readsBeforeSettings = Volatile.Read(ref reads);
+        var page = Assert.IsType<CodexUsageDockPage>(provider.TopLevelCommands()[0].Command);
+        var content = Assert.IsType<FormContent>(Assert.Single(page.GetContent()));
+        Assert.Contains("5-hour", content.DataJson, StringComparison.Ordinal);
+
+        SubmitSettings(settings, (ShowFiveHourLimitKey, "false"));
+        using (var hidden = JsonDocument.Parse(content.DataJson))
+        {
+            var group = hidden.RootElement.GetProperty("quotaGroups")[0];
+            Assert.Equal("Weekly", Assert.Single(group.GetProperty("windows").EnumerateArray()).GetProperty("title").GetString());
+            Assert.False(group.GetProperty("hasInactiveWindows").GetBoolean());
+        }
+        Assert.Equal(readsBeforeSettings, Volatile.Read(ref reads));
+
+        SubmitSettings(settings, (ShowFiveHourLimitKey, "true"));
+        using var restored = JsonDocument.Parse(content.DataJson);
+        var restoredGroup = restored.RootElement.GetProperty("quotaGroups")[0];
+        if (reported)
+            Assert.Contains(restoredGroup.GetProperty("windows").EnumerateArray(), window => window.GetProperty("title").GetString() == "5-hour");
+        else
+            Assert.Contains("5-hour", restoredGroup.GetProperty("inactiveWindows").GetString(), StringComparison.Ordinal);
+        Assert.Equal(readsBeforeSettings, Volatile.Read(ref reads));
+    }
+
     [Fact]
     public async Task TogglingAlertsOffAndOnWithoutARefreshEstablishesANewBaseline()
     {

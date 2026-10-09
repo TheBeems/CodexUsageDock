@@ -11,6 +11,17 @@ public sealed class WeeklyForecastTests(ITestOutputHelper output)
     private static readonly DateTimeOffset Now = Reset.AddDays(-5);
 
     [Fact]
+    public void ForecastBasisNamesQuotaHistoryCoverageSeparatelyFromTokenLogs()
+    {
+        var result = Analyze(Series(Now.AddHours(-1), Now, 80, 78), History(_ => 0.002));
+        Assert.StartsWith("Quota forecast:", result.ForecastStatus, StringComparison.Ordinal);
+        Assert.Contains("3 past weeks", result.ForecastStatus, StringComparison.Ordinal);
+        Assert.Contains("100% history coverage", result.ForecastStatus, StringComparison.Ordinal);
+        Assert.Contains("estimate only", result.ForecastStatus, StringComparison.Ordinal);
+        Assert.DoesNotContain("Historical influence grows", result.ForecastStatus, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void ShortBurstDoesNotProduceAWeekProjection()
     {
         var result = Analyze(Series(Now.AddMinutes(-10), Now, 80, 78));
@@ -41,9 +52,9 @@ public sealed class WeeklyForecastTests(ITestOutputHelper output)
     }
 
     [Theory]
-    [InlineData(1, "06:45")]
-    [InlineData(25, "Thu 17 Sep")]
-    public void ChartAlternativeTextUsesTheSameNearAndDistantEstimatePrecision(int hoursAhead, string expected)
+    [InlineData(1, "Wed 16 Sep 06:45")]
+    [InlineData(25, "Thu 17 Sep 06:45")]
+    public void ChartAlternativeTextIncludesTheDateForNearAndDistantEstimates(int hoursAhead, string expected)
     {
         var zone = TimeZoneInfo.CreateCustomTimeZone("Forecast test zone", TimeSpan.FromMinutes(330), "Test", "Test");
         var samples = Series(Now.AddHours(-1), Now, 90, 80);
@@ -53,6 +64,16 @@ public sealed class WeeklyForecastTests(ITestOutputHelper output)
 
         Assert.NotNull(chart);
         Assert.Contains($"Estimated limit: {expected}; actual usage may differ.", chart.AltText, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(1, "01:15", "Wed 16 Sep 01:15")]
+    [InlineData(25, "Thu 17 Sep", "Thu 17 Sep 01:15")]
+    public void ExplicitEstimateDatesPreserveRoundingAndTheCompactDefault(int hoursAhead, string compact, string dated)
+    {
+        var estimate = Now.AddHours(hoursAhead).AddMinutes(7);
+        Assert.Equal(compact, UsageTrendAnalyzer.FormatWeeklyLimitEstimate(estimate, Now, CultureInfo.InvariantCulture, TimeZoneInfo.Utc));
+        Assert.Equal(dated, UsageTrendAnalyzer.FormatWeeklyLimitEstimate(estimate, Now, CultureInfo.InvariantCulture, TimeZoneInfo.Utc, includeDate: true));
     }
 
     [Fact]
@@ -75,7 +96,7 @@ public sealed class WeeklyForecastTests(ITestOutputHelper output)
 
         Assert.NotNull(result.Forecast);
         Assert.InRange(result.Forecast.RemainingPercent, 60, 79);
-        Assert.Contains("3 usable weeks", result.ForecastStatus, StringComparison.Ordinal);
+        Assert.Contains("3 past weeks", result.ForecastStatus, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -138,7 +159,7 @@ public sealed class WeeklyForecastTests(ITestOutputHelper output)
         Assert.NotNull(result.Forecast);
         Assert.Equal(65.6, result.Forecast.RemainingPercent, precision: 8);
         Assert.Contains("historical usage only", result.ForecastStatus, StringComparison.Ordinal);
-        Assert.Contains("3 usable weeks", result.ForecastStatus, StringComparison.Ordinal);
+        Assert.Contains("3 past weeks", result.ForecastStatus, StringComparison.Ordinal);
         Assert.Contains("0/30", result.ForecastStatus, StringComparison.Ordinal);
         Assert.Contains("observed history", result.Message, StringComparison.Ordinal);
     }

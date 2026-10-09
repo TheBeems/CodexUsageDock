@@ -3,16 +3,11 @@ using System.Xml.Linq;
 
 namespace CodexUsageDock;
 
-internal enum UsageBarPalette
-{
-    Remaining,
-    Time,
-}
-
 internal static class UsageDashboardCard
 {
     internal const int BarHeight = 12;
     internal const int BarWidth = 536;
+    internal const string TimeBarFill = "#73879B";
 
 
     // Reuse the same windows before and after the primary chart.
@@ -31,44 +26,22 @@ internal static class UsageDashboardCard
                   "items": [
                     { "type": "TextBlock", "text": "${title}", "weight": "bolder", "wrap": true, "$when": "${showTitle}" },
                     {
-                      "type": "ColumnSet", "spacing": "none",
-                      "columns": [
-                        {
-                          "type": "Column", "width": "stretch",
-                          "items": [ { "type": "TextBlock", "text": "Remaining", "isSubtle": true } ]
-                        },
-                        {
-                          "type": "Column", "width": "auto",
-                          "items": [
-                            {
-                              "type": "TextBlock", "text": "${remainingPercent}",
-                              "size": "${remainingSize}", "weight": "bolder", "color": "${remainingColor}",
-                              "horizontalAlignment": "right"
-                            }
-                          ]
-                        }
-                      ]
+                      "type": "TextBlock", "text": "${remainingHeadline}",
+                      "size": "large", "weight": "bolder", "color": "${remainingColor}", "wrap": true, "spacing": "none"
                     },
                     {
                       "type": "Image", "url": "${remainingBarUrl}", "altText": "${remainingBarAlt}",
                       "size": "stretch", "spacing": "none"
                     },
+                    { "type": "TextBlock", "text": "${timeRemainingHeadline}", "isSubtle": true, "size": "small", "spacing": "small", "wrap": true, "$when": "${elapsedAvailable}" },
                     {
-                      "type": "ColumnSet", "spacing": "none",
-                      "columns": [
-                        {
-                          "type": "Column", "width": "stretch",
-                          "items": [ { "type": "TextBlock", "text": "Time elapsed", "isSubtle": true } ]
-                        },
-                        {
-                          "type": "Column", "width": "auto",
-                          "items": [ { "type": "TextBlock", "text": "${elapsedPercent}", "horizontalAlignment": "right" } ]
-                        }
-                      ]
-                    },
-                    {
-                      "type": "Image", "url": "${elapsedBarUrl}", "altText": "${elapsedBarAlt}",
+                      "type": "Image", "url": "${timeRemainingBarUrl}", "altText": "${timeRemainingBarAlt}",
                       "size": "stretch", "spacing": "none", "$when": "${elapsedAvailable}"
+                    },
+                    { "type": "TextBlock", "text": "${usageComparison}", "isSubtle": true, "size": "small", "spacing": "small", "wrap": true, "$when": "${!elapsedAvailable}" },
+                    {
+                      "type": "TextBlock", "text": "${weeklyForecastSummary}", "wrap": true,
+                      "color": "${forecastColor}", "weight": "bolder", "spacing": "small", "$when": "${hasWeeklyForecast}"
                     },
                     { "type": "TextBlock", "text": "${reset}", "isSubtle": true, "size": "small", "spacing": "none", "wrap": true }
                   ]
@@ -88,27 +61,18 @@ internal static class UsageDashboardCard
           "type": "AdaptiveCard",
           "body": [
             { "type": "TextBlock", "text": "${notice}", "wrap": true, "color": "Warning", "$when": "${hasNotice}" },
-            {
-              "type": "TextBlock", "text": "${weeklyForecastSummary}", "wrap": true,
-              "weight": "bolder", "color": "${forecastColor}", "spacing": "small", "$when": "${hasWeeklyForecast}"
-            },
             { "type": "TextBlock", "text": "Refreshing…", "isSubtle": true, "$when": "${isLoading}" },
             {{QuotaGroupTemplate}},
             {
               "type": "Container", "spacing": "small", "$when": "${weeklyTrendAvailable}",
               "items": [
-                { "type": "TextBlock", "text": "Codex · weekly remaining", "weight": "bolder" },
                 {
                   "type": "Image", "url": "${weeklyTrendChartUrl}", "altText": "${weeklyTrendChartAlt}",
-                  "size": "stretch", "spacing": "small"
+                  "size": "stretch", "spacing": "none"
                 },
                 {
-                  "type": "TextBlock", "text": "${weeklyTrendLegend}",
-                  "isSubtle": true, "size": "small", "wrap": true, "spacing": "small"
-                },
-                {
-                  "type": "TextBlock", "text": "${weeklyForecastStatus}",
-                  "isSubtle": true, "size": "small", "wrap": true, "spacing": "small"
+                  "type": "TextBlock", "text": "${weeklyForecastStatus}", "wrap": true,
+                  "isSubtle": true, "size": "small", "spacing": "small", "$when": "${hasForecastBasis}"
                 }
               ]
             },
@@ -123,18 +87,13 @@ internal static class UsageDashboardCard
         }
         """;
 
-    internal static string CreateProgressBarImageUrl(double percent, UsageBarPalette palette, int columns = 2)
+    internal static string CreateProgressBarImageUrl(double percent, int columns = 2, string fill = "#5C9EFA")
     {
         // The host preserves SVG aspect ratio. Match intrinsic width to each column's share
         // so a full-width window does not render a bar twice as thick as paired windows.
         var width = BarWidth * 2d / Math.Max(1, columns);
         var normalized = double.IsFinite(percent) ? Math.Clamp(percent, 0, 100) : 0;
         var progressWidth = (width - 2d) * normalized / 100;
-        var fillColor = palette switch
-        {
-            UsageBarPalette.Time => "#8A8A8A",
-            _ => "#5C9EFA",
-        };
 
         XNamespace svg = "http://www.w3.org/2000/svg";
         var document = new XElement(
@@ -163,7 +122,7 @@ internal static class UsageDashboardCard
                     new XAttribute("width", progressWidth.ToString("0.##", CultureInfo.InvariantCulture)),
                     new XAttribute("height", BarHeight - 2),
                     new XAttribute("rx", "4"),
-                    new XAttribute("fill", fillColor)));
+                    new XAttribute("fill", fill)));
         }
 
         return CreateSvgImageUrl(document);

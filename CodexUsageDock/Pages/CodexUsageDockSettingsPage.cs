@@ -43,7 +43,7 @@ internal sealed partial class CodexUsageDockSettingsPage : ContentPage
         _settings.Add(new ToggleSetting(ShowFiveHourLimitKey, true)
         {
             Label = "Show five-hour limit",
-            Description = "Show the five-hour usage limit in the Dock.",
+            Description = "Show the five-hour usage limit in the Dock and dashboard.",
         });
         _settings.Add(new ToggleSetting(ShowWeeklyLimitKey, true)
         {
