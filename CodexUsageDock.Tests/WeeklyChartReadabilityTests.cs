@@ -89,9 +89,11 @@ public sealed class WeeklyChartReadabilityTests(ITestOutputHelper output)
         var labels = svg.Descendants(Svg + "g")
             .Where(group => group.Attribute("data-axis")?.Value is "marker" or "reset-detected")
             .Select(LabelBounds).ToArray();
-        Assert.Contains(svg.Descendants(Svg + "g"), group => group.Attribute("data-axis-label")?.Value == "NOW");
+        Assert.Contains(svg.Descendants(Svg + "g"), group => group.Attribute("data-axis-label")?.Value == "Now");
+        Assert.Contains(svg.Descendants(Svg + "g"), group => group.Attribute("data-axis-label")?.Value == "Next reset");
+        Assert.DoesNotContain(svg.Descendants(Svg + "g"), group => group.Attribute("data-axis-label")?.Value == "START");
         Assert.All(labels, bounds => Assert.InRange(bounds.Top + bounds.Height, 0, PlotTop(svg)));
-        AssertNonOverlapping(labels);
+        AssertNonOverlapping([.. labels, .. LegendLabels(svg).Select(LabelBounds)]);
     }
 
     [Fact]
@@ -105,7 +107,56 @@ public sealed class WeeklyChartReadabilityTests(ITestOutputHelper output)
         Assert.All(dayLabels, group => Assert.Equal(2, group.Elements(Svg + "g").Count()));
         var visibleLabels = dayLabels.SelectMany(group => group.Elements(Svg + "path").Any()
             ? new[] { group } : group.Elements(Svg + "g")).Select(LabelBounds).ToArray();
+        Assert.All(visibleLabels, bounds =>
+        {
+            Assert.InRange(bounds.Left, 0, WeeklyUsageTrendChartRenderer.Width - bounds.Width);
+            Assert.InRange(bounds.Top + bounds.Height, 0, WeeklyUsageTrendChartRenderer.Height - 4);
+        });
         AssertNonOverlapping(visibleLabels);
+    }
+
+    [Fact]
+    public void LegendExplainsObservedForecastAndIndependentTokenSeries()
+    {
+        var svg = Parse(CreateScenario());
+        Assert.Equal(["Quota remaining (%)", "Forecast", "Local tokens/day (right axis)"],
+            LegendLabels(svg).Select(group => group.Attribute("data-axis-label")!.Value));
+        var observed = Assert.Single(svg.Descendants(Svg + "line"), line => line.Attribute("data-legend-series")?.Value == "remaining");
+        Assert.Null(observed.Attribute("stroke-dasharray"));
+        var forecast = Assert.Single(svg.Descendants(Svg + "line"), line => line.Attribute("data-legend-series")?.Value == "forecast");
+        Assert.Equal("5 4", forecast.Attribute("stroke-dasharray")?.Value);
+        Assert.Single(svg.Descendants(Svg + "rect"), rect => rect.Attribute("data-legend-series")?.Value == "daily-tokens");
+        AssertNonOverlapping(LegendLabels(svg).Select(LabelBounds).ToArray());
+    }
+
+    [Fact]
+    public void EveryScenarioLabelRendersItsPunctuationWithoutReplacementCharacters()
+    {
+        var svg = Parse(CreateScenario());
+        Assert.All(svg.Descendants(Svg + "g").Where(group => group.Attribute("data-rendered-label") is not null),
+            group => Assert.DoesNotContain("?", group.Attribute("data-rendered-label")!.Value, StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void MissingForecastAndTokenDataDoNotAdvertiseAbsentSeries()
+    {
+        var reset = Now.AddDays(6);
+        var svg = Parse(Create([new(Now.AddHours(-1), 80, reset, 10080), new(Now, 75, reset, 10080)], reset));
+        Assert.Equal("Quota remaining (%)", Assert.Single(LegendLabels(svg)).Attribute("data-axis-label")?.Value);
+        Assert.DoesNotContain(svg.Descendants(), element => element.Attribute("data-legend-series")?.Value is "forecast" or "daily-tokens");
+        Assert.DoesNotContain(svg.Descendants(Svg + "g"), group => group.Attribute("data-axis")?.Value == "tokens");
+    }
+
+    [Fact]
+    public void FutureAreaBeginsAtNowAndKeepsTheNextResetVisible()
+    {
+        var svg = Parse(CreateScenario());
+        var now = Assert.Single(svg.Descendants(Svg + "line"), line => line.Attribute("data-marker")?.Value == "now");
+        var future = Assert.Single(svg.Descendants(Svg + "rect"), rect => rect.Attribute("data-area")?.Value == "future");
+        Assert.Equal(now.Attribute("x1")?.Value, future.Attribute("x")?.Value);
+        Assert.Equal(now.Attribute("y1")?.Value, future.Attribute("y")?.Value);
+        Assert.Contains(svg.Descendants(Svg + "g"), group => group.Attribute("data-axis-label")?.Value == "Next reset");
+        Assert.All(ResetMarkers(svg), reset => Assert.Equal("#F2C94C", reset.Attribute("stroke")?.Value));
     }
 
     [Fact]
@@ -115,6 +166,31 @@ public sealed class WeeklyChartReadabilityTests(ITestOutputHelper output)
         var topTokenLabel = Assert.Single(svg.Descendants(Svg + "g"), group => group.Attribute("data-axis")?.Value == "tokens"
             && group.Attribute("data-axis-label")?.Value == "1B");
         Assert.Equal(PlotTop(svg) - ChartLabelGlyphs.Height / 2, LabelBounds(topTokenLabel).Top);
+        var zeroTokenLabel = Assert.Single(svg.Descendants(Svg + "g"), group => group.Attribute("data-axis")?.Value == "tokens"
+            && group.Attribute("data-axis-label")?.Value == "0");
+        var zeroGridline = Assert.Single(svg.Descendants(Svg + "line"), line => line.Attribute("data-grid")?.Value == "remaining-percent"
+            && line.Attribute("data-value")?.Value == "0");
+        Assert.Equal(double.Parse(zeroGridline.Attribute("y1")!.Value, CultureInfo.InvariantCulture) - ChartLabelGlyphs.Height / 2,
+            LabelBounds(zeroTokenLabel).Top);
+    }
+
+    [Theory]
+    [InlineData(1)]
+    [InlineData(3)]
+    [InlineData(5.9)]
+    public void EstimatedLimitPointKeepsItsDateWithoutARepeatedLabelCoveringThePlot(double daysAhead)
+    {
+        var reset = Now.AddDays(6);
+        var svg = Parse(Create([new(Now.AddHours(-1), 67, reset, 10080), new(Now, 66, reset, 10080)],
+            reset, new(Now.AddDays(daysAhead), 0, true)));
+        Assert.DoesNotContain(svg.Descendants(Svg + "g"), group => group.Attribute("data-axis")?.Value == "estimated-limit");
+        var point = Assert.Single(svg.Descendants(Svg + "circle"), circle => circle.Attribute("data-marker")?.Value == "estimated-limit");
+        var forecast = Assert.Single(svg.Descendants(Svg + "polyline"), line => line.Attribute("stroke-dasharray") is not null);
+        var endpoint = forecast.Attribute("points")!.Value.Split(' ')[^1].Split(',');
+        Assert.Equal(endpoint[0], point.Attribute("cx")!.Value);
+        Assert.Equal(endpoint[1], point.Attribute("cy")!.Value);
+        Assert.Contains("Estimated limit:", point.Element(Svg + "title")?.Value, StringComparison.Ordinal);
+        Assert.Contains("actual usage may differ", point.Element(Svg + "title")?.Value, StringComparison.Ordinal);
     }
 
     private static WeeklyUsageTrendChart CreateScenario()
@@ -163,6 +239,9 @@ public sealed class WeeklyChartReadabilityTests(ITestOutputHelper output)
 
     private static XElement[] ResetMarkers(XDocument svg) => svg.Descendants(Svg + "line")
         .Where(line => line.Attribute("data-marker")?.Value == "quota-reset").ToArray();
+
+    private static XElement[] LegendLabels(XDocument svg) => svg.Descendants(Svg + "g")
+        .Where(group => group.Attribute("data-axis")?.Value == "legend").ToArray();
 
     private static double PlotTop(XDocument svg) => double.Parse(svg.Descendants(Svg + "line")
         .Single(line => line.Attribute("data-grid")?.Value == "remaining-percent" && line.Attribute("data-value")?.Value == "100")

@@ -24,17 +24,166 @@ public sealed class UsageDashboardTests : IDisposable
         DefaultBucketId = "codex",
     };
 
-    private static JsonDocument Render(CodexUsageSnapshot snapshot, UsageHistoryEntry[]? history = null) =>
+    private static JsonDocument Render(CodexUsageSnapshot snapshot, UsageHistoryEntry[]? history = null,
+        bool showFiveHourLimit = true) =>
         JsonDocument.Parse(CodexUsageDockPage.FormatMainDataJson(snapshot, Now, false, [],
             history ?? [], TimeSpan.FromMinutes(1),
             tokenUsage: new LocalTokenUsageSnapshot([new DailyTokenUsage(new DateOnly(2026, 9, 15), 1000)],
-                Now, LocalTokenUsageStatus.Complete)));
+                Now, LocalTokenUsageStatus.Complete), showFiveHourLimit: showFiveHourLimit));
 
     private static XDocument Chart(JsonElement data) => XDocument.Parse(
         Uri.UnescapeDataString(data.GetProperty("weeklyTrendChartUrl").GetString()!["data:image/svg+xml;utf8,".Length..]));
 
+    [Theory]
+    [InlineData(240)]
+    [InlineData(0)]
+    [InlineData(-1)]
+    public void HiddenFiveHourLimitOmitsReportedMissingAndExpiredDashboardWindows(int minutesLeft)
+    {
+        var snapshot = Snapshot() with
+        {
+            Primary = minutesLeft < 0 ? null : new(25, 300, Now.AddMinutes(minutesLeft)),
+        };
+        using var hidden = Render(snapshot, showFiveHourLimit: false);
+        using var shown = Render(snapshot);
+        var group = hidden.RootElement.GetProperty("quotaGroups")[0];
+        var weekly = Assert.Single(group.GetProperty("windows").EnumerateArray());
+        Assert.Equal("Weekly", weekly.GetProperty("title").GetString());
+        Assert.Equal("Codex · Weekly", group.GetProperty("heading").GetString());
+        Assert.False(group.GetProperty("hasInactiveWindows").GetBoolean());
+        Assert.Equal(string.Empty, group.GetProperty("inactiveWindows").GetString());
+        var bar = XDocument.Parse(Uri.UnescapeDataString(weekly.GetProperty("remainingBarUrl").GetString()!["data:image/svg+xml;utf8,".Length..]));
+        Assert.Equal(1072d, (double)bar.Root!.Attribute("width")!);
+        var visibleGroup = shown.RootElement.GetProperty("quotaGroups")[0];
+        if (minutesLeft > 0)
+            Assert.Contains(visibleGroup.GetProperty("windows").EnumerateArray(), window => window.GetProperty("title").GetString() == "5-hour");
+        else
+            Assert.Contains("5-hour", visibleGroup.GetProperty("inactiveWindows").GetString(), StringComparison.Ordinal);
+    }
+
     [Fact]
-    public void CodexAndSparkShareRemainingAndTimeBarsWithoutCombiningCategories()
+    public void HidingFiveHourLimitPreservesOtherDurationsAndOmitsEmptyAdditionalGroups()
+    {
+        using var data = Render(Snapshot() with
+        {
+            Buckets =
+            [
+                new("spark", "Spark", new(25, 300, Now.AddHours(4)), null),
+                new("other", "Other", new(10, 90, Now.AddMinutes(45)), null),
+            ],
+        }, showFiveHourLimit: false);
+        var groups = data.RootElement.GetProperty("quotaGroups");
+        Assert.Equal(2, groups.GetArrayLength());
+        Assert.Equal("Other · 90-minute", groups[1].GetProperty("heading").GetString());
+        Assert.Equal("90-minute", Assert.Single(groups[1].GetProperty("windows").EnumerateArray()).GetProperty("title").GetString());
+    }
+
+    [Fact]
+    public void ForecastBasisAppearsBelowChartWithoutRestoringTokenCaption()
+    {
+        var history = Enumerable.Range(0, 7).Select(index => new UsageHistoryEntry(Now.AddMinutes(-30 + index * 5), 90 - index * 5)).ToArray();
+        using var data = Render(Snapshot() with { Secondary = new(40, 10080, Now.AddDays(4)) }, history);
+        using var template = JsonDocument.Parse(UsageDashboardCard.TemplateJson);
+        var chart = Assert.Single(template.RootElement.GetProperty("body").EnumerateArray(), item =>
+            item.TryGetProperty("items", out var items)
+            && items.EnumerateArray().Any(child => child.TryGetProperty("url", out var url)
+                && url.GetString() == "${weeklyTrendChartUrl}"));
+        var chartItems = chart.GetProperty("items");
+        Assert.Equal(2, chartItems.GetArrayLength());
+        Assert.Equal("${weeklyForecastStatus}", chartItems[1].GetProperty("text").GetString());
+        Assert.Equal("${hasForecastBasis}", chartItems[1].GetProperty("$when").GetString());
+        Assert.True(chartItems[1].GetProperty("wrap").GetBoolean());
+        Assert.True(data.RootElement.GetProperty("hasForecastBasis").GetBoolean());
+        Assert.DoesNotContain("weeklyTrendLegend", UsageDashboardCard.TemplateJson, StringComparison.Ordinal);
+        var details = CodexUsageDockPage.FormatForecastDetails(data.RootElement);
+        Assert.Contains("Quota forecast:", details, StringComparison.Ordinal);
+        Assert.Contains("Local token bars: available session logs.", details, StringComparison.Ordinal);
+        Assert.Contains("Amber markers: reset or restored allowance.", details, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void ForecastBasisIsHiddenWithoutAFreshAvailableForecast(bool stale)
+    {
+        var history = stale
+            ? Enumerable.Range(0, 7).Select(index => new UsageHistoryEntry(Now.AddMinutes(-30 + index * 5), 90 - index * 5)).ToArray()
+            : [];
+        using var data = Render(Snapshot() with { UpdatedAt = stale ? Now.AddHours(-1) : Now }, history);
+        Assert.False(data.RootElement.GetProperty("hasForecastBasis").GetBoolean());
+    }
+
+    [Fact]
+    public void FreshWeeklyStatusExplainsUsedQuotaAgainstElapsedTime()
+    {
+        using var data = Render(Snapshot() with
+        {
+            Primary = null,
+            Secondary = new(33, 10080, Now.AddDays(7).AddHours(-18)),
+        });
+        var window = Assert.Single(data.RootElement.GetProperty("quotaGroups")[0].GetProperty("windows").EnumerateArray());
+        Assert.Equal("67% remaining", window.GetProperty("remainingHeadline").GetString());
+        Assert.Equal("33% used · 11% of week elapsed", window.GetProperty("usageComparison").GetString());
+    }
+
+    [Theory]
+    [InlineData(300, "100%", 1070)]
+    [InlineData(150, "50%", 535)]
+    [InlineData(3, "1%", 10.7)]
+    public void TimeRemainingBarCountsDownIndependentlyOfQuota(int minutesLeft, string expected, double expectedWidth)
+    {
+        using var data = Render(Snapshot() with { Primary = new(25, 300, Now.AddMinutes(minutesLeft)), Secondary = null });
+        var window = Assert.Single(data.RootElement.GetProperty("quotaGroups")[0].GetProperty("windows").EnumerateArray());
+        Assert.Equal("75% remaining", window.GetProperty("remainingHeadline").GetString());
+        Assert.Equal($"Time remaining · {expected}", window.GetProperty("timeRemainingHeadline").GetString());
+        Assert.Equal($"Codex, 5-hour: {expected} of time remaining until reset.", window.GetProperty("timeRemainingBarAlt").GetString());
+        var bar = XDocument.Parse(Uri.UnescapeDataString(window.GetProperty("timeRemainingBarUrl").GetString()!["data:image/svg+xml;utf8,".Length..]));
+        var fill = Assert.Single(bar.Descendants(Svg + "rect"), rect => rect.Attribute("fill")?.Value == "#73879B");
+        Assert.Equal(expectedWidth, double.Parse(fill.Attribute("width")!.Value, CultureInfo.InvariantCulture), precision: 2);
+    }
+
+    [Fact]
+    public void TimeRemainingBarIsEmptyAtZeroAndUnavailableOutsideTheReportedPeriod()
+    {
+        var empty = XDocument.Parse(Uri.UnescapeDataString(UsageDashboardCard.CreateProgressBarImageUrl(0,
+            fill: UsageDashboardCard.TimeBarFill)["data:image/svg+xml;utf8,".Length..]));
+        Assert.DoesNotContain(empty.Descendants(Svg + "rect"), rect => rect.Attribute("fill")?.Value == UsageDashboardCard.TimeBarFill);
+        using var future = Render(Snapshot() with { Primary = new(25, 300, Now.AddHours(6)), Secondary = null });
+        var window = Assert.Single(future.RootElement.GetProperty("quotaGroups")[0].GetProperty("windows").EnumerateArray());
+        Assert.False(window.GetProperty("elapsedAvailable").GetBoolean());
+        Assert.Equal(string.Empty, window.GetProperty("timeRemainingBarUrl").GetString());
+        using var expired = Render(Snapshot() with { Primary = new(25, 300, Now), Secondary = null });
+        Assert.Empty(expired.RootElement.GetProperty("quotaGroups")[0].GetProperty("windows").EnumerateArray());
+        Assert.Contains("Awaiting refresh", expired.RootElement.GetProperty("quotaGroups")[0].GetProperty("inactiveWindows").GetString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void StaleWeeklyStatusDoesNotCompareOldUsageWithCurrentTime()
+    {
+        using var data = Render(Snapshot() with { UpdatedAt = Now.AddHours(-1) });
+        var window = data.RootElement.GetProperty("quotaGroups")[0].GetProperty("windows")[1];
+        Assert.Equal("33% used at last observation · time comparison unavailable", window.GetProperty("usageComparison").GetString());
+        Assert.DoesNotContain("of week elapsed", window.GetProperty("usageComparison").GetString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void WeeklyForecastIsAttachedOnlyToTheDefaultWeeklyStatus()
+    {
+        var history = Enumerable.Range(0, 7).Select(index => new UsageHistoryEntry(Now.AddMinutes(-30 + index * 5), 90 - index * 5)).ToArray();
+        using var data = Render(Snapshot() with { Secondary = new(40, 10080, Now.AddDays(4)) }, history);
+        var windows = data.RootElement.GetProperty("quotaGroups")[0].GetProperty("windows");
+        Assert.False(windows[0].GetProperty("hasWeeklyForecast").GetBoolean());
+        Assert.True(windows[1].GetProperty("hasWeeklyForecast").GetBoolean());
+        Assert.StartsWith("At this pace, estimated to run out", windows[1].GetProperty("weeklyForecastSummary").GetString(), StringComparison.Ordinal);
+        Assert.Equal("Default", windows[1].GetProperty("forecastColor").GetString());
+        Assert.Contains(Now.ToLocalTime().ToString("ddd d MMM", CultureInfo.InvariantCulture),
+            windows[1].GetProperty("weeklyForecastSummary").GetString(), StringComparison.Ordinal);
+        Assert.Contains(data.RootElement.GetProperty("weeklyForecastStatus").GetString()!,
+            CodexUsageDockPage.FormatForecastDetails(data.RootElement), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void CodexAndSparkShareRemainingAndTimeComparisonsWithoutCombiningCategories()
     {
         var snapshot = Snapshot();
         snapshot = snapshot with
@@ -58,7 +207,8 @@ public sealed class UsageDashboardTests : IDisposable
         Assert.Equal("75%", codex[0].GetProperty("remainingPercent").GetString());
         Assert.Equal("20%", spark[0].GetProperty("elapsedPercent").GetString());
         Assert.Equal(codex[0].GetProperty("remainingBarUrl").GetString(), spark[0].GetProperty("remainingBarUrl").GetString());
-        Assert.Equal(codex[0].GetProperty("elapsedBarUrl").GetString(), spark[0].GetProperty("elapsedBarUrl").GetString());
+        Assert.Equal(codex[0].GetProperty("usageComparison").GetString(), spark[0].GetProperty("usageComparison").GetString());
+        Assert.All(spark.EnumerateArray(), window => Assert.False(window.GetProperty("hasWeeklyForecast").GetBoolean()));
         Assert.Equal("67%", codex[1].GetProperty("remainingPercent").GetString());
         Assert.Equal("20%", spark[1].GetProperty("remainingPercent").GetString());
         Assert.Contains("75% remaining", codex[0].GetProperty("remainingBarAlt").GetString()!, StringComparison.Ordinal);
@@ -143,7 +293,8 @@ public sealed class UsageDashboardTests : IDisposable
         {
             Assert.Equal("—", window.GetProperty("elapsedPercent").GetString());
             Assert.False(window.GetProperty("elapsedAvailable").GetBoolean());
-            Assert.Equal(string.Empty, window.GetProperty("elapsedBarUrl").GetString());
+            Assert.Equal(string.Empty, window.GetProperty("timeRemainingBarUrl").GetString());
+            Assert.Contains("time comparison unavailable", window.GetProperty("usageComparison").GetString(), StringComparison.Ordinal);
             Assert.Contains("last observation", window.GetProperty("remainingBarAlt").GetString(), StringComparison.Ordinal);
         }
         Assert.Contains("paused", data.RootElement.GetProperty("weeklyForecastSummary").GetString(), StringComparison.Ordinal);
@@ -157,7 +308,7 @@ public sealed class UsageDashboardTests : IDisposable
             new(Now.AddDays(-2), 100), new(Now.AddDays(-2).AddMinutes(5), 90),
             new(Now.AddMinutes(-19), 75), new(Now.AddMinutes(-10), 70), new(Now, 67),
         ]);
-        Assert.Equal("Forecast · 19/30 min of continuous data",
+        Assert.Equal("Forecast · collecting measurements (19/30 min)",
             data.RootElement.GetProperty("weeklyForecastSummary").GetString());
         Assert.DoesNotContain("On track", data.RootElement.GetRawText(), StringComparison.Ordinal);
     }
@@ -200,12 +351,13 @@ public sealed class UsageDashboardTests : IDisposable
     [InlineData(0, "100%", 534)]
     [InlineData(43, "57%", 304.38)]
     [InlineData(100, "0%", 0)]
-    public void RemainingBarDrainsWhileElapsedTimeFills(double used, string remaining, double width)
+    public void RemainingBarDrainsAndTimeComparisonDescribesUsedQuota(double used, string remaining, double width)
     {
         using var data = Render(Snapshot() with { Primary = new(used, 300, Now.AddHours(4)) });
         var window = data.RootElement.GetProperty("quotaGroups")[0].GetProperty("windows")[0];
         Assert.Equal(remaining, window.GetProperty("remainingPercent").GetString());
         Assert.Equal("20%", window.GetProperty("elapsedPercent").GetString());
+        Assert.Equal($"{used:0}% used · 20% of window elapsed", window.GetProperty("usageComparison").GetString());
         var bar = XDocument.Parse(Uri.UnescapeDataString(window.GetProperty("remainingBarUrl").GetString()!["data:image/svg+xml;utf8,".Length..]));
         var fill = bar.Descendants(Svg + "rect").SingleOrDefault(rect => rect.Attribute("fill")?.Value == "#5C9EFA");
         if (width == 0) Assert.Null(fill);
@@ -213,9 +365,9 @@ public sealed class UsageDashboardTests : IDisposable
     }
 
     [Theory]
-    [InlineData(0, "15:00")]
-    [InlineData(3, "15:15")]
-    [InlineData(59, "16:00")]
+    [InlineData(0, "Tue 15 Sep 15:00")]
+    [InlineData(3, "Tue 15 Sep 15:15")]
+    [InlineData(59, "Tue 15 Sep 16:00")]
     public void ForecastStopsAtTheLimitWithoutExtendingToResetOrInventingEarlierMeasurements(int minutes, string expectedLabel)
     {
         var firstAt = Now.AddHours(-1);
@@ -235,29 +387,35 @@ public sealed class UsageDashboardTests : IDisposable
         Assert.True(double.Parse(endpoint[0], CultureInfo.InvariantCulture) < double.Parse(resetMarker.Attribute("x1")!.Value, CultureInfo.InvariantCulture));
         var zero = Assert.Single(svg.Descendants(Svg + "line"), line => line.Attribute("data-grid")?.Value == "remaining-percent" && line.Attribute("data-value")?.Value == "0");
         Assert.Equal(zero.Attribute("y1")!.Value, endpoint[1]);
-        Assert.Contains(svg.Descendants(Svg + "g"), label => label.Attribute("data-axis")?.Value == "estimated-limit"
-            && label.Attribute("data-axis-label")?.Value == expectedLabel);
+        Assert.DoesNotContain(svg.Descendants(Svg + "g"), label => label.Attribute("data-axis")?.Value == "estimated-limit");
+
         Assert.Contains($"Estimated limit: {expectedLabel}", chart.AltText, StringComparison.Ordinal);
         // Label rounding must not move the actual plotted limit point.
         var marker = Assert.Single(svg.Descendants(Svg + "circle"), point => point.Attribute("data-marker")?.Value == "estimated-limit");
         Assert.Equal(endpoint[0], marker.Attribute("cx")!.Value);
+        Assert.Equal($"Estimated limit: {expectedLabel}; actual usage may differ.", marker.Element(Svg + "title")?.Value);
     }
 
     [Fact]
-    public void WeeklyRiskAppearsAtTheTopAndUnusedWindowsKeepConsistentHeadings()
+    public void WeeklyRiskStaysWithItsQuotaAndUnusedWindowsKeepConsistentHeadings()
     {
         var history = Enumerable.Range(0, 7).Select(index => new UsageHistoryEntry(Now.AddMinutes(-30 + index * 5), 90 - index * 5)).ToArray();
         using var data = Render(Snapshot() with { Primary = null, Secondary = new(40, 10080, Now.AddDays(4)) }, history);
         Assert.True(data.RootElement.GetProperty("hasWeeklyForecast").GetBoolean());
-        Assert.Equal("Warning", data.RootElement.GetProperty("forecastColor").GetString());
+        Assert.Equal("Default", data.RootElement.GetProperty("forecastColor").GetString());
         var codex = data.RootElement.GetProperty("quotaGroups")[0];
         Assert.Equal("Codex", codex.GetProperty("name").GetString());
         Assert.Equal("Codex · Weekly", codex.GetProperty("heading").GetString());
         Assert.True(codex.GetProperty("isPrimary").GetBoolean());
         Assert.Equal("Weekly", Assert.Single(codex.GetProperty("windows").EnumerateArray()).GetProperty("title").GetString());
         Assert.Contains("5-hour", codex.GetProperty("inactiveWindows").GetString(), StringComparison.Ordinal);
+        var weekly = Assert.Single(codex.GetProperty("windows").EnumerateArray());
+        Assert.Equal(data.RootElement.GetProperty("weeklyForecastSummary").GetString(), weekly.GetProperty("weeklyForecastSummary").GetString());
+        Assert.True(UsageDashboardCard.TemplateJson.IndexOf("remainingHeadline", StringComparison.Ordinal)
+            < UsageDashboardCard.TemplateJson.IndexOf("weeklyForecastSummary", StringComparison.Ordinal));
         Assert.True(UsageDashboardCard.TemplateJson.IndexOf("weeklyForecastSummary", StringComparison.Ordinal)
-            < UsageDashboardCard.TemplateJson.IndexOf("quotaGroups", StringComparison.Ordinal));
+            < UsageDashboardCard.TemplateJson.IndexOf("${reset}", StringComparison.Ordinal));
+        Assert.StartsWith("Next scheduled reset · ", weekly.GetProperty("reset").GetString(), StringComparison.Ordinal);
     }
 
     [Fact]
@@ -269,14 +427,11 @@ public sealed class UsageDashboardTests : IDisposable
         var pairedWindow = paired.RootElement.GetProperty("quotaGroups")[0].GetProperty("windows")[1];
         Assert.False(singleWindow.GetProperty("showTitle").GetBoolean());
         Assert.True(pairedWindow.GetProperty("showTitle").GetBoolean());
-        foreach (var key in new[] { "remainingBarUrl", "elapsedBarUrl" })
-        {
-            static XElement SvgRoot(string url) => XDocument.Parse(Uri.UnescapeDataString(url["data:image/svg+xml;utf8,".Length..])).Root!;
-            var full = SvgRoot(singleWindow.GetProperty(key).GetString()!);
-            var half = SvgRoot(pairedWindow.GetProperty(key).GetString()!);
-            Assert.Equal((double)half.Attribute("width")! * 2, (double)full.Attribute("width")!);
-            Assert.Equal((double)half.Attribute("height")!, (double)full.Attribute("height")!);
-        }
+        static XElement SvgRoot(string url) => XDocument.Parse(Uri.UnescapeDataString(url["data:image/svg+xml;utf8,".Length..])).Root!;
+        var full = SvgRoot(singleWindow.GetProperty("remainingBarUrl").GetString()!);
+        var half = SvgRoot(pairedWindow.GetProperty("remainingBarUrl").GetString()!);
+        Assert.Equal((double)half.Attribute("width")! * 2, (double)full.Attribute("width")!);
+        Assert.Equal((double)half.Attribute("height")!, (double)full.Attribute("height")!);
     }
 
     [Fact]
@@ -288,6 +443,7 @@ public sealed class UsageDashboardTests : IDisposable
         Assert.Contains("### Weekly", details, StringComparison.Ordinal);
         Assert.Contains("independent right axis", details, StringComparison.Ordinal);
         Assert.Contains("conditional estimate", details, StringComparison.Ordinal);
+        Assert.Contains("**Time remaining:**", details, StringComparison.Ordinal);
         Assert.DoesNotContain("Other quota windows", CodexUsageDockPage.FormatDetailsBody(Snapshot(), Now), StringComparison.Ordinal);
         using var empty = Render(Snapshot() with { Primary = null, Secondary = null });
         Assert.Contains("No active quota windows reported", CodexUsageDockPage.FormatForecastDetails(empty.RootElement), StringComparison.Ordinal);

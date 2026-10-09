@@ -56,7 +56,8 @@ internal sealed partial class CodexUsageDockPage : ContentPage, IDisposable
         TimeSpan refreshInterval,
         bool adaptiveWeeklyForecastEnabled = true,
         AdaptiveWeeklyUsageHistory? adaptiveWeeklyHistory = null,
-        LocalTokenUsageSnapshot? tokenUsage = null)
+        LocalTokenUsageSnapshot? tokenUsage = null,
+        bool showFiveHourLimit = true)
     {
         var freshness = GetFreshnessState(snapshot, now, refreshInterval);
         var dataAvailable = IsDataAvailable(snapshot, freshness);
@@ -76,7 +77,7 @@ internal sealed partial class CodexUsageDockPage : ContentPage, IDisposable
                 ? $"{resetCount} reset credit{(resetCount == 1 ? string.Empty : "s")}{(urgentReset ? $" · expires {FormatRelativeTime(nextExpiry!.Value, now)}" : string.Empty)}"
                 : string.Empty,
             ["resetCreditsColor"] = urgentReset ? "Warning" : "Default",
-            ["quotaGroups"] = CreateQuotaGroups(snapshot, now, dataAvailable),
+            ["quotaGroups"] = CreateQuotaGroups(snapshot, now, dataAvailable, showFiveHourLimit),
             ["weeklyAvailable"] = UsageFreshness.IsValidWindow(snapshot.Secondary, now),
         };
 
@@ -89,12 +90,19 @@ internal sealed partial class CodexUsageDockPage : ContentPage, IDisposable
             ? FormatWeeklyBudget(weekly, now, dataAvailable) : string.Empty;
         data["weeklyForecastSummary"] = FormatForecastSummary(weeklyTrend, now, dataAvailable, maximumSampleAge);
         data["hasWeeklyForecast"] = UsageFreshness.IsValidWindow(snapshot.Secondary, now);
-        data["forecastColor"] = dataAvailable && weeklyTrend?.Forecast is { ReachesLimitBeforeReset: true }
-            ? "Warning" : "Default";
+        data["hasForecastBasis"] = dataAvailable && weeklyTrend?.Forecast is not null;
+        // Host warning yellow is hard to read in light themes; use its contrasting foreground and bold text.
+        data["forecastColor"] = "Default";
         AddWeeklyTrendData(
             data, snapshot.Secondary, weeklyHistory, weeklyTrend, dataAvailable,
             snapshot.Source is UsageDataSource.AppServer or UsageDataSource.LocalSession or UsageDataSource.LastConfirmed,
             now, TrendMaximumGap(refreshInterval), tokenUsage);
+        foreach (var window in data["quotaGroups"]![0]!["windows"]!.AsArray().OfType<JsonObject>()
+            .Where(window => window["hasWeeklyForecast"]!.GetValue<bool>()))
+        {
+            window["weeklyForecastSummary"] = data["weeklyForecastSummary"]!.DeepClone();
+            window["forecastColor"] = data["forecastColor"]!.DeepClone();
+        }
         return data.ToJsonString();
     }
 
@@ -113,11 +121,18 @@ internal sealed partial class CodexUsageDockPage : ContentPage, IDisposable
             : status;
     }
 
-    private static JsonArray CreateQuotaGroups(CodexUsageSnapshot snapshot, DateTimeOffset now, bool fresh) =>
-        new(UsageQuotaGroups.Create(snapshot).Select(group => (JsonNode)CreateQuotaGroup(group, now, fresh)).ToArray());
+    private static JsonArray CreateQuotaGroups(
+        CodexUsageSnapshot snapshot, DateTimeOffset now, bool fresh, bool showFiveHourLimit) =>
+        new(UsageQuotaGroups.Create(snapshot)
+            .Select(group => group with
+            {
+                Windows = group.Windows.Where(window => showFiveHourLimit || window.Title != "5-hour").ToArray(),
+            })
+            .Where(group => group.IsPrimary || group.Windows.Count > 0)
+            .Select(group => (JsonNode)CreateQuotaGroup(group, now, fresh, snapshot.Secondary)).ToArray());
 
     private static JsonObject CreateQuotaGroup(
-        UsageQuotaGroup group, DateTimeOffset now, bool fresh)
+        UsageQuotaGroup group, DateTimeOffset now, bool fresh, RateLimitWindow? defaultWeekly)
     {
         var name = group.Name;
         var columns = group.Windows.Count(item => UsageFreshness.IsValidWindow(item.Window, now));
@@ -134,22 +149,34 @@ internal sealed partial class CodexUsageDockPage : ContentPage, IDisposable
             var startsAt = window.ResetsAt - TimeSpan.FromMinutes(window.WindowMinutes);
             var elapsedAvailable = fresh && startsAt <= now;
             var elapsed = Math.Clamp((now - startsAt).TotalMinutes / window.WindowMinutes * 100, 0, 100);
+            var timeRemaining = 100 - elapsed;
             active.Add((JsonNode)new JsonObject
             {
                 ["title"] = title,
                 ["showTitle"] = columns > 1,
                 ["remainingPercent"] = $"{window.RemainingPercent:0}%",
+                ["remainingHeadline"] = $"{window.RemainingPercent:0}% remaining",
                 ["remainingColor"] = !fresh ? "Default" : window.UsedPercent >= 90 ? "Attention"
                     : window.UsedPercent >= 70 ? "Warning" : "Default",
-                ["remainingSize"] = window.UsedPercent == 0 ? "default" : "large",
-                ["remainingBarUrl"] = UsageDashboardCard.CreateProgressBarImageUrl(window.RemainingPercent, UsageBarPalette.Remaining, columns),
+                ["remainingBarUrl"] = UsageDashboardCard.CreateProgressBarImageUrl(window.RemainingPercent, columns),
                 ["remainingBarAlt"] = $"{name}, {title}: {window.RemainingPercent:0}% remaining{(fresh ? string.Empty : " at last observation")}.",
                 ["separate"] = active.Count > 0,
                 ["elapsedAvailable"] = elapsedAvailable,
                 ["elapsedPercent"] = elapsedAvailable ? $"{elapsed:0}%" : "—",
-                ["elapsedBarUrl"] = elapsedAvailable ? UsageDashboardCard.CreateProgressBarImageUrl(elapsed, UsageBarPalette.Time, columns) : string.Empty,
-                ["elapsedBarAlt"] = elapsedAvailable ? $"{name}, {title}: {elapsed:0}% of time elapsed." : "Time comparison unavailable.",
-                ["reset"] = $"Resets {FormatLocalTime(window.ResetsAt, "ddd d MMM HH:mm")}",
+                ["timeRemainingHeadline"] = elapsedAvailable ? $"Time remaining · {timeRemaining:0}%" : string.Empty,
+                ["timeRemainingBarUrl"] = elapsedAvailable
+                    ? UsageDashboardCard.CreateProgressBarImageUrl(timeRemaining, columns, UsageDashboardCard.TimeBarFill)
+                    : string.Empty,
+                ["timeRemainingBarAlt"] = elapsedAvailable
+                    ? $"{name}, {title}: {timeRemaining:0}% of time remaining until reset."
+                    : string.Empty,
+                ["usageComparison"] = elapsedAvailable
+                    ? $"{window.UsedPercent:0}% used · {elapsed:0}% of {(window.WindowMinutes == 10080 ? "week" : "window")} elapsed"
+                    : $"{window.UsedPercent:0}% used{(fresh ? string.Empty : " at last observation")} · time comparison unavailable",
+                ["hasWeeklyForecast"] = group.IsPrimary && window == defaultWeekly,
+                ["weeklyForecastSummary"] = string.Empty,
+                ["forecastColor"] = "Default",
+                ["reset"] = $"Next scheduled reset · {FormatLocalTime(window.ResetsAt, "ddd d MMM HH:mm")}",
             });
         }
 
@@ -178,13 +205,13 @@ internal sealed partial class CodexUsageDockPage : ContentPage, IDisposable
         if (!fresh) return "Forecast paused · refresh needed";
         if (trend?.Forecast is { } forecast)
             return forecast.ReachesLimitBeforeReset
-                ? $"Estimated limit · {UsageTrendAnalyzer.FormatWeeklyLimitEstimate(forecast.EndsAt, now, CultureInfo.InvariantCulture)}"
+                ? $"At this pace, estimated to run out {UsageTrendAnalyzer.FormatWeeklyLimitEstimate(forecast.EndsAt, now, CultureInfo.InvariantCulture, includeDate: true)}"
                 : $"Forecast · {forecast.RemainingPercent:0}% remaining at reset";
         if (trend?.History is not { Length: > 0 } history) return "Forecast · collecting measurements";
         if (now - history[^1].RecordedAt > maximumSampleAge) return "Forecast paused · fresh measurement needed";
         var minutes = (history[^1].RecordedAt - history[0].RecordedAt).TotalMinutes;
         return minutes < 30
-            ? $"Forecast · {Math.Floor(minutes):0}/30 min of continuous data"
+            ? $"Forecast · collecting measurements ({Math.Floor(minutes):0}/30 min)"
             : "Forecast · waiting for a usage change";
     }
 
@@ -431,14 +458,11 @@ internal sealed partial class CodexUsageDockPage : ContentPage, IDisposable
         data["weeklyTrendAvailable"] = true;
         data["weeklyTrendChartUrl"] = chart.ImageUrl;
         data["weeklyTrendChartAlt"] = chart.AltText;
-        var forecastLegend = dataAvailable && trend?.Forecast is not null
-            ? "dashed: estimate"
-            : "forecast pending";
         data["weeklyTrendLegend"] = tokenUsage?.Status switch
         {
-            LocalTokenUsageStatus.Complete => $"Line: remaining % · amber: reset/restoration · bars: local tokens/day (right axis) · {forecastLegend}",
-            LocalTokenUsageStatus.Partial => $"Line: remaining % · amber: reset/restoration · bars: partial local tokens per day (right axis) · {forecastLegend}",
-            _ => $"Line: remaining % · amber: reset/restoration · local token data unavailable · {forecastLegend}",
+            LocalTokenUsageStatus.Complete => "Local token bars: available session logs. Amber markers: reset or restored allowance.",
+            LocalTokenUsageStatus.Partial => "Local token bars: incomplete session logs. Amber markers: reset or restored allowance.",
+            _ => "Local token data unavailable. Amber markers: reset or restored allowance.",
         };
 
         var restorations = WeeklyAllowanceRestoration.Detect(history, validWindow, now);
@@ -694,13 +718,15 @@ internal sealed partial class CodexUsageDockPage : ContentPage, IDisposable
         if (string.IsNullOrEmpty(data.GetProperty("fiveHourProjection").GetString())
             && !data.GetProperty("weeklyAvailable").GetBoolean())
             body.Append("No active quota windows reported.\n\n");
+        if (data.GetProperty("weeklyTrendAvailable").GetBoolean())
+            body.Append(data.GetProperty("weeklyTrendLegend").GetString()).Append("\n\n");
         return body.Append("""
             ## Chart guide
 
             - **Line:** remaining allowance (%) over the past seven days, retained across resets. The timing of consumption within gaps is unknown. Resets and restored allowance break the line and are marked in amber.
             - **Bars:** local tokens per day, using the independent right axis. Tokens measure activity, not quota consumption.
             - **Dashed line:** a conditional estimate. Usable learned history can start a forecast from a fresh measurement after a reset or gap. Recent pace joins after 30 minutes of continuous measurements.
-            - Remaining allowance falls; elapsed time rises. Equal bar lengths do not indicate a sustainable pace.
+            - **Time remaining:** the separate time bar counts down to the scheduled reset, independently of quota consumption. Similar allowance and time-bar lengths do not guarantee a sustainable pace.
             """).ToString();
     }
 
@@ -726,7 +752,8 @@ internal sealed partial class CodexUsageDockPage : ContentPage, IDisposable
                 _usage.RefreshInterval,
                 _settings.UseAdaptiveWeeklyForecast,
                 presentation.AdaptiveWeeklyHistory,
-                presentation.TokenUsage);
+                presentation.TokenUsage,
+                _settings.ShowFiveHourLimit);
             using var mainData = JsonDocument.Parse(_mainContent.DataJson);
             var data = mainData.RootElement;
             _information.Update(FormatDetailsBody(snapshot, now, presentation.WeeklyHistory, _usage.RefreshInterval)

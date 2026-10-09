@@ -20,7 +20,7 @@ $source = [Text.StringBuilder]::new()
 [void]$source.AppendLine('    internal static readonly Dictionary<char, (double Width, string Path)> Values = new()')
 [void]$source.AppendLine('    {')
 try {
-    foreach ($character in '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ %.?'.ToCharArray()) {
+    foreach ($character in '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ %.?():/'.ToCharArray()) {
         $path = [System.Drawing.Drawing2D.GraphicsPath]::new()
         try {
             $path.AddString([string]$character, $font, [int][Drawing.FontStyle]::Regular, 18, [Drawing.PointF]::Empty, $format)

@@ -9,15 +9,17 @@ internal sealed record WeeklyUsageTrendChart(string ImageUrl, string AltText);
 internal static class WeeklyUsageTrendChartRenderer
 {
     internal const int Width = 960;
-    internal const int Height = 280;
+    internal const int Height = 260;
     internal const int MaximumRenderedPoints = 180;
 
     private const double Left = 58;
     private const double Right = 58;
-    private const double TrendTop = 48;
-    private const double TrendBottom = 227;
+    private const double TrendTop = 72;
+    private const double TrendBottom = 210;
     private const double TrendHeight = TrendBottom - TrendTop;
-    private const double DayLabelTop = 239;
+    private const double DayLabelTop = 222;
+    private const double LegendTop = 4;
+    private const double MarkerLabelTop = 28;
     private const string AxisLabelFill = "#D0D0D0";
     private static readonly XNamespace Svg = "http://www.w3.org/2000/svg";
     internal static WeeklyUsageTrendChart? Create(
@@ -68,13 +70,15 @@ internal static class WeeklyUsageTrendChartRenderer
             : null;
 
         var document = CreateDocument();
+        AddLegend(document, usableForecast is not null, tokenScaleMaximum > 0);
+        AddForecastArea(document, effectiveNow, window.ResetsAt, calendarScale);
         AddTrendGrid(document);
         AddTokenAxis(document, tokenScaleMaximum);
         AddCalendarDayGrid(document, dailyUse, calendarScale);
         AddDailyTokenBars(document, dailyUse, calendarScale, displayCulture, tokenScaleMaximum);
         AddNowMarker(document, plotStart, window.ResetsAt, effectiveNow, calendarScale);
-        AddDetectedResetMarkers(document, resets, calendarScale, displayCulture, displayTimeZone);
         AddResetMarkers(document, windowStart, window.ResetsAt, calendarScale);
+        AddDetectedResetMarkers(document, resets, calendarScale, displayCulture, displayTimeZone);
         AddRestorationMarkers(document, restorations, resets, calendarScale);
         AddObservedLines(document, renderedSegments, calendarScale);
         AddForecastLine(document, forecastSegment, usableForecast, window.ResetsAt, now, calendarScale, displayCulture, displayTimeZone);
@@ -108,6 +112,54 @@ internal static class WeeklyUsageTrendChartRenderer
         // A fixed plot background keeps the axes readable in both host themes.
         new XElement(Svg + "rect", new XAttribute("width", Width), new XAttribute("height", Height),
             new XAttribute("rx", "4"), new XAttribute("fill", "#202020")));
+
+    private static void AddLegend(XElement document, bool hasForecast, bool hasTokenBars)
+    {
+        AddLegendLine(document, Left, "Quota remaining (%)", "remaining", dashed: false);
+        if (hasForecast)
+        {
+            AddLegendLine(document, Left + 260, "Forecast", "forecast", dashed: true);
+        }
+
+        if (hasTokenBars)
+        {
+            const string label = "Local tokens/day (right axis)";
+            var labelWidth = MeasureChartLabel(NormalizeChartLabel(label));
+            var x = Width - Right - labelWidth - 24;
+            document.Add(new XElement(Svg + "rect", new XAttribute("x", Format(x)),
+                new XAttribute("y", LegendTop + 4), new XAttribute("width", "14"), new XAttribute("height", "10"),
+                new XAttribute("fill", "#858585"), new XAttribute("data-legend-series", "daily-tokens")));
+            AddChartLabel(document, label, Width - Right, LegendTop, ChartLabelAlignment.End, "legend");
+        }
+    }
+
+    private static void AddLegendLine(XElement document, double x, string label, string series, bool dashed)
+    {
+        var swatch = new XElement(Svg + "line", new XAttribute("x1", Format(x)), new XAttribute("x2", Format(x + 24)),
+            new XAttribute("y1", LegendTop + 10), new XAttribute("y2", LegendTop + 10),
+            new XAttribute("stroke", "#5C9EFA"), new XAttribute("stroke-width", "2"),
+            new XAttribute("data-legend-series", series));
+        if (dashed)
+        {
+            swatch.Add(new XAttribute("stroke-dasharray", "5 4"));
+        }
+        document.Add(swatch);
+        AddChartLabel(document, label, x + 32, LegendTop, ChartLabelAlignment.Start, "legend");
+    }
+
+    private static void AddForecastArea(XElement document, DateTimeOffset now, DateTimeOffset windowEnd, CalendarDayScale calendarScale)
+    {
+        if (now >= windowEnd)
+        {
+            return;
+        }
+
+        var x = calendarScale.GetX(now);
+        document.Add(new XElement(Svg + "rect", new XAttribute("x", Format(x)), new XAttribute("y", TrendTop),
+            new XAttribute("width", Format(Width - Right - x)), new XAttribute("height", TrendHeight),
+            new XAttribute("fill", "#FFFFFF"), new XAttribute("fill-opacity", "0.035"),
+            new XAttribute("data-area", "future")));
+    }
 
     private static UsageHistoryEntry[] Normalize(
         IReadOnlyList<UsageHistoryEntry> history,
@@ -376,6 +428,7 @@ internal static class WeeklyUsageTrendChartRenderer
         {
             (tokenScaleMaximum, TrendTop),
             (tokenScaleMaximum / 2d, TrendTop + TrendHeight / 2),
+            (0d, TrendBottom),
         })
         {
             AddChartLabel(
@@ -437,7 +490,7 @@ internal static class WeeklyUsageTrendChartRenderer
         var width = MeasureChartLabel(NormalizeChartLabel(label));
         var center = Math.Clamp(x, Left + width / 2, Width - Right - width / 2);
         var left = center - width / 2;
-        foreach (var top in new[] { 0d, ChartLabelHeight + 6 })
+        foreach (var top in new[] { MarkerLabelTop, MarkerLabelTop + ChartLabelHeight + 6 })
         {
             var overlaps = document.Elements(Svg + "g")
                 .Where(group => group.Attribute("data-axis")?.Value is "marker" or "reset-detected")
@@ -532,11 +585,15 @@ internal static class WeeklyUsageTrendChartRenderer
                     new XAttribute("y1", TrendTop),
                     new XAttribute("y2", TrendBottom),
                     new XAttribute("stroke", "#C8C8C8"),
-                    new XAttribute("stroke-opacity", "0.6"),
+                    new XAttribute("stroke-opacity", edge == "start" ? "0.25" : "0.6"),
                     new XAttribute("stroke-width", "1"),
                     new XAttribute("stroke-dasharray", "2 2"),
-                    new XAttribute("data-marker", $"reset-{edge}")));
-            AddMarkerLabel(document, edge == "start" ? "START" : "RESET", x, "marker");
+                    new XAttribute("data-marker", $"reset-{edge}"),
+                    new XElement(Svg + "title", edge == "start" ? "Current quota window starts" : "Next scheduled reset")));
+            if (edge == "end")
+            {
+                AddMarkerLabel(document, "Next reset", x, "marker");
+            }
         }
     }
 
@@ -560,11 +617,11 @@ internal static class WeeklyUsageTrendChartRenderer
                 new XAttribute("x2", Format(x)),
                 new XAttribute("y1", TrendTop),
                 new XAttribute("y2", TrendBottom),
-                new XAttribute("stroke", "#C8C8C8"),
-                new XAttribute("stroke-opacity", "0.45"),
-                new XAttribute("stroke-width", "1"),
+                new XAttribute("stroke", "#E6E6E6"),
+                new XAttribute("stroke-opacity", "0.8"),
+                new XAttribute("stroke-width", "1.5"),
                 new XAttribute("data-marker", "now")));
-        AddMarkerLabel(document, "NOW", x, "marker");
+        AddMarkerLabel(document, "Now", x, "marker");
     }
 
     private static void AddRestorationMarkers(
@@ -631,7 +688,7 @@ internal static class WeeklyUsageTrendChartRenderer
                 new XAttribute("data-previous-observed-at", reset.PreviousObservedAt.ToString("O", CultureInfo.InvariantCulture)),
                 new XAttribute("data-detected-at", reset.DetectedAt.ToString("O", CultureInfo.InvariantCulture)),
                 new XElement(Svg + "title", label)));
-            AddMarkerLabel(document, "RESET", x, "reset-detected");
+            AddMarkerLabel(document, "Reset", x, "reset-detected");
         }
     }
 
@@ -736,13 +793,12 @@ internal static class WeeklyUsageTrendChartRenderer
         if (forecast.ReachesLimitBeforeReset)
         {
             var x = calendarScale.GetX(end);
+            // The dashboard gives the date above the chart; repeating it in the plot can cover the forecast.
+            var description = $"Estimated limit: {UsageTrendAnalyzer.FormatWeeklyLimitEstimate(end, now, culture, timeZone, includeDate: true)}; actual usage may differ.";
             document.Add(new XElement(Svg + "circle", new XAttribute("cx", Format(x)),
                 new XAttribute("cy", Format(GetTrendY(0))), new XAttribute("r", "3"),
-                new XAttribute("fill", "#5C9EFA"), new XAttribute("data-marker", "estimated-limit")));
-            var label = UsageTrendAnalyzer.FormatWeeklyLimitEstimate(end, now, culture, timeZone);
-            var labelWidth = MeasureChartLabel(NormalizeChartLabel(label));
-            AddChartLabel(document, label, Math.Clamp(x, Left + labelWidth / 2, Width - Right - labelWidth / 2),
-                TrendBottom - ChartLabelHeight - 8, ChartLabelAlignment.Center, "estimated-limit");
+                new XAttribute("fill", "#5C9EFA"), new XAttribute("data-marker", "estimated-limit"),
+                new XElement(Svg + "title", description)));
         }
     }
 
@@ -776,15 +832,14 @@ internal static class WeeklyUsageTrendChartRenderer
                         new XAttribute("width", Format(width)),
                         new XAttribute("height", Format(height)),
                         new XAttribute("rx", "1.5"),
-                        new XAttribute("fill", "#7A7A7A"),
-                        new XAttribute("fill-opacity", "0.45"),
+                        new XAttribute("fill", "#858585"),
                         new XAttribute("data-series", "daily-tokens"),
                         new XAttribute("data-date", day.Date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)),
                         new XAttribute("data-tokens", day.TotalTokens),
                         new XAttribute("data-partial", day.IsPartial),
                         new XAttribute("data-current", day.IsCurrent),
                         new XAttribute("stroke", day.IsCurrent ? "#C8C8C8" : "none"),
-                        new XAttribute("stroke-opacity", day.IsCurrent ? "0.45" : "0"),
+                        new XAttribute("stroke-opacity", day.IsCurrent ? "0.35" : "0"),
                         new XAttribute("stroke-width", day.IsCurrent ? "1" : "0")));
             }
 
@@ -827,7 +882,7 @@ internal static class WeeklyUsageTrendChartRenderer
         var daily = tokenUsage is null ? string.Empty : FormatDailyTokenAltText(dailyUse, tokenUsage, tokenScaleMaximum, culture);
         var forecastText = forecast switch
         {
-            { ReachesLimitBeforeReset: true } => $" Estimated limit: {UsageTrendAnalyzer.FormatWeeklyLimitEstimate(forecast.EndsAt, now, culture, timeZone)}; actual usage may differ.",
+            { ReachesLimitBeforeReset: true } => $" Estimated limit: {UsageTrendAnalyzer.FormatWeeklyLimitEstimate(forecast.EndsAt, now, culture, timeZone, includeDate: true)}; actual usage may differ.",
             { } => $" Forecast reaches about {forecast.RemainingPercent:0}% remaining at reset; actual usage may differ.",
             null => " Forecast is unavailable.",
         };
@@ -837,7 +892,7 @@ internal static class WeeklyUsageTrendChartRenderer
         var resetText = resets.Length > 0
             ? $" {resets.Length} quota reset or reset-schedule change{(resets.Length == 1 ? " was" : "s were")} detected. {string.Join(" ", resets.Select(reset => FormatResetDetection(reset, culture, timeZone)))} Markers show detection times; the precise event time between observations is unknown."
             : " No quota reset or reset-schedule changes were detected in the retained observations.";
-        return $"Weekly quota trend from {period}. Recorded observations from the preceding seven days are retained across quota resets. Remaining quota changed from {first.RemainingPercent:0}% to {last.RemainingPercent:0}% across {sampleCount} observation{(sampleCount == 1 ? string.Empty : "s")}. The left vertical scale is remaining quota from 0% to 100%.{(tokenUsage is null ? string.Empty : " The independent right scale is locally observed total tokens per calendar day.")} Horizontal labels are local calendar dates, and reset boundary markers show the current quota window. Solid line connects sampled values across measurement gaps; allowance increases break the line, as do quota cycle changes; dashed line is a conditional forecast.{restorationText}{resetText}{forecastText} {daily}";
+        return $"Weekly quota trend from {period}. Recorded observations from the preceding seven days are retained across quota resets. Remaining quota changed from {first.RemainingPercent:0}% to {last.RemainingPercent:0}% across {sampleCount} observation{(sampleCount == 1 ? string.Empty : "s")}. The left vertical scale is remaining quota from 0% to 100%.{(tokenUsage is null ? string.Empty : " The independent right scale is locally observed total tokens per calendar day.")} Horizontal labels are local calendar dates. Now separates recorded observations from future dates, and Next reset marks the scheduled end of the current quota window. Amber Reset labels mark detected historical cycle changes. Solid line connects sampled values across measurement gaps; allowance increases break the line, as do quota cycle changes; dashed line is a conditional forecast.{restorationText}{resetText}{forecastText} {daily}";
     }
 
     private static string FormatResetDetection(QuotaCycleChange reset, CultureInfo culture, TimeZoneInfo timeZone) =>

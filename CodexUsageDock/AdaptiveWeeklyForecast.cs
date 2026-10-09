@@ -379,7 +379,7 @@ internal static class AdaptiveWeeklyForecast
         {
             var reason = enabled ? " Weekly history is insufficient or outdated." : string.Empty;
             return new(ProjectAtCurrentRate(latest, resetsAt, currentRatePerMinute),
-                $"Forecast: {FormatRecentBasis(recentDuration)} only.{reason}");
+                $"Quota forecast: {FormatRecentBasis(recentDuration)} only.{reason}");
         }
 
         return ProjectUsingProfiles(latest, windowStart, resetsAt, currentRatePerMinute, profiles, recentDuration);
@@ -453,8 +453,8 @@ internal static class AdaptiveWeeklyForecast
 
         AdaptiveWeeklyForecastProjection Result(UsageTrendForecast forecast) => new(forecast,
             currentRatePerMinute.HasValue
-                ? $"Forecast: {FormatRecentBasis(recentDuration)} + {profiles.Length} usable week{(profiles.Length == 1 ? string.Empty : "s")} ({coverage:P0} observed). Historical influence grows further ahead; estimate only."
-                : $"Forecast: historical usage only, based on {profiles.Length} usable week{(profiles.Length == 1 ? string.Empty : "s")} ({coverage:P0} observed); estimate only.",
+                ? $"Quota forecast: {FormatRecentBasis(recentDuration)} + {profiles.Length} past week{(profiles.Length == 1 ? string.Empty : "s")} ({coverage:P0} history coverage); estimate only."
+                : $"Quota forecast: historical usage only · {profiles.Length} past week{(profiles.Length == 1 ? string.Empty : "s")} ({coverage:P0} history coverage); estimate only.",
             UsesHistory: true);
     }
 

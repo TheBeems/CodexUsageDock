@@ -58,14 +58,14 @@ public sealed class WeeklyResetIntegrationTests : IDisposable
         var data = dashboard.RootElement;
         Assert.True(data.GetProperty("weeklyTrendAvailable").GetBoolean());
         Assert.Contains("historical usage only", data.GetProperty("weeklyForecastStatus").GetString(), StringComparison.Ordinal);
-        Assert.Contains("3 usable weeks", data.GetProperty("weeklyForecastStatus").GetString(), StringComparison.Ordinal);
+        Assert.Contains("3 past weeks", data.GetProperty("weeklyForecastStatus").GetString(), StringComparison.Ordinal);
         Assert.Contains("0/30", data.GetProperty("weeklyForecastStatus").GetString(), StringComparison.Ordinal);
         var chart = XDocument.Parse(Uri.UnescapeDataString(
             data.GetProperty("weeklyTrendChartUrl").GetString()!["data:image/svg+xml;utf8,".Length..]));
         var observed = Assert.Single(chart.Descendants(Svg + "polyline"), line => line.Attribute("stroke-dasharray") is null);
         Assert.Equal(2, observed.Attribute("points")!.Value.Split(' ').Length);
         Assert.Single(chart.Descendants(Svg + "polyline"), line => line.Attribute("stroke-dasharray") is not null);
-        Assert.Contains("amber: reset/restoration", data.GetProperty("weeklyTrendLegend").GetString(), StringComparison.Ordinal);
+        Assert.Contains("Amber markers: reset or restored allowance", data.GetProperty("weeklyTrendLegend").GetString(), StringComparison.Ordinal);
 
         var otherAccount = afterReset with { AccountKey = "other-account" };
         restarted.RecordHistory(otherAccount, now);
