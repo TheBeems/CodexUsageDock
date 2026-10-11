@@ -9,6 +9,10 @@ the [changelog workflow](AGENTS.md#documentation-and-change-quality).
 
 ## [Unreleased]
 
+### Changed
+
+- Add a screenshot of the released 0.8.7 weekly dashboard to the README.
+
 ## [0.8.7] - 2026-10-09
 
 ### Added
