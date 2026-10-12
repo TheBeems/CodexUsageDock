@@ -11,8 +11,12 @@ the [changelog workflow](AGENTS.md#documentation-and-change-quality).
 
 ### Changed
 
-- Add a screenshot of the released 0.8.7 weekly dashboard to the README. ([commit 5a67988](https://github.com/TheBeems/CodexUsageDock/commit/5a67988a4f172ba8698628f0ba2ca35bad0bc46c))
+## [0.8.8] - 2026-10-12
 
+### Changed
+
+- Move weekly chart marker labels closer to the plot and highlight the next scheduled reset with an amber dashed line and triangle.
+- Add a screenshot of the released 0.8.7 weekly dashboard to the README. ([commit 5a67988](https://github.com/TheBeems/CodexUsageDock/commit/5a67988a4f172ba8698628f0ba2ca35bad0bc46c))
 - Limit the README dashboard screenshot to 650 pixels wide; open the full image by clicking it. ([commit a0ebcb7](https://github.com/TheBeems/CodexUsageDock/commit/a0ebcb702a89588da599f9e3a772605b785d22b3))
 
 ## [0.8.7] - 2026-10-09

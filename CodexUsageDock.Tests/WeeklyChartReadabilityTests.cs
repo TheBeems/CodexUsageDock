@@ -97,6 +97,70 @@ public sealed class WeeklyChartReadabilityTests(ITestOutputHelper output)
     }
 
     [Fact]
+    public void UnobstructedMarkerLabelsSitCloseToThePlot()
+    {
+        var svg = Parse(CreateScenario());
+        foreach (var label in new[] { "Now", "Next reset" })
+        {
+            var bounds = LabelBounds(Assert.Single(svg.Descendants(Svg + "g"),
+                group => group.Attribute("data-axis-label")?.Value == label));
+            Assert.InRange(PlotTop(svg) - bounds.Top - bounds.Height, 8, 12);
+        }
+    }
+
+    [Theory]
+    [InlineData(0.25)]
+    [InlineData(1)]
+    [InlineData(3)]
+    public void ResetCloseToNowUsesTheUpperHeaderRow(double hoursSinceReset)
+    {
+        var start = Now.AddHours(-hoursSinceReset);
+        var reset = start.AddDays(7);
+        var svg = Parse(Create([
+            new(start.AddMinutes(-1), 1, start, 10080),
+            new(start, 100, reset, 10080),
+            new(Now, 56, reset, 10080),
+        ], reset));
+        var now = LabelBounds(Assert.Single(svg.Descendants(Svg + "g"),
+            group => group.Attribute("data-axis-label")?.Value == "Now"));
+        var detected = LabelBounds(Assert.Single(svg.Descendants(Svg + "g"),
+            group => group.Attribute("data-axis")?.Value == "reset-detected"));
+        Assert.True(detected.Top + detected.Height + 6 <= now.Top);
+        AssertNonOverlapping(svg.Descendants(Svg + "g")
+            .Where(group => group.Attribute("data-axis")?.Value is "marker" or "reset-detected" or "legend")
+            .Select(LabelBounds).ToArray());
+    }
+
+    [Fact]
+    public void NextResetHasAContrastingLineLabelAndAnAnchoredTriangle()
+    {
+        var svg = Parse(CreateScenario());
+        var line = Assert.Single(svg.Descendants(Svg + "line"),
+            element => element.Attribute("data-marker")?.Value == "reset-end");
+        var resetColor = ResetMarkers(svg)[0].Attribute("stroke")!.Value;
+        Assert.Equal(resetColor, line.Attribute("stroke")?.Value);
+        Assert.True(double.Parse(line.Attribute("stroke-width")!.Value, CultureInfo.InvariantCulture) >= 2);
+        Assert.True(double.Parse(line.Attribute("stroke-opacity")!.Value, CultureInfo.InvariantCulture) >= 0.9);
+        var dashes = line.Attribute("stroke-dasharray")!.Value.Split(' ');
+        Assert.True(double.Parse(dashes[0], CultureInfo.InvariantCulture) >= 4);
+        var label = Assert.Single(svg.Descendants(Svg + "g"),
+            group => group.Attribute("data-axis-label")?.Value == "Next reset");
+        Assert.All(label.Elements(Svg + "path"), path => Assert.Equal(resetColor, path.Attribute("fill")?.Value));
+        var triangle = Assert.Single(svg.Descendants(Svg + "polygon"),
+            element => element.Attribute("data-marker")?.Value == "reset-end-cap");
+        Assert.Equal(resetColor, triangle.Attribute("fill")?.Value);
+        var points = triangle.Attribute("points")!.Value.Split(' ').Select(point => point.Split(',')
+            .Select(value => double.Parse(value, CultureInfo.InvariantCulture)).ToArray()).ToArray();
+        Assert.Equal(3, points.Length);
+        var x = double.Parse(line.Attribute("x1")!.Value, CultureInfo.InvariantCulture);
+        Assert.Equal(x, (points[0][0] + points[1][0]) / 2, 2);
+        Assert.Equal(x, points[2][0], 2);
+        Assert.Equal(PlotTop(svg), points[2][1]);
+        Assert.All(points.Take(2), point => Assert.InRange(point[1],
+            LabelBounds(label).Top + ChartLabelGlyphs.Height + 2, PlotTop(svg) - 2));
+    }
+
+    [Fact]
     public void DenseCalendarLabelsKeepEveryDateWithoutOverlapping()
     {
         var svg = Parse(CreateScenario());

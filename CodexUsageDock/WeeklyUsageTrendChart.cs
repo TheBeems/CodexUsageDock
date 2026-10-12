@@ -19,8 +19,9 @@ internal static class WeeklyUsageTrendChartRenderer
     private const double TrendHeight = TrendBottom - TrendTop;
     private const double DayLabelTop = 222;
     private const double LegendTop = 4;
-    private const double MarkerLabelTop = 28;
+    private const double MarkerLabelTop = TrendTop - ChartLabelGlyphs.Height - 10;
     private const string AxisLabelFill = "#D0D0D0";
+    private const string ResetMarkerFill = "#F2C94C";
     private static readonly XNamespace Svg = "http://www.w3.org/2000/svg";
     internal static WeeklyUsageTrendChart? Create(
         IReadOnlyList<UsageHistoryEntry> history,
@@ -485,12 +486,12 @@ internal static class WeeklyUsageTrendChartRenderer
         document.Add(group);
     }
 
-    private static void AddMarkerLabel(XElement document, string label, double x, string axis)
+    private static void AddMarkerLabel(XElement document, string label, double x, string axis, string? fill = null)
     {
         var width = MeasureChartLabel(NormalizeChartLabel(label));
         var center = Math.Clamp(x, Left + width / 2, Width - Right - width / 2);
         var left = center - width / 2;
-        foreach (var top in new[] { MarkerLabelTop, MarkerLabelTop + ChartLabelHeight + 6 })
+        foreach (var top in new[] { MarkerLabelTop, MarkerLabelTop - ChartLabelHeight - 6 })
         {
             var overlaps = document.Elements(Svg + "g")
                 .Where(group => group.Attribute("data-axis")?.Value is "marker" or "reset-detected")
@@ -505,7 +506,7 @@ internal static class WeeklyUsageTrendChartRenderer
             if (!overlaps)
             {
                 AddChartLabel(document, label, center, top, ChartLabelAlignment.Center, axis,
-                    axis == "reset-detected" ? "#F2C94C" : null);
+                    fill ?? (axis == "reset-detected" ? ResetMarkerFill : null));
                 return;
             }
         }
@@ -584,15 +585,19 @@ internal static class WeeklyUsageTrendChartRenderer
                     new XAttribute("x2", Format(x)),
                     new XAttribute("y1", TrendTop),
                     new XAttribute("y2", TrendBottom),
-                    new XAttribute("stroke", "#C8C8C8"),
-                    new XAttribute("stroke-opacity", edge == "start" ? "0.25" : "0.6"),
-                    new XAttribute("stroke-width", "1"),
-                    new XAttribute("stroke-dasharray", "2 2"),
+                    new XAttribute("stroke", edge == "start" ? "#C8C8C8" : ResetMarkerFill),
+                    new XAttribute("stroke-opacity", edge == "start" ? "0.25" : "0.9"),
+                    new XAttribute("stroke-width", edge == "start" ? "1" : "2"),
+                    new XAttribute("stroke-dasharray", edge == "start" ? "2 2" : "6 4"),
                     new XAttribute("data-marker", $"reset-{edge}"),
                     new XElement(Svg + "title", edge == "start" ? "Current quota window starts" : "Next scheduled reset")));
             if (edge == "end")
             {
-                AddMarkerLabel(document, "Next reset", x, "marker");
+                document.Add(new XElement(Svg + "polygon",
+                    new XAttribute("points", $"{Format(x - 4)},{Format(TrendTop - 6)} {Format(x + 4)},{Format(TrendTop - 6)} {Format(x)},{Format(TrendTop)}"),
+                    new XAttribute("fill", ResetMarkerFill),
+                    new XAttribute("data-marker", "reset-end-cap")));
+                AddMarkerLabel(document, "Next reset", x, "marker", ResetMarkerFill);
             }
         }
     }
@@ -643,7 +648,7 @@ internal static class WeeklyUsageTrendChartRenderer
                     new XAttribute("x2", Format(x)),
                     new XAttribute("y1", TrendTop),
                     new XAttribute("y2", TrendBottom),
-                    new XAttribute("stroke", "#F2C94C"),
+                    new XAttribute("stroke", ResetMarkerFill),
                     new XAttribute("stroke-opacity", "0.8"),
                     new XAttribute("stroke-width", "1.5"),
                     new XAttribute("stroke-dasharray", "3 2"),
@@ -655,7 +660,7 @@ internal static class WeeklyUsageTrendChartRenderer
                     new XAttribute("cx", Format(x)),
                     new XAttribute("cy", Format(y)),
                     new XAttribute("r", "3"),
-                    new XAttribute("fill", "#F2C94C"),
+                    new XAttribute("fill", ResetMarkerFill),
                     new XAttribute("stroke", "#121212"),
                     new XAttribute("stroke-width", "1"),
                     new XAttribute("data-marker", "allowance-restored-point"),
@@ -680,7 +685,7 @@ internal static class WeeklyUsageTrendChartRenderer
                 new XAttribute("x2", Format(x)),
                 new XAttribute("y1", TrendTop),
                 new XAttribute("y2", TrendBottom),
-                new XAttribute("stroke", "#F2C94C"),
+                new XAttribute("stroke", ResetMarkerFill),
                 new XAttribute("stroke-opacity", "0.8"),
                 new XAttribute("stroke-width", "1.5"),
                 new XAttribute("stroke-dasharray", "3 2"),
