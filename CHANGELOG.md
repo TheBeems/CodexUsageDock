@@ -11,7 +11,8 @@ the [changelog workflow](AGENTS.md#documentation-and-change-quality).
 
 ### Changed
 
-- Clarify the dashboard's available reset-credit count and rename the weekly chart marker to Scheduled reset.
+- Clarify the dashboard's available reset-credit count and rename the weekly chart marker to Scheduled reset. ([commit 6b84b7d](https://github.com/TheBeems/CodexUsageDock/commit/6b84b7d3f33e6347aa307fb2a165c9eff927a1ae))
+
 ## [0.8.8] - 2026-10-12
 
 ### Changed
