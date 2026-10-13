@@ -90,7 +90,7 @@ public sealed class WeeklyChartReadabilityTests(ITestOutputHelper output)
             .Where(group => group.Attribute("data-axis")?.Value is "marker" or "reset-detected")
             .Select(LabelBounds).ToArray();
         Assert.Contains(svg.Descendants(Svg + "g"), group => group.Attribute("data-axis-label")?.Value == "Now");
-        Assert.Contains(svg.Descendants(Svg + "g"), group => group.Attribute("data-axis-label")?.Value == "Next reset");
+        Assert.Contains(svg.Descendants(Svg + "g"), group => group.Attribute("data-axis-label")?.Value == "Scheduled reset");
         Assert.DoesNotContain(svg.Descendants(Svg + "g"), group => group.Attribute("data-axis-label")?.Value == "START");
         Assert.All(labels, bounds => Assert.InRange(bounds.Top + bounds.Height, 0, PlotTop(svg)));
         AssertNonOverlapping([.. labels, .. LegendLabels(svg).Select(LabelBounds)]);
@@ -100,7 +100,7 @@ public sealed class WeeklyChartReadabilityTests(ITestOutputHelper output)
     public void UnobstructedMarkerLabelsSitCloseToThePlot()
     {
         var svg = Parse(CreateScenario());
-        foreach (var label in new[] { "Now", "Next reset" })
+        foreach (var label in new[] { "Now", "Scheduled reset" })
         {
             var bounds = LabelBounds(Assert.Single(svg.Descendants(Svg + "g"),
                 group => group.Attribute("data-axis-label")?.Value == label));
@@ -132,7 +132,7 @@ public sealed class WeeklyChartReadabilityTests(ITestOutputHelper output)
     }
 
     [Fact]
-    public void NextResetHasAContrastingLineLabelAndAnAnchoredTriangle()
+    public void ScheduledResetHasAContrastingLineLabelAndAnAnchoredTriangle()
     {
         var svg = Parse(CreateScenario());
         var line = Assert.Single(svg.Descendants(Svg + "line"),
@@ -144,7 +144,7 @@ public sealed class WeeklyChartReadabilityTests(ITestOutputHelper output)
         var dashes = line.Attribute("stroke-dasharray")!.Value.Split(' ');
         Assert.True(double.Parse(dashes[0], CultureInfo.InvariantCulture) >= 4);
         var label = Assert.Single(svg.Descendants(Svg + "g"),
-            group => group.Attribute("data-axis-label")?.Value == "Next reset");
+            group => group.Attribute("data-axis-label")?.Value == "Scheduled reset");
         Assert.All(label.Elements(Svg + "path"), path => Assert.Equal(resetColor, path.Attribute("fill")?.Value));
         var triangle = Assert.Single(svg.Descendants(Svg + "polygon"),
             element => element.Attribute("data-marker")?.Value == "reset-end-cap");
@@ -212,14 +212,14 @@ public sealed class WeeklyChartReadabilityTests(ITestOutputHelper output)
     }
 
     [Fact]
-    public void FutureAreaBeginsAtNowAndKeepsTheNextResetVisible()
+    public void FutureAreaBeginsAtNowAndKeepsTheScheduledResetVisible()
     {
         var svg = Parse(CreateScenario());
         var now = Assert.Single(svg.Descendants(Svg + "line"), line => line.Attribute("data-marker")?.Value == "now");
         var future = Assert.Single(svg.Descendants(Svg + "rect"), rect => rect.Attribute("data-area")?.Value == "future");
         Assert.Equal(now.Attribute("x1")?.Value, future.Attribute("x")?.Value);
         Assert.Equal(now.Attribute("y1")?.Value, future.Attribute("y")?.Value);
-        Assert.Contains(svg.Descendants(Svg + "g"), group => group.Attribute("data-axis-label")?.Value == "Next reset");
+        Assert.Contains(svg.Descendants(Svg + "g"), group => group.Attribute("data-axis-label")?.Value == "Scheduled reset");
         Assert.All(ResetMarkers(svg), reset => Assert.Equal("#F2C94C", reset.Attribute("stroke")?.Value));
     }
 
