@@ -11,6 +11,7 @@ the [changelog workflow](AGENTS.md#documentation-and-change-quality).
 
 ### Changed
 
+- Clarify the dashboard's available reset-credit count and rename the weekly chart marker to Scheduled reset.
 ## [0.8.8] - 2026-10-12
 
 ### Changed

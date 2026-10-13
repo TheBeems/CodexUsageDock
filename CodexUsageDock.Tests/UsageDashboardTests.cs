@@ -489,6 +489,20 @@ public sealed class UsageDashboardTests : IDisposable
     }
 
     [Theory]
+    [InlineData(0, "")]
+    [InlineData(1, "1 reset credit available")]
+    [InlineData(2, "2 reset credits available")]
+    public void ResetCreditsSummaryShowsTheReportedAvailableCount(int count, string expected)
+    {
+        using var data = Render(Snapshot() with
+        {
+            ResetCredits = new(count, [new("Full reset", "available", Now.AddDays(19))]),
+        });
+        Assert.Equal(count > 0, data.RootElement.GetProperty("hasResetCredits").GetBoolean());
+        Assert.Equal(expected, data.RootElement.GetProperty("resetCreditsSummary").GetString());
+    }
+
+    [Theory]
     [InlineData(19, "Default")]
     [InlineData(0.5, "Warning")]
     public void OnlyAnUpcomingResetCreditExpiryNeedsEmphasis(double days, string color)
@@ -498,7 +512,7 @@ public sealed class UsageDashboardTests : IDisposable
             ResetCredits = new(2, [new("Full reset", "available", Now.AddDays(days))]),
         });
         Assert.True(data.RootElement.GetProperty("hasResetCredits").GetBoolean());
-        Assert.StartsWith("2 reset credits", data.RootElement.GetProperty("resetCreditsSummary").GetString(), StringComparison.Ordinal);
+        Assert.StartsWith("2 reset credits available", data.RootElement.GetProperty("resetCreditsSummary").GetString(), StringComparison.Ordinal);
         Assert.Equal(color, data.RootElement.GetProperty("resetCreditsColor").GetString());
     }
 }

@@ -74,7 +74,7 @@ internal sealed partial class CodexUsageDockPage : ContentPage, IDisposable
             ["hasNotice"] = notice.Length > 0,
             ["hasResetCredits"] = resetCount > 0,
             ["resetCreditsSummary"] = resetCount > 0
-                ? $"{resetCount} reset credit{(resetCount == 1 ? string.Empty : "s")}{(urgentReset ? $" · expires {FormatRelativeTime(nextExpiry!.Value, now)}" : string.Empty)}"
+                ? $"{resetCount} reset credit{(resetCount == 1 ? string.Empty : "s")} available{(urgentReset ? $" · expires {FormatRelativeTime(nextExpiry!.Value, now)}" : string.Empty)}"
                 : string.Empty,
             ["resetCreditsColor"] = urgentReset ? "Warning" : "Default",
             ["quotaGroups"] = CreateQuotaGroups(snapshot, now, dataAvailable, showFiveHourLimit),

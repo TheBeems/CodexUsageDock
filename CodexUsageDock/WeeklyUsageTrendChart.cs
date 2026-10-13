@@ -597,7 +597,7 @@ internal static class WeeklyUsageTrendChartRenderer
                     new XAttribute("points", $"{Format(x - 4)},{Format(TrendTop - 6)} {Format(x + 4)},{Format(TrendTop - 6)} {Format(x)},{Format(TrendTop)}"),
                     new XAttribute("fill", ResetMarkerFill),
                     new XAttribute("data-marker", "reset-end-cap")));
-                AddMarkerLabel(document, "Next reset", x, "marker", ResetMarkerFill);
+                AddMarkerLabel(document, "Scheduled reset", x, "marker", ResetMarkerFill);
             }
         }
     }
@@ -897,7 +897,7 @@ internal static class WeeklyUsageTrendChartRenderer
         var resetText = resets.Length > 0
             ? $" {resets.Length} quota reset or reset-schedule change{(resets.Length == 1 ? " was" : "s were")} detected. {string.Join(" ", resets.Select(reset => FormatResetDetection(reset, culture, timeZone)))} Markers show detection times; the precise event time between observations is unknown."
             : " No quota reset or reset-schedule changes were detected in the retained observations.";
-        return $"Weekly quota trend from {period}. Recorded observations from the preceding seven days are retained across quota resets. Remaining quota changed from {first.RemainingPercent:0}% to {last.RemainingPercent:0}% across {sampleCount} observation{(sampleCount == 1 ? string.Empty : "s")}. The left vertical scale is remaining quota from 0% to 100%.{(tokenUsage is null ? string.Empty : " The independent right scale is locally observed total tokens per calendar day.")} Horizontal labels are local calendar dates. Now separates recorded observations from future dates, and Next reset marks the scheduled end of the current quota window. Amber Reset labels mark detected historical cycle changes. Solid line connects sampled values across measurement gaps; allowance increases break the line, as do quota cycle changes; dashed line is a conditional forecast.{restorationText}{resetText}{forecastText} {daily}";
+        return $"Weekly quota trend from {period}. Recorded observations from the preceding seven days are retained across quota resets. Remaining quota changed from {first.RemainingPercent:0}% to {last.RemainingPercent:0}% across {sampleCount} observation{(sampleCount == 1 ? string.Empty : "s")}. The left vertical scale is remaining quota from 0% to 100%.{(tokenUsage is null ? string.Empty : " The independent right scale is locally observed total tokens per calendar day.")} Horizontal labels are local calendar dates. Now separates recorded observations from future dates, and Scheduled reset marks the scheduled end of the current quota window. Amber Reset labels mark detected historical cycle changes. Solid line connects sampled values across measurement gaps; allowance increases break the line, as do quota cycle changes; dashed line is a conditional forecast.{restorationText}{resetText}{forecastText} {daily}";
     }
 
     private static string FormatResetDetection(QuotaCycleChange reset, CultureInfo culture, TimeZoneInfo timeZone) =>
