@@ -11,7 +11,7 @@ the [changelog workflow](AGENTS.md#documentation-and-change-quality).
 
 ### Changed
 
-- Update the README screenshot to show the released 0.8.9 weekly dashboard.
+- Update the README screenshot to show the released 0.8.9 weekly dashboard. ([commit 733c44c](https://github.com/TheBeems/CodexUsageDock/commit/733c44c2a889e45d99652a02723e49fe4bfdfb3f))
 
 ## [0.8.9] - 2026-10-13
 
