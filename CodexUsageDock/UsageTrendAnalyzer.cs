@@ -174,6 +174,12 @@ internal static class UsageTrendAnalyzer
         }
 
         var consumed = first.RemainingPercent - last.RemainingPercent;
+        if (consumed <= 0.5 && adaptiveEnabled && history?.Hourly is not null
+            && AdaptiveWeeklyForecast.ProjectFromHistory(last, start, reset, history) is { } historicalIdle)
+        {
+            return CreateWeeklyAnalysis(segment, values, now, historicalIdle, "If this observed pace is representative");
+        }
+
         var projection = AdaptiveWeeklyForecast.Project(last, start, reset, consumed / duration.TotalMinutes,
             adaptiveEnabled, history, duration);
         if (consumed <= 0.5 && !projection.UsesHistory)

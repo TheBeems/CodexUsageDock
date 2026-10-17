@@ -279,16 +279,15 @@ public sealed class WeeklyForecastTests(ITestOutputHelper output)
         store.Record(new RateLimitWindow(20, 10080, earlyReset), previous.Append(first).ToArray(),
             TimeSpan.FromMinutes(15));
 
-        Assert.Equal(5, Assert.Single(store.Snapshot.CompletedCycles).ConsumedPercent, precision: 8);
-        Assert.Equal(0, store.Snapshot.ActiveCycle!.ObservedMinutes);
-        Assert.Equal(0, store.Snapshot.ActiveCycle.ConsumedPercent);
+        Assert.Equal(TimeSpan.FromMinutes(25).Ticks, store.Snapshot.Hourly!.Buckets.Sum(bucket => bucket.ObservedTicks));
+        Assert.Equal(5, store.Snapshot.Hourly.Buckets.Sum(bucket => bucket.ConsumedPercent), precision: 8);
 
         var next = new UsageHistoryEntry(Now.AddMinutes(5), 79, earlyReset, 10080);
         store.Record(new RateLimitWindow(21, 10080, earlyReset), previous.Append(first).Append(next).ToArray(),
             TimeSpan.FromMinutes(15));
         var restored = new AdaptiveWeeklyUsageStore(path);
-        Assert.Equal(5, restored.Snapshot.ActiveCycle!.ObservedMinutes, precision: 8);
-        Assert.Equal(1, restored.Snapshot.ActiveCycle.ConsumedPercent, precision: 8);
+        Assert.Equal(TimeSpan.FromMinutes(30).Ticks, restored.Snapshot.Hourly!.Buckets.Sum(bucket => bucket.ObservedTicks));
+        Assert.Equal(6, restored.Snapshot.Hourly.Buckets.Sum(bucket => bucket.ConsumedPercent), precision: 8);
     }
 
     [Fact]
@@ -307,14 +306,13 @@ public sealed class WeeklyForecastTests(ITestOutputHelper output)
         };
         store.Record(new RateLimitWindow(20, 10080, Reset), samples, TimeSpan.FromMinutes(15));
 
-        Assert.Equal(0, store.Snapshot.ActiveCycle!.ObservedMinutes);
-        Assert.Equal(0, store.Snapshot.ActiveCycle.ConsumedPercent);
+        Assert.Empty(store.Snapshot.Hourly!.Buckets);
 
         store.Record(new RateLimitWindow(21, 10080, Reset),
             samples.Append(new UsageHistoryEntry(Now.AddMinutes(5), 79, Reset, 10080)).ToArray(),
             TimeSpan.FromMinutes(15));
-        Assert.Equal(5, store.Snapshot.ActiveCycle.ObservedMinutes, precision: 8);
-        Assert.Equal(1, store.Snapshot.ActiveCycle.ConsumedPercent, precision: 8);
+        Assert.Equal(TimeSpan.FromMinutes(5).Ticks, store.Snapshot.Hourly.Buckets.Sum(bucket => bucket.ObservedTicks));
+        Assert.Equal(1, store.Snapshot.Hourly.Buckets.Sum(bucket => bucket.ConsumedPercent), precision: 8);
     }
 
     [Fact]

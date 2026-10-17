@@ -207,7 +207,8 @@ public sealed class ReliabilityTests : IDisposable
         var state = new AdaptiveWeeklyUsageState([], new(Now.AddDays(3), 10080, 60, 10, []), null, true);
         File.WriteAllText(path, JsonSerializer.Serialize(state, AdaptiveWeeklyUsageJsonContext.Default.AdaptiveWeeklyUsageState));
         var store = new AdaptiveWeeklyUsageStore(path);
-        using (var held = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read))
+        store.AdvanceBaseline(new(20, 10080, Now.AddDays(3)), [new(Now, 80, Now.AddDays(3), 10080)]);
+        using (var held = new FileStream(store.StoragePath, FileMode.Open, FileAccess.Read, FileShare.Read))
         {
             Assert.False(store.Clear());
             Assert.NotNull(store.Snapshot.ActiveCycle);

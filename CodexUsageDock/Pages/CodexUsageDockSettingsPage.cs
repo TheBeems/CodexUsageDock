@@ -63,7 +63,7 @@ internal sealed partial class CodexUsageDockSettingsPage : ContentPage
         _settings.Add(new ToggleSetting(UseAdaptiveWeeklyForecastKey, true)
         {
             Label = "Use adaptive weekly forecast",
-            Description = "Use sufficiently observed recent weeks to improve longer-range estimates. Turning this off pauses learning and keeps saved history.",
+            Description = "Keep observed quota history for startup estimates. Recent pace takes over when sufficient. Turning this off pauses learning and keeps saved history.",
         });
         _settings.Add(new ToggleSetting(EnableUsageAlertsKey, false)
         {
@@ -108,7 +108,7 @@ internal sealed partial class CodexUsageDockSettingsPage : ContentPage
                 Result = CommandResult.KeepOpen(),
             },
             "Delete learned forecast history?",
-            "This permanently removes learned forecast history for the currently identified account and quota category. Other accounts are kept.",
+            "This clears forecast learning for the current account and quota category and prevents old history from being reused. Original history files and other accounts are kept.",
             () => true)
         {
             Name = "Delete learned forecast history",
