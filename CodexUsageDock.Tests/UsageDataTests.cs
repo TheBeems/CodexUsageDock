@@ -2027,7 +2027,7 @@ public sealed class UsageDataTests : IDisposable
     }
 
     [Fact]
-    public void AdaptiveWeeklyUsageStoreLearnsOnlyContinuousAllowanceDecreasesAndSealsAtReset()
+    public void HourlyUsageStoreKeepsContinuousAllowanceDecreasesAcrossResets()
     {
         var temporaryDirectory = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
         var path = Path.Combine(temporaryDirectory, "adaptive-weekly.json");
@@ -2048,15 +2048,12 @@ public sealed class UsageDataTests : IDisposable
                 ],
                 TimeSpan.FromMinutes(5));
 
-            var active = Assert.IsType<AdaptiveWeeklyUsageCycle>(store.Snapshot.ActiveCycle);
-            Assert.Equal(2, active.ObservedMinutes, precision: 6);
-            Assert.Equal(20, active.ConsumedPercent, precision: 6);
-            var bucket = Assert.Single(active.Buckets);
-            Assert.Equal(0, bucket.Index);
+            var bucket = Assert.Single(store.Snapshot.Hourly!.Buckets);
+            Assert.Equal(TimeSpan.FromMinutes(2).Ticks, bucket.ObservedTicks);
             Assert.Equal(20, bucket.ConsumedPercent, precision: 6);
 
             var restored = new AdaptiveWeeklyUsageStore(path);
-            Assert.Equal(20, Assert.IsType<AdaptiveWeeklyUsageCycle>(restored.Snapshot.ActiveCycle).ConsumedPercent, precision: 6);
+            Assert.Equal(20, Assert.Single(restored.Snapshot.Hourly!.Buckets).ConsumedPercent, precision: 6);
 
             var nextReset = reset.AddDays(7);
             store.Record(
@@ -2064,7 +2061,8 @@ public sealed class UsageDataTests : IDisposable
                 [new UsageHistoryEntry(nextReset.AddDays(-7).AddMinutes(1), 100)],
                 TimeSpan.FromMinutes(5));
 
-            Assert.Single(store.Snapshot.CompletedCycles);
+            Assert.Empty(store.Snapshot.CompletedCycles);
+            Assert.Equal(TimeSpan.FromMinutes(2).Ticks, Assert.Single(store.Snapshot.Hourly!.Buckets).ObservedTicks);
         }
         finally
         {
@@ -2073,7 +2071,7 @@ public sealed class UsageDataTests : IDisposable
     }
 
     [Fact]
-    public void AdaptiveWeeklyUsageStoreTreatsSmallResetTimeChangesAsTheSameCycle()
+    public void HourlyUsageStoreToleratesSmallResetChangesWithoutResettingMeasuredTime()
     {
         var temporaryDirectory = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
         var path = Path.Combine(temporaryDirectory, "adaptive-weekly.json");
@@ -2081,16 +2079,20 @@ public sealed class UsageDataTests : IDisposable
         try
         {
             var store = new AdaptiveWeeklyUsageStore(path);
-            store.Record(new RateLimitWindow(0, 10080, reset), [], TimeSpan.FromMinutes(5));
-            store.Record(new RateLimitWindow(0, 10080, reset.AddSeconds(3)), [], TimeSpan.FromMinutes(5));
+            var start = reset.AddDays(-7).AddMinutes(1);
+            store.Record(new RateLimitWindow(1, 10080, reset),
+                [new(start, 100, reset, 10080), new(start.AddMinutes(1), 99, reset, 10080)], TimeSpan.FromMinutes(5));
+            store.Record(new RateLimitWindow(2, 10080, reset.AddSeconds(3)),
+                [new(start.AddMinutes(2), 98, reset.AddSeconds(3), 10080)], TimeSpan.FromMinutes(5));
 
             Assert.Empty(store.Snapshot.CompletedCycles);
-            Assert.Equal(reset, Assert.IsType<AdaptiveWeeklyUsageCycle>(store.Snapshot.ActiveCycle).ResetsAt);
+            Assert.Equal(TimeSpan.FromMinutes(2).Ticks, Assert.Single(store.Snapshot.Hourly!.Buckets).ObservedTicks);
 
-            store.Record(new RateLimitWindow(0, 10080, reset.AddDays(7)), [], TimeSpan.FromMinutes(5));
+            store.Record(new RateLimitWindow(0, 10080, reset.AddDays(7)),
+                [new(reset.AddMinutes(1), 100, reset.AddDays(7), 10080)], TimeSpan.FromMinutes(5));
 
             Assert.Empty(store.Snapshot.CompletedCycles);
-            Assert.Equal(reset.AddDays(7), Assert.IsType<AdaptiveWeeklyUsageCycle>(store.Snapshot.ActiveCycle).ResetsAt);
+            Assert.Equal(TimeSpan.FromMinutes(2).Ticks, Assert.Single(store.Snapshot.Hourly!.Buckets).ObservedTicks);
         }
         finally
         {
@@ -2209,7 +2211,7 @@ public sealed class UsageDataTests : IDisposable
 
             service.RecordHistory(CreateSnapshot(100, now.AddMinutes(-4)), now);
             service.RecordHistory(CreateSnapshot(90, now.AddMinutes(-3)), now);
-            Assert.Equal(10, Assert.IsType<AdaptiveWeeklyUsageCycle>(service.AdaptiveWeeklyHistory.ActiveCycle).ConsumedPercent, precision: 6);
+            Assert.Equal(10, service.AdaptiveWeeklyHistory.Hourly!.Buckets.Sum(bucket => bucket.ConsumedPercent), precision: 6);
 
             service.SetAdaptiveWeeklyForecastEnabled(false);
             service.RecordHistory(CreateSnapshot(80, now.AddMinutes(-2)), now);
@@ -2218,12 +2220,12 @@ public sealed class UsageDataTests : IDisposable
 
             service.SetAdaptiveWeeklyForecastEnabled(true);
 
-            Assert.Equal(10, Assert.IsType<AdaptiveWeeklyUsageCycle>(service.AdaptiveWeeklyHistory.ActiveCycle).ConsumedPercent, precision: 6);
+            Assert.Equal(10, service.AdaptiveWeeklyHistory.Hourly!.Buckets.Sum(bucket => bucket.ConsumedPercent), precision: 6);
 
             service.RecordHistory(CreateSnapshot(60, now), now);
             service.RecordHistory(CreateSnapshot(50, now.AddMinutes(1)), now.AddMinutes(1));
 
-            Assert.Equal(20, Assert.IsType<AdaptiveWeeklyUsageCycle>(service.AdaptiveWeeklyHistory.ActiveCycle).ConsumedPercent, precision: 6);
+            Assert.Equal(20, service.AdaptiveWeeklyHistory.Hourly!.Buckets.Sum(bucket => bucket.ConsumedPercent), precision: 6);
         }
         finally
         {
@@ -2249,14 +2251,12 @@ public sealed class UsageDataTests : IDisposable
             var store = new AdaptiveWeeklyUsageStore(path);
             var window = new RateLimitWindow(0, 10080, reset);
             store.Record(window, samples, TimeSpan.FromMinutes(5));
-            Assert.True(Assert.IsType<AdaptiveWeeklyUsageCycle>(store.Snapshot.ActiveCycle).ConsumedPercent > 0);
+            Assert.True(Assert.Single(store.Snapshot.Hourly!.Buckets).ConsumedPercent > 0);
 
             store.Clear();
             store.Record(window, samples, TimeSpan.FromMinutes(5));
 
-            var active = Assert.IsType<AdaptiveWeeklyUsageCycle>(store.Snapshot.ActiveCycle);
-            Assert.Equal(0, active.ObservedMinutes, precision: 6);
-            Assert.Equal(0, active.ConsumedPercent, precision: 6);
+            Assert.Empty(store.Snapshot.Hourly!.Buckets);
         }
         finally
         {
@@ -2265,30 +2265,24 @@ public sealed class UsageDataTests : IDisposable
     }
 
     [Fact]
-    public void AdaptiveWeeklyUsageStoreRetainsOnlyEightCompletedCycles()
+    public void LegacyForecastReaderKeepsEightProfilesWithoutRewritingTheSource()
     {
         var temporaryDirectory = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
         var path = Path.Combine(temporaryDirectory, "adaptive-weekly.json");
         var firstReset = new DateTimeOffset(2026, 1, 9, 0, 0, 0, TimeSpan.Zero);
         try
         {
+            Directory.CreateDirectory(temporaryDirectory);
+            var cycles = Enumerable.Range(0, 10).Select(index => new AdaptiveWeeklyUsageCycle(
+                firstReset.AddDays(7 * index), 10080, 1, 1, [new(0, 1, 1)])).ToArray();
+            var original = JsonSerializer.Serialize(new AdaptiveWeeklyUsageState(cycles, null, null, true));
+            File.WriteAllText(path, original);
             var store = new AdaptiveWeeklyUsageStore(path);
-            for (var index = 0; index < 10; index++)
-            {
-                var reset = firstReset.AddDays(7 * index);
-                var start = reset.AddDays(-7);
-                store.Record(
-                    new RateLimitWindow(0, 10080, reset),
-                    [
-                        new UsageHistoryEntry(start.AddMinutes(1), 100),
-                        new UsageHistoryEntry(start.AddMinutes(2), 99),
-                    ],
-                    TimeSpan.FromMinutes(5));
-            }
 
             var completed = store.Snapshot.CompletedCycles;
             Assert.Equal(8, completed.Length);
-            Assert.Equal(firstReset.AddDays(7), completed[0].ResetsAt);
+            Assert.Equal(firstReset.AddDays(14), completed[0].ResetsAt);
+            Assert.Equal(original, File.ReadAllText(path));
         }
         finally
         {

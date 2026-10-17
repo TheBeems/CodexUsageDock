@@ -47,10 +47,10 @@ public sealed class WeeklyResetIntegrationTests : IDisposable
             sample => Assert.Equal(20, sample.RemainingPercent),
             sample => Assert.Equal(18, sample.RemainingPercent),
             sample => Assert.Equal(100, sample.RemainingPercent));
-        Assert.Equal(4, restarted.AdaptiveWeeklyHistory.CompletedCycles.Length);
-        var partialCycle = Assert.Single(restarted.AdaptiveWeeklyHistory.CompletedCycles, cycle => cycle.ResetsAt == oldReset);
-        Assert.Equal(5, partialCycle.ObservedMinutes);
-        Assert.Equal(2, partialCycle.ConsumedPercent);
+        Assert.Empty(restarted.AdaptiveWeeklyHistory.CompletedCycles);
+        Assert.Equal(TimeSpan.FromMinutes(3 * 10075 + 5).Ticks,
+            restarted.AdaptiveWeeklyHistory.Hourly!.Buckets.Sum(bucket => bucket.ObservedTicks));
+        Assert.Equal(62, restarted.AdaptiveWeeklyHistory.Hourly.Buckets.Sum(bucket => bucket.ConsumedPercent), precision: 8);
 
         using var dashboard = JsonDocument.Parse(CodexUsageDockPage.FormatMainDataJson(afterReset, now, false,
             restarted.PrimaryHistory, restarted.WeeklyHistory, TimeSpan.FromMinutes(1), true,
@@ -58,7 +58,7 @@ public sealed class WeeklyResetIntegrationTests : IDisposable
         var data = dashboard.RootElement;
         Assert.True(data.GetProperty("weeklyTrendAvailable").GetBoolean());
         Assert.Contains("historical usage only", data.GetProperty("weeklyForecastStatus").GetString(), StringComparison.Ordinal);
-        Assert.Contains("3 past weeks", data.GetProperty("weeklyForecastStatus").GetString(), StringComparison.Ordinal);
+        Assert.Contains("hourly history", data.GetProperty("weeklyForecastStatus").GetString(), StringComparison.Ordinal);
         Assert.Contains("0/30", data.GetProperty("weeklyForecastStatus").GetString(), StringComparison.Ordinal);
         var chart = XDocument.Parse(Uri.UnescapeDataString(
             data.GetProperty("weeklyTrendChartUrl").GetString()!["data:image/svg+xml;utf8,".Length..]));

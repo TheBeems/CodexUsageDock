@@ -20,349 +20,17 @@ internal sealed record AdaptiveWeeklyUsageState(
 
 internal sealed record AdaptiveWeeklyUsageHistory(
     AdaptiveWeeklyUsageCycle[] CompletedCycles,
-    AdaptiveWeeklyUsageCycle? ActiveCycle);
+    AdaptiveWeeklyUsageCycle? ActiveCycle,
+    HourlyUsageHistory? Hourly = null);
 
 internal sealed record AdaptiveWeeklyForecastProjection(UsageTrendForecast Forecast, string Status, bool UsesHistory = false);
-
-internal sealed class AdaptiveWeeklyUsageStore
-{
-    internal const int MaximumCompletedCycles = 8;
-    internal const int BucketCount = 28;
-    internal static readonly TimeSpan BucketDuration = TimeSpan.FromHours(6);
-
-    private const string FileName = "adaptive-weekly-forecast.json";
-    private readonly string _path;
-    private AdaptiveWeeklyUsageState _state;
-
-    internal AdaptiveWeeklyUsageStore(string path)
-    {
-        _path = path;
-        _state = Load();
-    }
-
-    internal static AdaptiveWeeklyUsageStore CreateDefault() => new(LocalStorage.GetPath(FileName));
-
-    internal AdaptiveWeeklyUsageStore ForContext(string context) => new(LocalStorage.ContextPath(_path, context));
-
-    internal string? StorageError { get; private set; }
-
-    internal AdaptiveWeeklyUsageHistory Snapshot => new(
-        _state.CompletedCycles.ToArray(),
-        _state.ActiveCycle);
-
-    internal void Record(
-        RateLimitWindow? window,
-        IReadOnlyList<UsageHistoryEntry> weeklyHistory,
-        TimeSpan maximumGap)
-    {
-        if (maximumGap <= TimeSpan.Zero
-            || !TryGetWindowSamples(window, weeklyHistory, out var samples))
-        {
-            return;
-        }
-
-        var replayHistory = !_state.IsInitialized;
-        var hadActiveCycle = _state.ActiveCycle is not null;
-        replayHistory |= StartCycleIfNeeded(window!) && hadActiveCycle;
-
-        var replay = replayHistory
-            ? samples
-            : _state.LastSample is null
-                ? samples.TakeLast(1)
-                : samples.Where(sample => sample.RecordedAt > _state.LastSample.RecordedAt);
-        foreach (var sample in replay)
-        {
-            ApplySample(sample, maximumGap);
-        }
-
-        Save();
-    }
-
-    internal void AdvanceBaseline(
-        RateLimitWindow? window,
-        IReadOnlyList<UsageHistoryEntry> weeklyHistory)
-    {
-        if (!TryGetWindowSamples(window, weeklyHistory, out var samples))
-        {
-            return;
-        }
-
-        _ = StartCycleIfNeeded(window!);
-        var latest = samples.LastOrDefault();
-        if (latest is not null && (_state.LastSample is null || latest.RecordedAt > _state.LastSample.RecordedAt))
-        {
-            _state = _state with { LastSample = latest, IsInitialized = true };
-        }
-        else
-        {
-            _state = _state with { IsInitialized = true };
-        }
-
-        Save();
-    }
-
-    internal bool Clear()
-    {
-        // Keep only an empty initialization marker so old raw chart samples are not learnt again.
-        var cleared = new AdaptiveWeeklyUsageState([], null, null, true);
-        if (!Save(cleared))
-        {
-            return false;
-        }
-
-        _state = cleared;
-        return true;
-    }
-
-    private static bool TryGetWindowSamples(
-        RateLimitWindow? window,
-        IReadOnlyList<UsageHistoryEntry> weeklyHistory,
-        out UsageHistoryEntry[] samples)
-    {
-        samples = [];
-        if (window is null || window.WindowMinutes != (int)TimeSpan.FromDays(7).TotalMinutes)
-        {
-            return false;
-        }
-
-        var windowStart = window.ResetsAt - TimeSpan.FromMinutes(window.WindowMinutes);
-        samples = weeklyHistory
-            .Where(sample => sample.RecordedAt >= windowStart
-                && sample.RecordedAt <= window.ResetsAt
-                && IsValidSample(sample)
-                && WeeklyAllowanceRestoration.IsInCycle(sample, window.ResetsAt, window.WindowMinutes))
-            .OrderBy(sample => sample.RecordedAt)
-            .DistinctBy(sample => sample.RecordedAt)
-            .ToArray();
-        return true;
-    }
-
-    private bool StartCycleIfNeeded(RateLimitWindow window)
-    {
-        var active = _state.ActiveCycle;
-        if (active is not null && IsSameCycle(active, window.ResetsAt, window.WindowMinutes))
-        {
-            return false;
-        }
-
-        var completed = _state.CompletedCycles;
-        if (active is not null && active.ObservedMinutes > 0)
-        {
-            completed = completed
-                .Append(active)
-                .OrderBy(cycle => cycle.ResetsAt)
-                .TakeLast(MaximumCompletedCycles)
-                .ToArray();
-        }
-
-        _state = new AdaptiveWeeklyUsageState(completed, CreateCycle(window), null, true);
-        return true;
-    }
-
-    private static AdaptiveWeeklyUsageCycle CreateCycle(RateLimitWindow window) => new(
-        window.ResetsAt,
-        window.WindowMinutes,
-        0,
-        0,
-        []);
-
-    private void ApplySample(UsageHistoryEntry sample, TimeSpan maximumGap)
-    {
-        var active = _state.ActiveCycle;
-        if (active is null)
-        {
-            return;
-        }
-
-        var previous = _state.LastSample;
-        if (previous is null || sample.RecordedAt <= previous.RecordedAt)
-        {
-            _state = _state with { LastSample = sample };
-            return;
-        }
-
-        var interval = sample.RecordedAt - previous.RecordedAt;
-        if (interval <= maximumGap
-            && !WeeklyAllowanceRestoration.IsDiscontinuity(previous, sample)
-            && WeeklyAllowanceRestoration.IsInCycle(previous, active.ResetsAt, active.WindowMinutes))
-        {
-            active = AddObservation(active, previous, sample);
-        }
-
-        _state = _state with { ActiveCycle = active, LastSample = sample };
-    }
-
-    private static AdaptiveWeeklyUsageCycle AddObservation(
-        AdaptiveWeeklyUsageCycle cycle,
-        UsageHistoryEntry previous,
-        UsageHistoryEntry current)
-    {
-        var interval = current.RecordedAt - previous.RecordedAt;
-        if (interval <= TimeSpan.Zero)
-        {
-            return cycle;
-        }
-
-        var cycleStart = cycle.ResetsAt - TimeSpan.FromMinutes(cycle.WindowMinutes);
-        var buckets = cycle.Buckets.ToDictionary(bucket => bucket.Index);
-        var consumed = Math.Max(0, previous.RemainingPercent - current.RemainingPercent);
-        var segmentStart = previous.RecordedAt;
-        while (segmentStart < current.RecordedAt)
-        {
-            var elapsed = segmentStart - cycleStart;
-            var bucketIndex = Math.Clamp((int)Math.Floor(elapsed.TotalHours / BucketDuration.TotalHours), 0, BucketCount - 1);
-            var bucketEnd = Min(
-                current.RecordedAt,
-                cycleStart + TimeSpan.FromTicks(BucketDuration.Ticks * (bucketIndex + 1)));
-            var duration = bucketEnd - segmentStart;
-            if (duration <= TimeSpan.Zero)
-            {
-                break;
-            }
-
-            var share = duration.TotalMilliseconds / interval.TotalMilliseconds;
-            buckets.TryGetValue(bucketIndex, out var existing);
-            buckets[bucketIndex] = new AdaptiveWeeklyUsageBucket(
-                bucketIndex,
-                (existing?.ObservedMinutes ?? 0) + duration.TotalMinutes,
-                (existing?.ConsumedPercent ?? 0) + consumed * share);
-            segmentStart = bucketEnd;
-        }
-
-        return cycle with
-        {
-            ObservedMinutes = cycle.ObservedMinutes + interval.TotalMinutes,
-            ConsumedPercent = cycle.ConsumedPercent + consumed,
-            Buckets = buckets.Values.OrderBy(bucket => bucket.Index).ToArray(),
-        };
-    }
-
-    private AdaptiveWeeklyUsageState Load()
-    {
-        try
-        {
-            if (!File.Exists(_path))
-            {
-                return new AdaptiveWeeklyUsageState([], null, null, false);
-            }
-
-            var state = JsonSerializer.Deserialize(File.ReadAllText(_path), AdaptiveWeeklyUsageJsonContext.Default.AdaptiveWeeklyUsageState);
-            return Normalize(state);
-        }
-        catch (Exception error) when (error is IOException or UnauthorizedAccessException or JsonException or NotSupportedException)
-        {
-            LocalStorage.TraceFailure("load forecast history", error);
-            StorageError = "Saved forecast history could not be read. A new history will be collected.";
-            return new AdaptiveWeeklyUsageState([], null, null, false);
-        }
-    }
-
-    private bool Save(AdaptiveWeeklyUsageState? state = null)
-    {
-        var saved = LocalStorage.TryWrite(_path, JsonSerializer.Serialize(state ?? _state, AdaptiveWeeklyUsageJsonContext.Default.AdaptiveWeeklyUsageState));
-        StorageError = saved ? null : "Learned forecast history could not be saved. Please try again.";
-        return saved;
-    }
-    private static AdaptiveWeeklyUsageState Normalize(AdaptiveWeeklyUsageState? state)
-    {
-        if (state is null)
-        {
-            return new AdaptiveWeeklyUsageState([], null, null, false);
-        }
-
-        var active = NormalizeCycle(state.ActiveCycle);
-        var completed = NormalizeCompletedCycles((state.CompletedCycles ?? [])
-            .Select(NormalizeCycle)
-            .Where(cycle => cycle is not null)
-            .Cast<AdaptiveWeeklyUsageCycle>()
-            .ToArray(), active);
-        var lastSample = active is not null && state.LastSample is { } sample && IsValidSample(sample)
-            && sample.RecordedAt >= active.ResetsAt.AddMinutes(-active.WindowMinutes)
-            && sample.RecordedAt <= active.ResetsAt
-            ? sample
-            : null;
-        return new AdaptiveWeeklyUsageState(completed, active, lastSample, state.IsInitialized);
-    }
-
-    private static AdaptiveWeeklyUsageCycle? NormalizeCycle(AdaptiveWeeklyUsageCycle? cycle)
-    {
-        if (cycle is null
-            || cycle.WindowMinutes != (int)TimeSpan.FromDays(7).TotalMinutes
-            || !double.IsFinite(cycle.ObservedMinutes)
-            || !double.IsFinite(cycle.ConsumedPercent)
-            || cycle.ResetsAt < DateTimeOffset.MinValue.AddDays(7)
-            || cycle.ObservedMinutes > cycle.WindowMinutes
-            || cycle.ObservedMinutes < 0
-            || cycle.ConsumedPercent < 0)
-        {
-            return null;
-        }
-
-        var buckets = (cycle.Buckets ?? [])
-            .Where(bucket => bucket is not null && bucket.Index is >= 0 and < BucketCount
-                && double.IsFinite(bucket.ObservedMinutes)
-                && double.IsFinite(bucket.ConsumedPercent)
-                && bucket.ObservedMinutes >= 0
-                && bucket.ObservedMinutes <= BucketDuration.TotalMinutes
-                && bucket.ConsumedPercent >= 0)
-            .GroupBy(bucket => bucket.Index)
-            .Select(group => new AdaptiveWeeklyUsageBucket(
-                group.Key,
-                group.Sum(bucket => bucket.ObservedMinutes),
-                group.Sum(bucket => bucket.ConsumedPercent)))
-            .Where(bucket => bucket.ObservedMinutes <= BucketDuration.TotalMinutes
-                && double.IsFinite(bucket.ConsumedPercent))
-            .OrderBy(bucket => bucket.Index)
-            .ToArray();
-        return cycle with { Buckets = buckets };
-    }
-
-    private static AdaptiveWeeklyUsageCycle[] NormalizeCompletedCycles(
-        IEnumerable<AdaptiveWeeklyUsageCycle> cycles,
-        AdaptiveWeeklyUsageCycle? active)
-    {
-        var completed = new List<AdaptiveWeeklyUsageCycle>();
-        foreach (var cycle in cycles.OrderBy(cycle => cycle.ResetsAt))
-        {
-            if (active is not null && IsSameCycle(cycle, active.ResetsAt, active.WindowMinutes))
-            {
-                continue;
-            }
-
-            if (completed.Count > 0 && IsSameCycle(cycle, completed[^1].ResetsAt, completed[^1].WindowMinutes))
-            {
-                if (cycle.ObservedMinutes > completed[^1].ObservedMinutes)
-                {
-                    completed[^1] = cycle;
-                }
-
-                continue;
-            }
-
-            completed.Add(cycle);
-        }
-
-        return completed.TakeLast(MaximumCompletedCycles).ToArray();
-    }
-
-    internal static bool IsSameCycle(
-        AdaptiveWeeklyUsageCycle cycle,
-        DateTimeOffset resetsAt,
-        int windowMinutes) =>
-        cycle.WindowMinutes == windowMinutes
-        && (cycle.ResetsAt - resetsAt).Duration() <= WeeklyAllowanceRestoration.ResetCycleTolerance;
-
-    private static bool IsValidSample(UsageHistoryEntry sample) =>
-        double.IsFinite(sample.RemainingPercent) && sample.RemainingPercent is >= 0 and <= 100;
-
-    private static DateTimeOffset Min(DateTimeOffset left, DateTimeOffset right) => left <= right ? left : right;
-}
 
 internal static class AdaptiveWeeklyForecast
 {
     private const int MinimumPatternCycles = 3;
     private const double MinimumCoverage = 0.5;
-    private static readonly TimeSpan MaximumHistoryAge = TimeSpan.FromDays(56);
+    internal const int HistoryHalfLifeDays = 28;
+    private static readonly TimeSpan MaximumHistoryAge = TimeSpan.FromDays(AdaptiveWeeklyUsageStore.RetentionDays);
     private static readonly TimeSpan RecentInfluenceDuration = TimeSpan.FromHours(3);
 
     internal static AdaptiveWeeklyForecastProjection Project(
@@ -374,6 +42,16 @@ internal static class AdaptiveWeeklyForecast
         AdaptiveWeeklyUsageHistory? history,
         TimeSpan? recentDuration = null)
     {
+        if (enabled && history?.Hourly is not null)
+        {
+            // Hourly history supplies startup/idle estimates; established recent pace stays authoritative.
+            var available = ProjectFromHistory(latest, windowStart, resetsAt, history) is not null;
+            return new(ProjectAtCurrentRate(latest, resetsAt, currentRatePerMinute),
+                $"Quota forecast: {FormatRecentBasis(recentDuration)} only. "
+                + (available ? "Saved quota history is available for startup; estimate only."
+                    : $"Historical startup needs {HourlyUsageForecast.MinimumObservedHours} measured hours across {HourlyUsageForecast.MinimumObservedDates} dates."));
+        }
+
         var profiles = SelectProfiles(windowStart, enabled ? history : null);
         if (profiles.Length == 0)
         {
@@ -391,6 +69,11 @@ internal static class AdaptiveWeeklyForecast
         DateTimeOffset resetsAt,
         AdaptiveWeeklyUsageHistory history)
     {
+        if (history.Hourly is not null && HourlyUsageForecast.Project(latest, resetsAt, history) is { } hourly)
+        {
+            return hourly;
+        }
+
         var profiles = SelectProfiles(windowStart, history);
         return profiles.Length == 0
             ? null
@@ -481,7 +164,7 @@ internal static class AdaptiveWeeklyForecast
         Math.Min(cycle.ObservedMinutes, cycle.Buckets.Sum(bucket => bucket.ObservedMinutes)) / cycle.WindowMinutes;
 
     private static double Weight(AdaptiveWeeklyUsageCycle cycle, DateTimeOffset windowStart) =>
-        Coverage(cycle) * Math.Pow(0.5, Math.Max(0, (windowStart - cycle.ResetsAt).TotalDays) / 28);
+        Coverage(cycle) * Math.Pow(0.5, Math.Max(0, (windowStart - cycle.ResetsAt).TotalDays) / HistoryHalfLifeDays);
 
     private static double? BucketRate(AdaptiveWeeklyUsageCycle[] profiles, int index, DateTimeOffset windowStart)
     {
@@ -523,7 +206,7 @@ internal static class AdaptiveWeeklyForecast
         return ordered[^1].Rate;
     }
 
-    private static UsageTrendForecast ProjectAtCurrentRate(UsageHistoryEntry latest, DateTimeOffset resetsAt, double rate)
+    internal static UsageTrendForecast ProjectAtCurrentRate(UsageHistoryEntry latest, DateTimeOffset resetsAt, double rate)
     {
         var remainingAtReset = latest.RemainingPercent - rate * (resetsAt - latest.RecordedAt).TotalMinutes;
         if (rate <= 0 || remainingAtReset >= 0)

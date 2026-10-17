@@ -11,6 +11,7 @@ the [changelog workflow](AGENTS.md#documentation-and-change-quality).
 
 ### Changed
 
+- Retain learned quota usage in UTC-hour buckets across resets and restarts, preserve existing history files, and start a historical estimate from one fresh measurement when enough observed history is available. Established recent pace remains unchanged.
 - Clarify the dashboard's available reset-credit count and rename the weekly chart marker to Scheduled reset. ([commit 6b84b7d](https://github.com/TheBeems/CodexUsageDock/commit/6b84b7d3f33e6347aa307fb2a165c9eff927a1ae))
 - Consolidate Copilot development guidance in `AGENTS.md` and `DEVELOPMENT.md`. ([commit c0c7bcc](https://github.com/TheBeems/CodexUsageDock/commit/c0c7bcc9121b58f2b60367cf55aed746f19e2772))
 

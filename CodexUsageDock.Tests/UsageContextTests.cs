@@ -68,7 +68,7 @@ public sealed class UsageContextTests : IDisposable
         service.SetAdaptiveWeeklyForecastEnabled(true);
         service.RecordHistory(Snapshot("b", 60) with { UpdatedAt = Now.AddMinutes(3) }, Now.AddMinutes(3));
         service.RecordHistory(Snapshot("a", 30) with { UpdatedAt = Now.AddMinutes(4) }, Now.AddMinutes(4));
-        Assert.Equal(10, service.AdaptiveWeeklyHistory.ActiveCycle!.ConsumedPercent);
+        Assert.Equal(10, service.AdaptiveWeeklyHistory.Hourly!.Buckets.Sum(bucket => bucket.ConsumedPercent));
     }
 
     [Fact]
