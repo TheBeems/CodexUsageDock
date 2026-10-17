@@ -27,12 +27,6 @@
     <DefaultItemExcludes>$(DefaultItemExcludes);$(MSBuildProjectDirectory)\bin\**;$(MSBuildProjectDirectory)\obj\**;$(MSBuildProjectDirectory)\artifacts\**</DefaultItemExcludes>
   </PropertyGroup>
 
-  <PropertyGroup Condition="'$(DistributionMode)'=='Installer'">
-    <WindowsPackageType>None</WindowsPackageType>
-    <EnableMsixTooling>false</EnableMsixTooling>
-    <PublishReadyToRun>true</PublishReadyToRun>
-  </PropertyGroup>
-
   <Target Name="RequireSelfContainedRuntimeForRidBuilds" BeforeTargets="PrepareForBuild"
           Condition="'$(RuntimeIdentifier)'!=''">
     <Error Condition="'$(SelfContained)'!='true'"
