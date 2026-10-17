@@ -11,9 +11,9 @@ See your remaining Codex usage at a glance in the PowerToys Dock. Codex Usage Do
 
 [Quick start](#quick-start) · [Understand your usage](#understand-your-usage) · [Settings](#settings) · [Advanced features](#advanced-features) · [Troubleshooting](#troubleshooting)
 
-<a href="docs/screenshots/usage-dashboard-0.8.7.png"><img src="docs/screenshots/usage-dashboard-0.8.7.png" width="650" alt="Codex Usage Dock 0.8.7 weekly dashboard in dark mode, showing separate remaining allowance and time bars, scheduled reset, usage history and forecast."></a>
+<a href="docs/screenshots/usage-dashboard-0.8.9.png"><img src="docs/screenshots/usage-dashboard-0.8.9.png" width="650" alt="Codex Usage Dock 0.8.9 weekly dashboard in dark mode, showing separate remaining allowance and time bars, scheduled reset, usage history and forecast."></a>
 
-*Weekly dashboard in version 0.8.7. Allowance and time remaining are shown separately; the chart combines recorded usage with the available forecast.*
+*Weekly dashboard in version 0.8.9. Allowance and time remaining are shown separately; the chart combines recorded usage with the available forecast.*
 
 ## Quick start
 
