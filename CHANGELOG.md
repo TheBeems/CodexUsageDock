@@ -12,6 +12,12 @@ the [changelog workflow](AGENTS.md#documentation-and-change-quality).
 ### Changed
 
 - Update the README screenshot to show the released 0.8.9 weekly dashboard. ([commit 733c44c](https://github.com/TheBeems/CodexUsageDock/commit/733c44c2a889e45d99652a02723e49fe4bfdfb3f))
+- Consolidate Copilot development guidance in `AGENTS.md` and `DEVELOPMENT.md`. ([commit c0c7bcc](https://github.com/TheBeems/CodexUsageDock/commit/c0c7bcc9121b58f2b60367cf55aed746f19e2772))
+
+### Removed
+
+- Remove obsolete `.10x` development specifications and tickets. ([commit c0c7bcc](https://github.com/TheBeems/CodexUsageDock/commit/c0c7bcc9121b58f2b60367cf55aed746f19e2772))
+- Remove historical sprint records and the unused installer build configuration. ([commit c0c7bcc](https://github.com/TheBeems/CodexUsageDock/commit/c0c7bcc9121b58f2b60367cf55aed746f19e2772))
 
 ## [0.8.9] - 2026-10-13
 
