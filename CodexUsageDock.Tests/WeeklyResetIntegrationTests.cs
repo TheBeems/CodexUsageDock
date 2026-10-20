@@ -101,22 +101,26 @@ public sealed class WeeklyResetIntegrationTests : IDisposable
                 readStart = start;
                 readEnd = end;
                 return Task.FromResult(new LocalTokenUsageSnapshot([new(previousDate, 1234)], now, LocalTokenUsageStatus.Complete));
-            }, clock: () => now);
+            }, clock: () => now,
+            accountUsageReader: _ => Task.FromResult(new AccountUsageSnapshot("test-account", now,
+                [new(previousDate, 2345)], AccountUsageStatus.Available)));
         service.RecordHistory(Snapshot("test-account", Reset.AddDays(-2), 20, Reset), Reset.AddDays(-2));
         await service.RefreshAsync();
         await service.TokenRefreshTask;
+        await service.AccountUsageRefreshTask;
 
         Assert.Equal(now.AddDays(-7), readStart);
         Assert.Equal(now, readEnd);
         var presentation = service.GetPresentation();
         using var dashboard = JsonDocument.Parse(CodexUsageDockPage.FormatMainDataJson(snapshot, now, false,
             presentation.PrimaryHistory, presentation.WeeklyHistory, TimeSpan.FromMinutes(1),
-            tokenUsage: presentation.TokenUsage));
+            accountUsage: presentation.AccountUsage));
         var chart = XDocument.Parse(Uri.UnescapeDataString(
             dashboard.RootElement.GetProperty("weeklyTrendChartUrl").GetString()!["data:image/svg+xml;utf8,".Length..]));
         Assert.Single(chart.Descendants(Svg + "rect"), bar => bar.Attribute("data-series")?.Value == "daily-tokens"
             && bar.Attribute("data-date")?.Value == previousDate.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture)
-            && bar.Attribute("data-tokens")?.Value == "1234");
+            && bar.Attribute("data-tokens")?.Value == "2345");
+        Assert.Equal(1234, Assert.Single(presentation.TokenUsage.Days).TotalTokens);
     }
 
     private static CodexUsageSnapshot Snapshot(string account, DateTimeOffset at, double remaining, DateTimeOffset reset) =>

@@ -27,7 +27,7 @@ internal sealed partial class CodexUsageDockPage : ContentPage, IDisposable
         Details = null;
         Commands =
         [
-            new CommandContextItem(new RefreshUsageCommand(_usage))
+            new CommandContextItem(new RefreshUsageCommand(_usage, refreshAccountActivity: true))
             {
                 Title = "Refresh now",
             },
@@ -56,8 +56,9 @@ internal sealed partial class CodexUsageDockPage : ContentPage, IDisposable
         TimeSpan refreshInterval,
         bool adaptiveWeeklyForecastEnabled = true,
         AdaptiveWeeklyUsageHistory? adaptiveWeeklyHistory = null,
-        LocalTokenUsageSnapshot? tokenUsage = null,
-        bool showFiveHourLimit = true)
+        AccountUsageSnapshot? accountUsage = null,
+        bool showFiveHourLimit = true,
+        bool showAccountActivity = true)
     {
         var freshness = GetFreshnessState(snapshot, now, refreshInterval);
         var dataAvailable = IsDataAvailable(snapshot, freshness);
@@ -93,10 +94,13 @@ internal sealed partial class CodexUsageDockPage : ContentPage, IDisposable
         data["hasForecastBasis"] = dataAvailable && weeklyTrend?.Forecast is not null;
         // Host warning yellow is hard to read in light themes; use its contrasting foreground and bold text.
         data["forecastColor"] = "Default";
+        var accountTokens = showAccountActivity && snapshot.AccountKey is { } accountKey
+            && string.Equals(accountKey, accountUsage?.AccountKey, StringComparison.Ordinal)
+                ? accountUsage : AccountUsageSnapshot.Unavailable;
         AddWeeklyTrendData(
             data, snapshot.Secondary, weeklyHistory, weeklyTrend, dataAvailable,
             snapshot.Source is UsageDataSource.AppServer or UsageDataSource.LocalSession or UsageDataSource.LastConfirmed,
-            now, TrendMaximumGap(refreshInterval), tokenUsage);
+            now, TrendMaximumGap(refreshInterval), accountTokens, showAccountActivity);
         foreach (var window in data["quotaGroups"]![0]!["windows"]!.AsArray().OfType<JsonObject>()
             .Where(window => window["hasWeeklyForecast"]!.GetValue<bool>()))
         {
@@ -426,11 +430,26 @@ internal sealed partial class CodexUsageDockPage : ContentPage, IDisposable
         bool canShowObservedHistory,
         DateTimeOffset now,
         TimeSpan maximumGap,
-        LocalTokenUsageSnapshot? tokenUsage)
+        AccountUsageSnapshot? accountUsage,
+        bool showAccountActivity)
     {
         data["weeklyTrendAvailable"] = false;
         data["weeklyForecastStatus"] = trend?.ForecastStatus ?? "Forecast unavailable.";
-        data["weeklyTrendLegend"] = "Solid: remaining quota (%) · dashed: forecast · amber and breaks: resets/restored allowance. Bars: local tokens per day on an independent right-hand scale.";
+        var tokenSource = !showAccountActivity
+            ? "Account tokens disabled in settings; no token bars."
+            : accountUsage?.Status switch
+            {
+                AccountUsageStatus.Available => "Tokens: Codex account service · account-wide totals.",
+                AccountUsageStatus.Partial => "Tokens: Codex account service · partial account data.",
+                AccountUsageStatus.Unsupported => "Account tokens unsupported by this Codex CLI; no token bars.",
+                _ => "Account token data unavailable; no token bars.",
+            };
+        if (showAccountActivity && accountUsage?.Status is AccountUsageStatus.Available or AccountUsageStatus.Partial)
+        {
+            tokenSource += $" Server calendar days; time zone unspecified. Last read: {FormatLocalTime(accountUsage.UpdatedAt, "ddd d MMM HH:mm zzz")}.";
+        }
+        data["weeklyTokenSource"] = tokenSource;
+        data["weeklyTrendLegend"] = tokenSource + " Amber markers: reset or restored allowance.";
         data["weeklyRestorationAvailable"] = false;
         if (window is not { } validWindow
             || !UsageFreshness.IsValidWindow(validWindow, now)
@@ -449,7 +468,7 @@ internal sealed partial class CodexUsageDockPage : ContentPage, IDisposable
             now,
             maximumGap,
             dataAvailable ? trend?.Forecast : null,
-            tokenUsage);
+            accountUsage);
         if (chart is null)
         {
             return;
@@ -458,12 +477,6 @@ internal sealed partial class CodexUsageDockPage : ContentPage, IDisposable
         data["weeklyTrendAvailable"] = true;
         data["weeklyTrendChartUrl"] = chart.ImageUrl;
         data["weeklyTrendChartAlt"] = chart.AltText;
-        data["weeklyTrendLegend"] = tokenUsage?.Status switch
-        {
-            LocalTokenUsageStatus.Complete => "Local token bars: available session logs. Amber markers: reset or restored allowance.",
-            LocalTokenUsageStatus.Partial => "Local token bars: incomplete session logs. Amber markers: reset or restored allowance.",
-            _ => "Local token data unavailable. Amber markers: reset or restored allowance.",
-        };
 
         var restorations = WeeklyAllowanceRestoration.Detect(history, validWindow, now);
         if (restorations.Length > 0)
@@ -724,7 +737,7 @@ internal sealed partial class CodexUsageDockPage : ContentPage, IDisposable
             ## Chart guide
 
             - **Line:** remaining allowance (%) over the past seven days, retained across resets. The timing of consumption within gaps is unknown. Resets and restored allowance break the line and are marked in amber.
-            - **Bars:** local tokens per day, using the independent right axis. Tokens measure activity, not quota consumption.
+            - **Bars:** account-wide tokens per day from the Codex account service, using the independent right axis. Server calendar dates are kept unchanged; their time zone is unspecified. Missing days are not zero usage. Account totals are not clipped to the quota window and measure activity, not quota consumption.
             - **Dashed line:** a conditional estimate. Usable learned history can start a forecast from a fresh measurement after a reset or gap. Recent pace joins after 30 minutes of continuous measurements.
             - **Time remaining:** the separate time bar counts down to the scheduled reset, independently of quota consumption. Similar allowance and time-bar lengths do not guarantee a sustainable pace.
             """).ToString();
@@ -752,8 +765,9 @@ internal sealed partial class CodexUsageDockPage : ContentPage, IDisposable
                 _usage.RefreshInterval,
                 _settings.UseAdaptiveWeeklyForecast,
                 presentation.AdaptiveWeeklyHistory,
-                presentation.TokenUsage,
-                _settings.ShowFiveHourLimit);
+                presentation.AccountUsage,
+                _settings.ShowFiveHourLimit,
+                _settings.ShowAccountActivity);
             using var mainData = JsonDocument.Parse(_mainContent.DataJson);
             var data = mainData.RootElement;
             _information.Update(FormatDetailsBody(snapshot, now, presentation.WeeklyHistory, _usage.RefreshInterval)

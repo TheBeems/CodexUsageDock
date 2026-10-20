@@ -183,7 +183,7 @@ public sealed class WeeklyChartReadabilityTests(ITestOutputHelper output)
     public void LegendExplainsObservedForecastAndIndependentTokenSeries()
     {
         var svg = Parse(CreateScenario());
-        Assert.Equal(["Quota remaining (%)", "Forecast", "Local tokens/day (right axis)"],
+        Assert.Equal(["Quota remaining (%)", "Forecast", "Account tokens/day (right axis)"],
             LegendLabels(svg).Select(group => group.Attribute("data-axis-label")!.Value));
         var observed = Assert.Single(svg.Descendants(Svg + "line"), line => line.Attribute("data-legend-series")?.Value == "remaining");
         Assert.Null(observed.Attribute("stroke-dasharray"));
@@ -278,19 +278,19 @@ public sealed class WeeklyChartReadabilityTests(ITestOutputHelper output)
             new(currentStart, 100, currentStart.AddDays(7), 10080),
             new(Now, 56, currentStart.AddDays(7), 10080),
         ];
-        var tokens = new LocalTokenUsageSnapshot(
+        var tokens = new AccountUsageSnapshot("synthetic-account", Now,
         [
             new(new DateOnly(2026, 9, 26), 850_000_000),
             new(new DateOnly(2026, 9, 27), 350_000_000),
             new(new DateOnly(2026, 10, 1), 250_000_000),
             new(new DateOnly(2026, 10, 2), 600_000_000),
             new(new DateOnly(2026, 10, 3), 200_000_000),
-        ], Now, LocalTokenUsageStatus.Complete);
+        ], AccountUsageStatus.Available);
         return Create(history, currentStart.AddDays(7), new(new DateTimeOffset(2026, 10, 5, 0, 0, 0, TimeSpan.Zero), 0, true), tokens);
     }
 
     private static WeeklyUsageTrendChart Create(UsageHistoryEntry[] history, DateTimeOffset reset,
-        UsageTrendForecast? forecast = null, LocalTokenUsageSnapshot? tokens = null) =>
+        UsageTrendForecast? forecast = null, AccountUsageSnapshot? tokens = null) =>
         Assert.IsType<WeeklyUsageTrendChart>(WeeklyUsageTrendChartRenderer.Create(history,
             new RateLimitWindow(44, 10080, reset), Now, TimeSpan.FromMinutes(15), forecast, tokens,
             CultureInfo.InvariantCulture, TimeZoneInfo.Utc));

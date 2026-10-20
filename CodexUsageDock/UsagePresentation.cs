@@ -6,4 +6,5 @@ internal sealed record UsagePresentation(
     IReadOnlyList<UsageHistoryEntry> WeeklyHistory,
     AdaptiveWeeklyUsageHistory AdaptiveWeeklyHistory,
     LocalTokenUsageSnapshot TokenUsage,
-    bool IsLoading);
+    bool IsLoading,
+    AccountUsageSnapshot AccountUsage);

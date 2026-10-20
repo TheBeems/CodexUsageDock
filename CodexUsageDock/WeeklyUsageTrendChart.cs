@@ -29,7 +29,7 @@ internal static class WeeklyUsageTrendChartRenderer
         DateTimeOffset now,
         TimeSpan maximumGap,
         UsageTrendForecast? forecast,
-        LocalTokenUsageSnapshot? tokenUsage = null,
+        AccountUsageSnapshot? accountUsage = null,
         CultureInfo? culture = null,
         TimeZoneInfo? timeZone = null)
     {
@@ -57,7 +57,7 @@ internal static class WeeklyUsageTrendChartRenderer
         var resets = DetectResets(samples, windowStart);
         var restorations = WeeklyAllowanceRestoration.Detect(samples, window, effectiveNow, plotStart);
         var dailyUse = CreateCalendarDays(plotStart, window.ResetsAt, effectiveNow, displayTimeZone);
-        ApplyDailyTokens(dailyUse, tokenUsage);
+        ApplyDailyTokens(dailyUse, accountUsage);
         var tokenScaleMaximum = GetTokenScaleMaximum(dailyUse);
         var calendarScale = new CalendarDayScale(dailyUse);
         var renderedSegments = DownsampleSegments(SplitAtDiscontinuities(samples,
@@ -97,7 +97,7 @@ internal static class WeeklyUsageTrendChartRenderer
             window.ResetsAt,
             effectiveNow,
             dailyUse,
-            tokenUsage,
+            accountUsage,
             tokenScaleMaximum,
             displayCulture,
             displayTimeZone);
@@ -124,7 +124,7 @@ internal static class WeeklyUsageTrendChartRenderer
 
         if (hasTokenBars)
         {
-            const string label = "Local tokens/day (right axis)";
+            const string label = "Account tokens/day (right axis)";
             var labelWidth = MeasureChartLabel(NormalizeChartLabel(label));
             var x = Width - Right - labelWidth - 24;
             document.Add(new XElement(Svg + "rect", new XAttribute("x", Format(x)),
@@ -338,18 +338,22 @@ internal static class WeeklyUsageTrendChartRenderer
 
     private static void ApplyDailyTokens(
         IReadOnlyList<DailyUsage> days,
-        LocalTokenUsageSnapshot? tokenUsage)
+        AccountUsageSnapshot? accountUsage)
     {
-        if (tokenUsage is null || tokenUsage.Status == LocalTokenUsageStatus.Unavailable)
+        if (accountUsage?.Status is not (AccountUsageStatus.Available or AccountUsageStatus.Partial))
         {
             return;
         }
 
-        var totals = tokenUsage.Days.ToDictionary(day => day.Date, day => day.TotalTokens);
+        var totals = accountUsage.Days.ToDictionary(day => day.Date, day => day.TotalTokens);
         foreach (var day in days)
         {
-            day.HasTokenData = true;
-            day.TotalTokens = Math.Max(0, totals.GetValueOrDefault(day.Date));
+            // Account buckets already identify server calendar days; do not shift or clip their totals.
+            if (totals.TryGetValue(day.Date, out var total))
+            {
+                day.HasTokenData = true;
+                day.TotalTokens = Math.Max(0, total);
+            }
         }
     }
 
@@ -364,7 +368,7 @@ internal static class WeeklyUsageTrendChartRenderer
         var magnitude = (long)Math.Pow(10, Math.Floor(Math.Log10(maximum)));
         var normalized = maximum / (double)magnitude;
         var nice = normalized <= 1 ? 1 : normalized <= 2 ? 2 : normalized <= 5 ? 5 : 10;
-        return checked(nice * magnitude);
+        return magnitude > long.MaxValue / nice ? long.MaxValue : Math.Max(maximum, nice * magnitude);
     }
 
     private static void AddCalendarDayGrid(
@@ -878,13 +882,13 @@ internal static class WeeklyUsageTrendChartRenderer
         DateTimeOffset windowEnd,
         DateTimeOffset now,
         IReadOnlyList<DailyUsage> dailyUse,
-        LocalTokenUsageSnapshot? tokenUsage,
+        AccountUsageSnapshot? accountUsage,
         long tokenScaleMaximum,
         CultureInfo culture,
         TimeZoneInfo timeZone)
     {
         var period = $"{TimeZoneInfo.ConvertTime(windowStart, timeZone).ToString("ddd d MMM HH:mm", culture)} to {TimeZoneInfo.ConvertTime(windowEnd, timeZone).ToString("ddd d MMM HH:mm", culture)}";
-        var daily = tokenUsage is null ? string.Empty : FormatDailyTokenAltText(dailyUse, tokenUsage, tokenScaleMaximum, culture);
+        var daily = FormatDailyTokenAltText(dailyUse, accountUsage, tokenScaleMaximum, culture);
         var forecastText = forecast switch
         {
             { ReachesLimitBeforeReset: true } => $" Estimated limit: {UsageTrendAnalyzer.FormatWeeklyLimitEstimate(forecast.EndsAt, now, culture, timeZone, includeDate: true)}; actual usage may differ.",
@@ -897,7 +901,7 @@ internal static class WeeklyUsageTrendChartRenderer
         var resetText = resets.Length > 0
             ? $" {resets.Length} quota reset or reset-schedule change{(resets.Length == 1 ? " was" : "s were")} detected. {string.Join(" ", resets.Select(reset => FormatResetDetection(reset, culture, timeZone)))} Markers show detection times; the precise event time between observations is unknown."
             : " No quota reset or reset-schedule changes were detected in the retained observations.";
-        return $"Weekly quota trend from {period}. Recorded observations from the preceding seven days are retained across quota resets. Remaining quota changed from {first.RemainingPercent:0}% to {last.RemainingPercent:0}% across {sampleCount} observation{(sampleCount == 1 ? string.Empty : "s")}. The left vertical scale is remaining quota from 0% to 100%.{(tokenUsage is null ? string.Empty : " The independent right scale is locally observed total tokens per calendar day.")} Horizontal labels are local calendar dates. Now separates recorded observations from future dates, and Scheduled reset marks the scheduled end of the current quota window. Amber Reset labels mark detected historical cycle changes. Solid line connects sampled values across measurement gaps; allowance increases break the line, as do quota cycle changes; dashed line is a conditional forecast.{restorationText}{resetText}{forecastText} {daily}";
+        return $"Weekly quota trend from {period}. Recorded observations from the preceding seven days are retained across quota resets. Remaining quota changed from {first.RemainingPercent:0}% to {last.RemainingPercent:0}% across {sampleCount} observation{(sampleCount == 1 ? string.Empty : "s")}. The left vertical scale is remaining quota from 0% to 100%. The independent right scale is account-wide total tokens per server calendar day from the Codex account service. Horizontal labels are local calendar dates for quota observations; token buckets keep the server's dates, whose time zone is unspecified. Now separates recorded observations from future dates, and Scheduled reset marks the scheduled end of the current quota window. Amber Reset labels mark detected historical cycle changes. Solid line connects sampled values across measurement gaps; allowance increases break the line, as do quota cycle changes; dashed line is a conditional forecast.{restorationText}{resetText}{forecastText} {daily}";
     }
 
     private static string FormatResetDetection(QuotaCycleChange reset, CultureInfo culture, TimeZoneInfo timeZone) =>
@@ -905,25 +909,25 @@ internal static class WeeklyUsageTrendChartRenderer
 
     private static string FormatDailyTokenAltText(
         IReadOnlyList<DailyUsage> days,
-        LocalTokenUsageSnapshot? tokenUsage,
+        AccountUsageSnapshot? accountUsage,
         long tokenScaleMaximum,
         CultureInfo culture)
     {
-        if (tokenUsage is null || tokenUsage.Status == LocalTokenUsageStatus.Unavailable)
+        if (accountUsage?.Status is not (AccountUsageStatus.Available or AccountUsageStatus.Partial))
         {
-            return "Local token data is unavailable, so no token bars are shown.";
+            return "Account token data is unavailable, so no token bars are shown. Local session totals are not substituted.";
         }
 
-        var status = tokenUsage.Status == LocalTokenUsageStatus.Partial
-            ? "Local token data is partial."
-            : "Local token data is complete.";
+        var status = accountUsage.Status == AccountUsageStatus.Partial
+            ? "Account token data is partial."
+            : "Account token data is available.";
         var totals = string.Join(
             ", ",
-            days.Select(day => $"{day.Date.ToString("ddd d MMM", culture)}: {day.TotalTokens.ToString("N0", culture)}"));
+            days.Select(day => $"{day.Date.ToString("ddd d MMM", culture)}: {(day.HasTokenData ? day.TotalTokens.ToString("N0", culture) : "not reported")}"));
         var scale = tokenScaleMaximum > 0
             ? $" Token bars use a right-axis maximum of {tokenScaleMaximum.ToString("N0", culture)}."
             : string.Empty;
-        return $"{status}{scale} Calendar-day token totals are {totals}. The first and last days can be partial, and the current day is measured through now.";
+        return $"{status}{scale} Server calendar-day token totals are {totals}. Missing days are not zero usage. Reported totals cover the server's calendar day and are not clipped to the quota window; they can change at the next account refresh.";
     }
 
     private static string FormatCompactTokens(double tokens)

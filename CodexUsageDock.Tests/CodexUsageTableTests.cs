@@ -16,7 +16,7 @@ public sealed class CodexUsageTableTests
             DefaultBucketId = "codex",
             Buckets = [new("codex", "codex", weekly, null), new("spark", "Spark", weekly, null)],
         };
-        var view = new UsagePresentation(snapshot, [], [], new([], null), LocalTokenUsageSnapshot.Unavailable, false);
+        var view = new UsagePresentation(snapshot, [], [], new([], null), LocalTokenUsageSnapshot.Unavailable, false, AccountUsageSnapshot.Unavailable);
         var body = CodexUsageTablePage.Format(view, now, TimeSpan.FromMinutes(1));
         var groups = UsageQuotaGroups.Create(snapshot);
         Assert.Equal(2, groups.Count);
@@ -36,7 +36,7 @@ public sealed class CodexUsageTableTests
         var snapshot = CodexUsageSnapshot.Loading with { UpdatedAt = now, Source = UsageDataSource.AppServer };
         var tokens = new LocalTokenUsageSnapshot([new(new DateOnly(2026, 9, 13), 51_732_933),
             new(new DateOnly(2026, 9, 15), 9_999_999_999)], now, LocalTokenUsageStatus.Complete);
-        var view = new UsagePresentation(snapshot, [new(now, 51)], [new(now, 51)], new([], null), tokens, false);
+        var view = new UsagePresentation(snapshot, [new(now, 51)], [new(now, 51)], new([], null), tokens, false, AccountUsageSnapshot.Unavailable);
         var body = CodexUsageTablePage.Format(view, now, TimeSpan.FromMinutes(1), timeZone);
         Assert.Contains("Observed: Wed 16 Sep 2026 00:01", body, StringComparison.Ordinal);
         Assert.Contains("Times are local (Test local)", body, StringComparison.Ordinal);
@@ -53,7 +53,7 @@ public sealed class CodexUsageTableTests
         var quota = new CodexUsageSnapshot(new(100, 300, now.AddHours(-1)), null, null, null, new(0, null),
             now.AddHours(-2), UsageDataSource.LastConfirmed, null,
             [new("extra", "Extra | quota", new(0, 60, now.AddHours(1)), null)], DefaultBucketId: "codex");
-        var view = new UsagePresentation(quota, [], [], new([], null), LocalTokenUsageSnapshot.Unavailable, false);
+        var view = new UsagePresentation(quota, [], [], new([], null), LocalTokenUsageSnapshot.Unavailable, false, AccountUsageSnapshot.Unavailable);
         var body = CodexUsageTablePage.Format(view, now, TimeSpan.FromMinutes(1));
         Assert.Contains("LastConfirmed", body, StringComparison.Ordinal);
         Assert.Contains("Reset passed; refresh required", body, StringComparison.Ordinal);

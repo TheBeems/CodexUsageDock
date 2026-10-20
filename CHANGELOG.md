@@ -9,6 +9,16 @@ the [changelog workflow](AGENTS.md#documentation-and-change-quality).
 
 ## [Unreleased]
 
+## [0.8.11] - 2026-10-20
+
+### Changed
+
+- Use account-wide daily token totals from the Codex account service in the main chart, preserve server calendar dates, and show the source, last read time, and unavailable states without substituting local totals. ([PR #41](https://github.com/TheBeems/CodexUsageDock/pull/41))
+
+### Fixed
+
+- Keep the chart available when the account service reports very large token totals, without overflowing the scale calculation. ([PR #41](https://github.com/TheBeems/CodexUsageDock/pull/41))
+
 ## [0.8.10] - 2026-10-17
 
 ### Changed

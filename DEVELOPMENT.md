@@ -56,13 +56,15 @@ Run a testhost only on a compatible Windows architecture. ARM64 Windows can run 
 
 Always specify both `Platform` and its matching RID. Omitting `-r win-x64` or `-r win-arm64` can make MSBuild combine the host architecture with a conflicting `PlatformTarget`.
 
-Tests must use `TestEnvironment` or explicitly inject both history stores and a temporary settings path. Only the production parameterless service constructor selects the current user's storage. Never instantiate it in a unit test. Each test owns and deletes its unique temporary directory; synthetic quota events must never reach real user history. Token tests await `TokenRefreshTask` separately because `RefreshAsync` completes when limits are published. Forecast arithmetic fixtures should use continuous measurements; gap and stale-data scenarios are tested separately.
+Tests must use `TestEnvironment` or explicitly inject both history stores and a temporary settings path. Only the production parameterless service constructor selects the current user's storage. Never instantiate it in a unit test. Each test owns and deletes its unique temporary directory; synthetic quota events must never reach real user history. Local-token tests await `TokenRefreshTask` and account-token chart tests await `AccountUsageRefreshTask` separately because `RefreshAsync` completes when limits are published. Forecast arithmetic fixtures should use continuous measurements; gap and stale-data scenarios are tested separately.
 
 ### Dock notifications
 
 `DockNotificationTests` covers a remaining-allowance change from 93% to 86% with a failing host subscriber, permanent disconnection cleanup, transient recovery, and subscription through the WinRT interface. The pinned SDK stops multicast delivery after the first failing subscriber; `UsageDockListItem` bridges those notifications and isolates each recipient, matching the [upstream SDK fix](https://github.com/microsoft/PowerToys/blob/main/src/modules/cmdpal/extensionsdk/Microsoft.CommandPalette.Extensions.Toolkit/EventHelpers.cs). Preserve stable item and band identities and avoid provider catalog invalidation on routine refreshes. These tests verify notification delivery; use the integration matrix to verify the installed Dock rendering.
 
 ### Chart labels
+
+`AccountTokenChartTests` covers the main chart's account source, independent asynchronous updates, account isolation, disabled/unsupported reads, unchanged server dates, whole-day totals, and missing-versus-zero values. Local token logs remain a separate text-view source and must never become an implicit chart fallback.
 
 The chart uses baked Segoe UI outlines because the Windows SVG image renderer does not support SVG text. `CodexUsageDock/ChartLabelGlyphs.cs` is generated source; regenerate it on Windows with `scripts/generate-chart-labels.ps1` and review the visual result. Include every character used by a new label in the generator alphabet, including punctuation; the readability regression checks the rendered labels for replacement characters. Runtime builds use the checked-in outlines and need no font loading or drawing dependency.
 

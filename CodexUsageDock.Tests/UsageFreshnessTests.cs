@@ -135,7 +135,7 @@ public sealed class UsageFreshnessTests
             DefaultBucketId = "default",
         };
 
-        var view = new UsagePresentation(snapshot, [], [], new([], null), LocalTokenUsageSnapshot.Unavailable, false);
+        var view = new UsagePresentation(snapshot, [], [], new([], null), LocalTokenUsageSnapshot.Unavailable, false, AccountUsageSnapshot.Unavailable);
         var details = CodexUsageTablePage.Format(view, Now, TimeSpan.FromMinutes(1));
 
         Assert.DoesNotContain("Other quota windows", CodexUsageDockPage.FormatDetailsBody(snapshot, Now), StringComparison.Ordinal);

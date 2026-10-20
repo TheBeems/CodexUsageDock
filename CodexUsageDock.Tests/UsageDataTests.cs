@@ -26,17 +26,17 @@ public sealed class UsageDataTests : IDisposable
         return XDocument.Parse(Uri.UnescapeDataString(imageUrl[Prefix.Length..]));
     }
 
-    private static LocalTokenUsageSnapshot TokenUsage(DateOnly date, long totalTokens) =>
+    private static AccountUsageSnapshot TokenUsage(DateOnly date, long totalTokens) =>
         TokenUsage((date, totalTokens));
 
-    private static LocalTokenUsageSnapshot TokenUsage(
+    private static AccountUsageSnapshot TokenUsage(
         DateOnly firstDate,
         long firstTotal,
         DateOnly secondDate,
         long secondTotal) =>
         TokenUsage((firstDate, firstTotal), (secondDate, secondTotal));
 
-    private static LocalTokenUsageSnapshot TokenUsage(
+    private static AccountUsageSnapshot TokenUsage(
         DateOnly firstDate,
         long firstTotal,
         DateOnly secondDate,
@@ -45,11 +45,12 @@ public sealed class UsageDataTests : IDisposable
         long thirdTotal) =>
         TokenUsage((firstDate, firstTotal), (secondDate, secondTotal), (thirdDate, thirdTotal));
 
-    private static LocalTokenUsageSnapshot TokenUsage(params (DateOnly Date, long TotalTokens)[] days) =>
+    private static AccountUsageSnapshot TokenUsage(params (DateOnly Date, long TotalTokens)[] days) =>
         new(
+            "synthetic-account",
+            new DateTimeOffset(days.Max(day => day.Date).ToDateTime(TimeOnly.MinValue), TimeSpan.Zero),
             days.Select(day => new DailyTokenUsage(day.Date, day.TotalTokens)).ToArray(),
-            DateTimeOffset.UtcNow,
-            LocalTokenUsageStatus.Complete);
+            AccountUsageStatus.Available);
 
     [Fact]
     public void SettingsDefaultToShowingAllDockUsageInformation()
@@ -207,7 +208,7 @@ public sealed class UsageDataTests : IDisposable
         using var service = _environment.CreateService();
         using var page = new CodexUsageDockPage(service, _environment.CreateSettings());
 
-        Assert.Equal("0.8.10", CodexUsageDockMetadata.Version);
+        Assert.Equal("0.8.11", CodexUsageDockMetadata.Version);
         Assert.Equal($"Codex Usage - {CodexUsageDockMetadata.Version}", page.Title);
     }
 
@@ -318,7 +319,7 @@ public sealed class UsageDataTests : IDisposable
             null,
             now,
             UsageDataSource.AppServer,
-            null);
+            null, AccountKey: "synthetic-account");
         var data = CodexUsageDockPage.FormatMainDataJson(
             snapshot,
             now,
@@ -334,7 +335,7 @@ public sealed class UsageDataTests : IDisposable
                 new UsageHistoryEntry(now, 80),
             ],
             refreshInterval: TimeSpan.FromMinutes(1),
-            tokenUsage: TokenUsage(
+            accountUsage: TokenUsage(
                 new DateOnly(2026, 7, 16), 250_000,
                 new DateOnly(2026, 7, 17), 500_000));
 
@@ -533,13 +534,13 @@ public sealed class UsageDataTests : IDisposable
             .Where(group => group.Attribute("data-axis")?.Value == "tokens")
             .Select(group => group.Attribute("data-axis-label")!.Value));
         Assert.Contains("Solid line connects sampled values across measurement gaps", result.AltText, StringComparison.Ordinal);
-        Assert.Contains("locally observed total tokens", result.AltText, StringComparison.Ordinal);
+        Assert.Contains("account-wide total tokens", result.AltText, StringComparison.Ordinal);
         Assert.DoesNotContain("NaN", result.ImageUrl, StringComparison.Ordinal);
         Assert.DoesNotContain("Infinity", result.ImageUrl, StringComparison.Ordinal);
     }
 
     [Fact]
-    public void WeeklyTrendMarksPartialLocalTokenCoverage()
+    public void WeeklyTrendMarksPartialAccountTokenCoverage()
     {
         var windowStart = new DateTimeOffset(2026, 7, 10, 9, 0, 0, TimeSpan.Zero);
         var reset = windowStart.AddDays(7);
@@ -549,11 +550,12 @@ public sealed class UsageDataTests : IDisposable
             Secondary = new RateLimitWindow(20, 10080, reset),
             UpdatedAt = now,
             Source = UsageDataSource.AppServer,
+            AccountKey = "synthetic-account",
         };
-        var tokenUsage = new LocalTokenUsageSnapshot(
+        var tokenUsage = new AccountUsageSnapshot(
+            "synthetic-account", now,
             [new DailyTokenUsage(new DateOnly(2026, 7, 11), 250_000)],
-            now,
-            LocalTokenUsageStatus.Partial);
+            AccountUsageStatus.Partial);
         var data = CodexUsageDockPage.FormatMainDataJson(
             snapshot,
             now,
@@ -565,19 +567,19 @@ public sealed class UsageDataTests : IDisposable
                 new UsageHistoryEntry(now, 80),
             ],
             refreshInterval: TimeSpan.FromMinutes(1),
-            tokenUsage: tokenUsage);
+            accountUsage: tokenUsage);
 
         using var document = JsonDocument.Parse(data);
         var root = document.RootElement;
         var chart = ParseSvg(root.GetProperty("weeklyTrendChartUrl").GetString()!);
 
-        Assert.Contains("incomplete session logs", root.GetProperty("weeklyTrendLegend").GetString(), StringComparison.Ordinal);
-        Assert.Contains("Local token data is partial", root.GetProperty("weeklyTrendChartAlt").GetString(), StringComparison.Ordinal);
+        Assert.Contains("partial account data", root.GetProperty("weeklyTrendLegend").GetString(), StringComparison.Ordinal);
+        Assert.Contains("Account token data is partial", root.GetProperty("weeklyTrendChartAlt").GetString(), StringComparison.Ordinal);
         Assert.Single(chart.Descendants(Svg + "rect"), rect => rect.Attribute("data-series")?.Value == "daily-tokens");
     }
 
     [Fact]
-    public void WeeklyTrendOmitsOnlyTokenBarsWhenLocalTokenDataIsUnavailable()
+    public void WeeklyTrendOmitsOnlyTokenBarsWhenAccountTokenDataIsUnavailable()
     {
         var windowStart = new DateTimeOffset(2026, 7, 10, 9, 0, 0, TimeSpan.Zero);
         var reset = windowStart.AddDays(7);
@@ -591,7 +593,7 @@ public sealed class UsageDataTests : IDisposable
             now,
             TimeSpan.FromDays(3),
             forecast: null,
-            tokenUsage: LocalTokenUsageSnapshot.Unavailable);
+            accountUsage: AccountUsageSnapshot.Unavailable);
 
         var result = Assert.IsType<WeeklyUsageTrendChart>(chart);
         var root = Assert.IsType<XElement>(ParseSvg(result.ImageUrl).Root);
@@ -599,7 +601,7 @@ public sealed class UsageDataTests : IDisposable
         Assert.Contains(root.Descendants(Svg + "polyline"), line => line.Attribute("stroke-dasharray") is null);
         Assert.DoesNotContain(root.Descendants(Svg + "rect"), rect => rect.Attribute("data-series")?.Value == "daily-tokens");
         Assert.DoesNotContain(root.Descendants(Svg + "g"), group => group.Attribute("data-axis")?.Value == "tokens");
-        Assert.Contains("Local token data is unavailable", result.AltText, StringComparison.Ordinal);
+        Assert.Contains("Account token data is unavailable", result.AltText, StringComparison.Ordinal);
     }
 
     [Theory]
@@ -653,7 +655,7 @@ public sealed class UsageDataTests : IDisposable
             now,
             TimeSpan.FromMinutes(15),
             forecast: null,
-            tokenUsage: TokenUsage(new DateOnly(2026, 7, 16), 125_000),
+            accountUsage: TokenUsage(new DateOnly(2026, 7, 16), 125_000),
             timeZone: TimeZoneInfo.Utc);
 
         var result = Assert.IsType<WeeklyUsageTrendChart>(chart);
@@ -894,7 +896,7 @@ public sealed class UsageDataTests : IDisposable
             now,
             TimeSpan.FromDays(1),
             forecast: null,
-            tokenUsage: TokenUsage(new DateOnly(2026, 7, 17), 640_000),
+            accountUsage: TokenUsage(new DateOnly(2026, 7, 17), 640_000),
             culture: culture,
             timeZone: TimeZoneInfo.Utc);
 
@@ -935,7 +937,7 @@ public sealed class UsageDataTests : IDisposable
             now,
             TimeSpan.FromMinutes(15),
             forecast: null,
-            tokenUsage: TokenUsage(
+            accountUsage: TokenUsage(
                 new DateOnly(2026, 7, 16), 200_000,
                 new DateOnly(2026, 7, 17), 400_000),
             culture: CultureInfo.GetCultureInfo("nl-NL"),
@@ -979,7 +981,7 @@ public sealed class UsageDataTests : IDisposable
             now,
             TimeSpan.FromDays(2),
             forecast: null,
-            tokenUsage: TokenUsage(new DateOnly(2026, 7, 13), 300_000));
+            accountUsage: TokenUsage(new DateOnly(2026, 7, 13), 300_000));
 
         var result = Assert.IsType<WeeklyUsageTrendChart>(chart);
         var root = Assert.IsType<XElement>(ParseSvg(result.ImageUrl).Root);
