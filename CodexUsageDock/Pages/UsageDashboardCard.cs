@@ -73,6 +73,10 @@ internal static class UsageDashboardCard
                 {
                   "type": "TextBlock", "text": "${weeklyForecastStatus}", "wrap": true,
                   "isSubtle": true, "size": "small", "spacing": "small", "$when": "${hasForecastBasis}"
+                },
+                {
+                  "type": "TextBlock", "text": "${weeklyTokenSource}", "wrap": true,
+                  "isSubtle": true, "size": "small", "spacing": "small"
                 }
               ]
             },

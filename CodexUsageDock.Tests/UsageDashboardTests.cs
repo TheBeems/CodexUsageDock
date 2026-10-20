@@ -22,14 +22,15 @@ public sealed class UsageDashboardTests : IDisposable
         Source = UsageDataSource.AppServer,
         Error = null,
         DefaultBucketId = "codex",
+        AccountKey = "synthetic-account",
     };
 
     private static JsonDocument Render(CodexUsageSnapshot snapshot, UsageHistoryEntry[]? history = null,
         bool showFiveHourLimit = true) =>
         JsonDocument.Parse(CodexUsageDockPage.FormatMainDataJson(snapshot, Now, false, [],
             history ?? [], TimeSpan.FromMinutes(1),
-            tokenUsage: new LocalTokenUsageSnapshot([new DailyTokenUsage(new DateOnly(2026, 9, 15), 1000)],
-                Now, LocalTokenUsageStatus.Complete), showFiveHourLimit: showFiveHourLimit));
+            accountUsage: new AccountUsageSnapshot("synthetic-account", Now,
+                [new DailyTokenUsage(new DateOnly(2026, 9, 15), 1000)], AccountUsageStatus.Available), showFiveHourLimit: showFiveHourLimit));
 
     private static XDocument Chart(JsonElement data) => XDocument.Parse(
         Uri.UnescapeDataString(data.GetProperty("weeklyTrendChartUrl").GetString()!["data:image/svg+xml;utf8,".Length..]));
@@ -79,7 +80,7 @@ public sealed class UsageDashboardTests : IDisposable
     }
 
     [Fact]
-    public void ForecastBasisAppearsBelowChartWithoutRestoringTokenCaption()
+    public void ForecastBasisAndAccountTokenSourceAppearBelowChart()
     {
         var history = Enumerable.Range(0, 7).Select(index => new UsageHistoryEntry(Now.AddMinutes(-30 + index * 5), 90 - index * 5)).ToArray();
         using var data = Render(Snapshot() with { Secondary = new(40, 10080, Now.AddDays(4)) }, history);
@@ -89,15 +90,19 @@ public sealed class UsageDashboardTests : IDisposable
             && items.EnumerateArray().Any(child => child.TryGetProperty("url", out var url)
                 && url.GetString() == "${weeklyTrendChartUrl}"));
         var chartItems = chart.GetProperty("items");
-        Assert.Equal(2, chartItems.GetArrayLength());
+        Assert.Equal(3, chartItems.GetArrayLength());
         Assert.Equal("${weeklyForecastStatus}", chartItems[1].GetProperty("text").GetString());
         Assert.Equal("${hasForecastBasis}", chartItems[1].GetProperty("$when").GetString());
         Assert.True(chartItems[1].GetProperty("wrap").GetBoolean());
+        Assert.Equal("${weeklyTokenSource}", chartItems[2].GetProperty("text").GetString());
+        Assert.True(chartItems[2].GetProperty("wrap").GetBoolean());
+        Assert.False(chartItems[2].TryGetProperty("$when", out _));
+        Assert.Contains("Codex account service", data.RootElement.GetProperty("weeklyTokenSource").GetString(), StringComparison.Ordinal);
         Assert.True(data.RootElement.GetProperty("hasForecastBasis").GetBoolean());
         Assert.DoesNotContain("weeklyTrendLegend", UsageDashboardCard.TemplateJson, StringComparison.Ordinal);
         var details = CodexUsageDockPage.FormatForecastDetails(data.RootElement);
         Assert.Contains("Quota forecast:", details, StringComparison.Ordinal);
-        Assert.Contains("Local token bars: available session logs.", details, StringComparison.Ordinal);
+        Assert.Contains("Codex account service", details, StringComparison.Ordinal);
         Assert.Contains("Amber markers: reset or restored allowance.", details, StringComparison.Ordinal);
     }
 

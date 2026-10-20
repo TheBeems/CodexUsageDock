@@ -394,6 +394,7 @@ public sealed class UsageAlertTests
             weeklyHistory ?? Array.Empty<UsageHistoryEntry>(),
             new AdaptiveWeeklyUsageHistory([], null),
             LocalTokenUsageSnapshot.Unavailable,
-            isLoading);
+            isLoading,
+            AccountUsageSnapshot.Unavailable);
     }
 }

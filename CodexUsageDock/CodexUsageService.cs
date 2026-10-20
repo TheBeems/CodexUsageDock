@@ -95,7 +95,7 @@ internal sealed partial class CodexUsageService : IDisposable
             {
                 return new(Current, _primaryHistory.ToArray(), _weeklyHistory.ToArray(),
                     _historyContext is null ? new([], null) : _adaptiveWeeklyUsageStore.Snapshot,
-                    CurrentTokenUsage, _isLoading);
+                    CurrentTokenUsage, _isLoading, CurrentAccountUsage);
             }
         }
     }

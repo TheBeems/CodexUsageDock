@@ -83,7 +83,7 @@ internal sealed partial class CodexUsageDockSettingsPage : ContentPage
         _settings.Add(new ToggleSetting(ShowAccountActivityKey, true)
         {
             Label = "Show account activity",
-            Description = "Read account-wide daily tokens from the Codex service after quotas load. Older CLI versions may not support this.",
+            Description = "Read account-wide daily tokens for the main chart and account activity page. Older Codex CLI versions may not support this.",
         });
         _settings.Add(new ChoiceSetSetting(
             RefreshIntervalKey,
