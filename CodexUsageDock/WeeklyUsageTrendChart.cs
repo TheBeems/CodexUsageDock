@@ -368,7 +368,7 @@ internal static class WeeklyUsageTrendChartRenderer
         var magnitude = (long)Math.Pow(10, Math.Floor(Math.Log10(maximum)));
         var normalized = maximum / (double)magnitude;
         var nice = normalized <= 1 ? 1 : normalized <= 2 ? 2 : normalized <= 5 ? 5 : 10;
-        return checked(nice * magnitude);
+        return magnitude > long.MaxValue / nice ? long.MaxValue : Math.Max(maximum, nice * magnitude);
     }
 
     private static void AddCalendarDayGrid(

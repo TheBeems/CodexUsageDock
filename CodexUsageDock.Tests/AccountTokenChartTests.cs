@@ -147,4 +147,25 @@ public sealed class AccountTokenChartTests : IDisposable
         Assert.Contains("not reported", data.GetProperty("weeklyTrendChartAlt").GetString(), StringComparison.Ordinal);
         Assert.Contains("partial account data", data.GetProperty("weeklyTrendLegend").GetString(), StringComparison.Ordinal);
     }
+
+    [Theory]
+    [InlineData(5_000_000_000_000_000_001)]
+    [InlineData(long.MaxValue)]
+    public void LargeAccountTotalsDoNotOverflowTheChartScale(long tokens)
+    {
+        using var payload = JsonDocument.Parse(JsonSerializer.Serialize(new
+        {
+            dailyUsageBuckets = new[] { new { startDate = "2026-09-08", tokens } },
+        }));
+        var accountUsage = AccountUsageParser.Parse(payload.RootElement, Account, Now);
+        using var dashboard = Dashboard(accountUsage);
+        var data = dashboard.RootElement;
+        var imageUrl = data.GetProperty("weeklyTrendChartUrl").GetString()!;
+        var bar = Assert.Single(TokenBars(ParseChart(imageUrl)));
+
+        Assert.True(data.GetProperty("weeklyTrendAvailable").GetBoolean());
+        Assert.Equal(tokens.ToString(CultureInfo.InvariantCulture), bar.Attribute("data-tokens")?.Value);
+        Assert.DoesNotContain("NaN", imageUrl, StringComparison.Ordinal);
+        Assert.DoesNotContain("Infinity", imageUrl, StringComparison.Ordinal);
+    }
 }
